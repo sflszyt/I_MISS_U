@@ -14,7 +14,7 @@
 | 多人架构 | 方案 A：单仓库多人，`people/<slug>/`，工具/prompts 通用 |
 | 产品形态 | **混合 C**（构建端 Claude skill + 消费端自包含静态 HTML + 可选 BYOK 对话页）✅ 用户已确认 |
 | 语音选型 | Fun-CosyVoice3 主选（含上海话）· VoxCPM2 备选 · GPT-SoVITS 普通话对照；M1 必做跨方言 A/B，**家人盲听是唯一标准**；跨方言掉音色就尊重素材语言 |
-| 微信导出 | **并列首选**（2026-08-04 存亡核查后更正，原 forkgitss 镜像已弃用）：① `WechatRagAgent/chatlog-new`（语音实时 MP3）② `labazhou2024/chatlog-keeper`（MIT，唯一吃微信 4.1.x 新版，JSON+HTML）。取 key 辅助 `ycccccccy/wx_key`。备选 GUI：`AwAcitizen/WeChatMsg_2026`（补朋友圈）。用户自测哪个先跑通。**待确认**：chatlog-keeper 语音是 MP3 还是裸 silk（裸 silk 用 silk_decode.py 兜底） |
+| 微信导出（**已定案 2026-08-04**） | 用户微信实测 **4.1.11.24**。chatlog/chatlog-new 不支持 4.1.x（出局）。**采用混合方案**：①文字+图片→ `chatlog-keeper`（MIT，已在 4.1.11 取到 key 并缓存，`wechat`+`images` 命令）；②视频→ **直接复制** `xwechat_files/<wxid>/msg/video/**/*.mp4`（4.1 视频是明文 mp4，实测 387 个）；③语音→ **自研提取器**（SILK blob 在加密消息库内，需先探测表/字段，DeepSeek 写 Codex 审，pilk/silk→wav）。详见 `docs/research/wechat-media-extraction.md`。备选交叉验证：`LifeArchiveProject/WeChatDataAnalysis`（无协议、DMCA靶心，用完即弃）。chatlog-keeper 源码在 `installers/chatlog-keeper-0.2.0/`，已建 .venv 装好依赖 |
 | 数据源架构 | 源适配器 → UIF 统一中间格式（`schema/uif.schema.json`）→ 下游只消费 UIF |
 | 三条自我保护约束 | 已入 CLAUDE.md 铁律（Tier 分级+人工闸门 / 保留完整性 / 沉浸度克制） |
 | 硬件 | RTX 4090 24GB + i9-14900KF + 64GB RAM，全本地无约束 |
