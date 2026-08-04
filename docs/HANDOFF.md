@@ -37,7 +37,7 @@
 **待建（DeepSeek 写 + Codex 审）**：
 1. `tools/extract_wechat_voice.py`（#11）：VoiceInfo.voice_data → pysilk.decode(blob,24000) → wav；按 svr_id 关联妈妈会话；输出 processed/wechat_voice/ + UIF media_ref
 2. `tools/collect_wechat_video.py`（#12）：packed_info md5 → 复制 msg/video mp4 → raw/wechat/video/ + UIF media_ref
-3. `tools/parse_wechat.py`（#13）：wechat_messages.json 筛 laurawang001 → UIF message JSONL（含 viewpoint=justin/tier=2/provenance），合并语音视频 ref
+3. ~~`tools/parse_wechat.py`（#13）~~ ✅ **已完成（2026-08-05，DeepSeek 两轮 + Codex 三轮审核 ACCEPT）**：已产出 `people/mama/normalized/wechat_messages.uif.jsonl`（20923 条，妈妈 9386 条，jsonschema 全量校验通过，report 见同目录）。配置在 `people/mama/wechat_parse_config.json`（gitignore 内，重建时需按下述规格重写）。媒体 ref 由 #11/#12 后续按 chat_room+ts+sender_wxid 关联合并。**筛选规格（2026-08-05 核实后扩充，勿退回旧版）**：①一对一会话 `chat_room=laurawang001` 整段收录（6968 条，妈妈发 5048）；②**群聊补抓**——妈妈在 4 个群发过 4338 条（全部文字）：家庭群 `17586423176@chatroom`（她 3622/群 6981，成员仅她+justin+爸爸）、`25722082802@chatroom`（430）、`5030199976@chatroom`（147）、`3758229935@chatroom`（139），这些群的完整对话（含他人发言作为前后文）一并收录；③UIF 中 `chat_room` 区分语境（私聊/家庭群/亲友群），他人消息 sender 必须清晰标注，不得与妈妈本人的话混入 persona 语料
 4. **M0 收尾**：ingest_media 清点照片/视频；配 backup_targets.json 达 PASS
 5. **M1 语音验证**：clip_picker → 挑 20s → Fun-CosyVoice3 克隆 → 家人盲听。注意：微信语音是最差声源(SILK窄带)，克隆主素材应来自家庭录像；但妈妈 84 条微信语音本身是珍贵档案
 
