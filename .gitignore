@@ -1,0 +1,15 @@
+# ===== 铁律：人的档案永不进版本库、永不上传 =====
+people/
+data/
+
+# 研究/构建产物中可能含个人信息的临时文件
+*.tmp
+*.log
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 系统文件
+Thumbs.db
+.DS_Store

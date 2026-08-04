@@ -1,0 +1,352 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://i-miss-u.local/schema/uif.schema.json",
+  "title": "I_MISS_U Unified Intermediate Format Record",
+  "description": "Validates one Unified Intermediate Format (UIF) record. JSONL files contain one such record per line. All data-source parsers must emit records conforming to this schema before downstream rhythm/persona/memory builders consume them.",
+  "type": "object",
+  "oneOf": [
+    { "$ref": "#/$defs/message_record" },
+    { "$ref": "#/$defs/post_record" },
+    { "$ref": "#/$defs/email_record" },
+    { "$ref": "#/$defs/media_item_record" }
+  ],
+  "additionalProperties": true,
+  "$defs": {
+    "envelope": {
+      "type": "object",
+      "description": "Shared envelope fields carried by every UIF record type.",
+      "properties": {
+        "record_id": {
+          "type": "string",
+          "minLength": 8,
+          "description": "Stable unique id for this record. Recommended form: sha256 hex digest of source export identity plus native id, e.g. sha256('<source>:<native_id>')."
+        },
+        "record_type": {
+          "type": "string",
+          "enum": ["message", "post", "email", "media_item"],
+          "description": "Discriminator for the UIF record type. Must match the selected oneOf branch."
+        },
+        "person": {
+          "type": "string",
+          "pattern": "^[a-z0-9_-]+$",
+          "description": "Subject slug, e.g. 'mama'. Represents the person the memory archive is about."
+        },
+        "viewpoint": {
+          "type": "string",
+          "pattern": "^[a-z0-9_-]+$",
+          "description": "Slug of the account owner whose export this record came from, e.g. 'justin'. Use 'self' for the subject's own accounts."
+        },
+        "source": {
+          "type": "string",
+          "enum": ["wechat", "wechat_moments", "weibo", "email", "photos", "videos", "notes", "whatsapp", "facebook", "other"],
+          "description": "Original data source or export family."
+        },
+        "timestamp": {
+          "anyOf": [
+            { "type": "string", "format": "date-time" },
+            { "type": "null" }
+          ],
+          "description": "ISO 8601 date-time with timezone offset, or null when unknown."
+        },
+        "timestamp_precision": {
+          "type": "string",
+          "enum": ["exact", "date", "month", "year", "unknown"],
+          "default": "exact",
+          "description": "How precisely the timestamp is known."
+        },
+        "tier": {
+          "type": "integer",
+          "enum": [1, 2, 3],
+          "description": "Fact tier: 1 = human-confirmed, 2 = parsed data default, 3 = model-generated or inferred content."
+        },
+        "lang": {
+          "type": "string",
+          "description": "BCP-47 language hint, e.g. 'zh', 'wuu' for Shanghainese/Wu."
+        },
+        "provenance": {
+          "type": "object",
+          "description": "Provenance metadata explaining exactly where and how this record was extracted.",
+          "required": ["source_file", "parser", "parser_version", "extracted_at"],
+          "properties": {
+            "source_file": {
+              "type": "string",
+              "description": "Path to the original source file, relative to people/<person>/."
+            },
+            "parser": {
+              "type": "string",
+              "description": "Name or identifier of the parser that produced this record."
+            },
+            "parser_version": {
+              "type": "string",
+              "description": "Version of the parser that produced this record."
+            },
+            "extracted_at": {
+              "type": "string",
+              "format": "date-time",
+              "description": "ISO 8601 date-time when extraction occurred."
+            },
+            "native_id": {
+              "type": "string",
+              "description": "Original id of the item inside the source system, if available."
+            }
+          },
+          "additionalProperties": true
+        },
+        "notes": {
+          "type": "string",
+          "description": "Optional free-form notes about this record."
+        }
+      },
+      "required": ["record_id", "record_type", "person", "viewpoint", "source", "tier", "provenance"],
+      "additionalProperties": true
+    },
+    "message_record": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        {
+          "type": "object",
+          "description": "Chat message record (WeChat, WhatsApp, Facebook Messenger, etc.).",
+          "properties": {
+            "record_type": {
+              "const": "message",
+              "description": "Must be 'message' for this record type."
+            },
+            "conversation_id": {
+              "type": "string",
+              "description": "Stable identifier of the conversation containing this message."
+            },
+            "sender": {
+              "type": "string",
+              "description": "Sender participant id. Use 'subject' for the person of interest, 'viewpoint_owner' for the account owner, or any other participant id."
+            },
+            "content_type": {
+              "type": "string",
+              "enum": ["text", "voice", "image", "video", "file", "sticker", "link", "location", "system"],
+              "description": "Content category of the message."
+            },
+            "text": {
+              "type": "string",
+              "description": "Message text or transcript. Optional for non-text content."
+            },
+            "media_ref": {
+              "type": "string",
+              "description": "Path to associated media, relative to people/<person>/, pointing into raw/ or normalized/media/."
+            },
+            "duration_ms": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Duration in milliseconds for voice or video messages."
+            },
+            "reply_to": {
+              "type": "string",
+              "description": "record_id of the message this message quotes or replies to."
+            }
+          },
+          "required": ["record_type", "conversation_id", "sender", "content_type"],
+          "additionalProperties": true
+        }
+      ]
+    },
+    "post_record": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        {
+          "type": "object",
+          "description": "Social media post or moments record (WeChat Moments, Weibo, Facebook feed, etc.).",
+          "properties": {
+            "record_type": {
+              "const": "post",
+              "description": "Must be 'post' for this record type."
+            },
+            "author": {
+              "type": "string",
+              "description": "Author participant id. Use 'subject' for the person of interest or any other author id."
+            },
+            "text": {
+              "type": "string",
+              "description": "Post text content."
+            },
+            "media_refs": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Paths to media attached to the post, relative to people/<person>/."
+            },
+            "location": {
+              "type": "object",
+              "description": "Optional location attached to the post.",
+              "properties": {
+                "name": { "type": "string", "description": "Place name." },
+                "lat": { "type": "number", "description": "Latitude." },
+                "lon": { "type": "number", "description": "Longitude." }
+              },
+              "additionalProperties": true
+            },
+            "likes_count": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of likes on the post, when known."
+            },
+            "comments": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "description": "A single comment on the post.",
+                "properties": {
+                  "author": { "type": "string", "description": "Comment author id." },
+                  "text": { "type": "string", "description": "Comment text." },
+                  "timestamp": {
+                    "anyOf": [
+                      { "type": "string", "format": "date-time" },
+                      { "type": "null" }
+                    ],
+                    "description": "ISO 8601 comment timestamp, or null if unknown."
+                  }
+                },
+                "additionalProperties": true
+              },
+              "description": "Comments on the post, if available."
+            }
+          },
+          "required": ["record_type", "author"],
+          "additionalProperties": true
+        }
+      ]
+    },
+    "email_record": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        {
+          "type": "object",
+          "description": "Email record.",
+          "properties": {
+            "record_type": {
+              "const": "email",
+              "description": "Must be 'email' for this record type."
+            },
+            "from": {
+              "type": "string",
+              "description": "Sender email address or participant identifier."
+            },
+            "to": {
+              "type": "array",
+              "items": { "type": "string" },
+              "minItems": 1,
+              "description": "Primary recipient email addresses or participant identifiers."
+            },
+            "cc": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Carbon-copy recipient email addresses or participant identifiers."
+            },
+            "subject_line": {
+              "type": "string",
+              "description": "Email subject line."
+            },
+            "body_text": {
+              "type": "string",
+              "description": "Plain-text body content of the email."
+            },
+            "body_html_ref": {
+              "type": "string",
+              "description": "Path to stored HTML version of the email body, relative to people/<person>/."
+            },
+            "attachments": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "description": "Email attachment metadata.",
+                "properties": {
+                  "filename": { "type": "string", "description": "Original attachment filename." },
+                  "media_ref": { "type": "string", "description": "Path to the stored attachment file, relative to people/<person>/." },
+                  "size_bytes": { "type": "integer", "minimum": 0, "description": "Attachment size in bytes." }
+                },
+                "additionalProperties": true
+              },
+              "description": "Attachments included with the email."
+            }
+          },
+          "required": ["record_type", "from", "to"],
+          "additionalProperties": true
+        }
+      ]
+    },
+    "media_item_record": {
+      "type": "object",
+      "allOf": [
+        { "$ref": "#/$defs/envelope" },
+        {
+          "type": "object",
+          "description": "Standalone media item record (photo, video, or audio file).",
+          "properties": {
+            "record_type": {
+              "const": "media_item",
+              "description": "Must be 'media_item' for this record type."
+            },
+            "media_type": {
+              "type": "string",
+              "enum": ["photo", "video", "audio"],
+              "description": "Type of the standalone media item."
+            },
+            "file_ref": {
+              "type": "string",
+              "description": "Path to the media file, relative to people/<person>/, pointing into raw/."
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$",
+              "description": "SHA256 hex digest of the media file."
+            },
+            "size_bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Size of the media file in bytes."
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Pixel width for photos and videos."
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Pixel height for photos and videos."
+            },
+            "duration_ms": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Duration in milliseconds for video or audio items."
+            },
+            "exif": {
+              "type": "object",
+              "description": "EXIF or media metadata, when available.",
+              "properties": {
+                "datetime_original": { "type": "string", "description": "Original capture date/time string." },
+                "gps": {
+                  "type": "object",
+                  "description": "GPS coordinates embedded in the media.",
+                  "properties": {
+                    "lat": { "type": "number", "description": "Latitude." },
+                    "lon": { "type": "number", "description": "Longitude." }
+                  },
+                  "additionalProperties": true
+                },
+                "camera_make": { "type": "string", "description": "Camera make, e.g. 'Apple'." },
+                "camera_model": { "type": "string", "description": "Camera model, e.g. 'iPhone 14 Pro'." }
+              },
+              "additionalProperties": true
+            },
+            "caption": {
+              "type": "string",
+              "description": "Optional human-readable caption for the media item."
+            }
+          },
+          "required": ["record_type", "media_type", "file_ref", "sha256", "size_bytes"],
+          "additionalProperties": true
+        }
+      ]
+    }
+  }
+}
