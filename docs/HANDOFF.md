@@ -35,10 +35,14 @@
 - 解密环境：key 在 `~/ck-data/secrets/`，db 镜像(已删shm)在 `~/ck-mirror`，明文库在 `~/ck-decrypted`，pysilk-mod 已装进 venv
 
 **待建（DeepSeek 写 + Codex 审）**：
-1. `tools/extract_wechat_voice.py`（#11）：VoiceInfo.voice_data → pysilk.decode(blob,24000) → wav；按 svr_id 关联妈妈会话；输出 processed/wechat_voice/ + UIF media_ref
+1. ~~`tools/extract_wechat_voice.py`（#11）~~ ✅ **已完成（2026-08-05，DeepSeek 两轮 + Codex 两轮审核 ACCEPT）**：实跑 5 会话共提取 **125 条 WAV（妈妈 99 条，总时长约 55 分钟）**，仅 1 条缺 blob（2021-12-22 一条，VoiceInfo 无行），0 解码失败 0 警告。产物：`processed/wechat_voice/<room>/` + `normalized/wechat_voice_manifest.jsonl`（UIF media_item，schema 校验通过，含 svr_id/chat_room/create_time_epoch/sender_wxid 关联键）+ `wechat_voice_report.md`。**运行须用 chatlog-keeper venv 的 python**（pysilk 在那里）：`installers\chatlog-keeper-0.2.0\.venv\Scripts\python.exe tools\extract_wechat_voice.py --person mama --db-dir ~\ck-decrypted`。原探测记录：sender 归属 = `Msg.real_sender_id` → 同 db `Name2Id` 表 rowid → wxid；Msg_<md5(room)> 分片散布在 message_0~6；VoiceInfo 在 media_0（3151 行全账号）+ media_1（1 行），列序 chat_name_id/create_time/local_id/svr_id/voice_data/data_index
 2. `tools/collect_wechat_video.py`（#12）：packed_info md5 → 复制 msg/video mp4 → raw/wechat/video/ + UIF media_ref
 3. ~~`tools/parse_wechat.py`（#13）~~ ✅ **已完成（2026-08-05，DeepSeek 两轮 + Codex 三轮审核 ACCEPT）**：已产出 `people/mama/normalized/wechat_messages.uif.jsonl`（20923 条，妈妈 9386 条，jsonschema 全量校验通过，report 见同目录）。配置在 `people/mama/wechat_parse_config.json`（gitignore 内，重建时需按下述规格重写）。媒体 ref 由 #11/#12 后续按 chat_room+ts+sender_wxid 关联合并。**筛选规格（2026-08-05 核实后扩充，勿退回旧版）**：①一对一会话 `chat_room=laurawang001` 整段收录（6968 条，妈妈发 5048）；②**群聊补抓**——妈妈在 4 个群发过 4338 条（全部文字）：家庭群 `17586423176@chatroom`（她 3622/群 6981，成员仅她+justin+爸爸）、`25722082802@chatroom`（430）、`5030199976@chatroom`（147）、`3758229935@chatroom`（139），这些群的完整对话（含他人发言作为前后文）一并收录；③UIF 中 `chat_room` 区分语境（私聊/家庭群/亲友群），他人消息 sender 必须清晰标注，不得与妈妈本人的话混入 persona 语料
 4. **M0 收尾**：ingest_media 清点照片/视频；配 backup_targets.json 达 PASS
+   - **新立项（2026-08-05，用户拍板）——数据源扩展**：
+     - **微博（#14）**：两部分素材——①她自己微博账号的全部内容；②**用户（justin）微博下她的评论/回复**。适配器 `tools/parse_weibo.py` 输出 UIF post 记录（schema 已支持 author/comments）。前置：素材获取方式待研究（她的账号官方导出是否可行/网页存档抓取；justin 自己的微博可官方导出后筛她的评论），先由用户收集 raw → `people/mama/raw/weibo/`
+     - **微信朋友圈（#15）**：她的朋友圈（含 justin 可见的点赞/评论互动）。适配器 `tools/parse_moments.py` 输出 UIF post 记录（source=wechat_moments）。前置：朋友圈数据在手机端，导出方式待研究（微信自带"个人信息导出"里朋友圈部分/手机备份工具），先由用户收集 raw → `people/mama/raw/moments/`
+     - 两者共同点：先解决**素材到手**，adapter 都是纯解析（模式同 #13，DeepSeek 写 + Codex 审）
 5. **M1 语音验证**：clip_picker → 挑 20s → Fun-CosyVoice3 克隆 → 家人盲听。注意：微信语音是最差声源(SILK窄带)，克隆主素材应来自家庭录像；但妈妈 84 条微信语音本身是珍贵档案
 
 **注意 pysilk.decode 要传完整含 0x02 头的 blob（剥离会报 Not a valid silk_data）。**
