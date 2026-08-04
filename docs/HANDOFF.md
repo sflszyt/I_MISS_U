@@ -29,11 +29,19 @@
 
 ## 四、下一步（按序）
 
-1. **等用户微信导出完成**（2026-08-04 晚执行）→ 产物放 `people/mama/raw/wechat/`
-2. **写 chatlog 输出解析器** `tools/parse_wechat_chatlog.py`：chatlog 的 JSON/CSV → UIF `message` 记录（DeepSeek 写、Codex 审；先看真实导出文件的结构再写 spec）
-3. **M0 收尾**：跑 `ingest_media.py --person mama` 清点照片/视频；配 `people/mama/backup_targets.json`，`backup_check.py` 达到 PASS（2 份备份+1 异地）
-4. **M1 语音验证**：写 `clip_picker.py`（候选片段打分+人工试听清单）→ 用户戴耳机挑 3-5 个最干净 20 秒 → 装 Fun-CosyVoice3 跑克隆 → 跨方言 A/B → 家人盲听
-5. M2 起步前：把 prompts/（persona/记忆/节律模板，关系层参数化）设计出来
+**微信导出与媒体提取的 RE 已全部跑通验证**（2026-08-05），完整配方见 `docs/research/wechat-media-extraction.md` 第三点五节。关键状态：
+- 全量文字已导出 → `people/mama/raw/wechat/export_full/wechat_messages.json`（75万条；妈妈 laurawang001 6968 条）
+- 语音 84/85、视频 13/25 已验证可提取（真实 60s 语音样本已解码到 `~/ck-decrypted/sample_mama_voice.wav`）
+- 解密环境：key 在 `~/ck-data/secrets/`，db 镜像(已删shm)在 `~/ck-mirror`，明文库在 `~/ck-decrypted`，pysilk-mod 已装进 venv
+
+**待建（DeepSeek 写 + Codex 审）**：
+1. `tools/extract_wechat_voice.py`（#11）：VoiceInfo.voice_data → pysilk.decode(blob,24000) → wav；按 svr_id 关联妈妈会话；输出 processed/wechat_voice/ + UIF media_ref
+2. `tools/collect_wechat_video.py`（#12）：packed_info md5 → 复制 msg/video mp4 → raw/wechat/video/ + UIF media_ref
+3. `tools/parse_wechat.py`（#13）：wechat_messages.json 筛 laurawang001 → UIF message JSONL（含 viewpoint=justin/tier=2/provenance），合并语音视频 ref
+4. **M0 收尾**：ingest_media 清点照片/视频；配 backup_targets.json 达 PASS
+5. **M1 语音验证**：clip_picker → 挑 20s → Fun-CosyVoice3 克隆 → 家人盲听。注意：微信语音是最差声源(SILK窄带)，克隆主素材应来自家庭录像；但妈妈 84 条微信语音本身是珍贵档案
+
+**注意 pysilk.decode 要传完整含 0x02 头的 blob（剥离会报 Not a valid silk_data）。**
 
 ## 五、工程注意事项（血泪教训，别再踩）
 

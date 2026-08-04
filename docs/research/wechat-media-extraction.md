@@ -70,6 +70,21 @@
 
 ---
 
+## 三点五、已验证的精确提取配方（2026-08-05 实机跑通）
+
+微信 **4.1.12.26**，妈妈会话 `laurawang001`（表 `Msg_4b3b13b244e13b27d8d46f0b77ea2251`，分布在 message_0/1/3/4/5/6 共 6978 行）。
+
+**解密**：chatlog-keeper 内部 `wechat_db._decrypt_db_v4(db_path, key, out)` 把 SQLCipher 库解成明文 sqlite。key 缓存在 `~/ck-data/secrets/wechat_db.key`（用 `CHATLOG_KEEPER_DATA_DIR` 重定向）。**必须先删 db 家族的 `-shm`**（复制到 `~/ck-mirror` 删 shm，绕开 "WAL index page size mismatch"）。
+
+**WCDB 4.x 消息表结构**：每会话一张 `Msg_<md5(wxid)>`，列 `local_id, server_id, local_type, real_sender_id, create_time, message_content(zstd XML), packed_info_data(blob), ...`。`local_type`: 1文字/3图片/34语音/43视频/47表情/49链接文件。
+
+**视频（type=43）** → `packed_info_data` blob 里含 32 位 hex md5 → 磁盘明文 `msg/video/<年-月>/<md5>.mp4` 直接复制。妈妈 25 条中 13 个 mp4 在本地（其余未下载/CDN过期）。`message_content` 的 `<videomsg>` 另有 aeskey+cdnvideourl（过期无用）。
+
+**语音（type=34）** → 音频**不在** Msg 表，在 **`media_*.db` 的 `VoiceInfo` 表**：列 `chat_name_id, create_time, local_id, svr_id, voice_data(blob), data_index`。`voice_data` 就是 **SILK 裸数据**（`\x02#!SILK_V3` 开头，**未加密**）。按 `VoiceInfo.svr_id == Msg.server_id` 关联。妈妈 85 条中 84 条在 VoiceInfo。
+- 解码：`pip install pysilk-mod`（**有 cp313 预编译 wheel，免编译**）→ `pysilk.decode(voice_data, 24000)`（**传完整含 0x02 头的 blob，不要剥离**）→ PCM → Python `wave` 封 WAV（24000Hz/mono/16bit，**不需要 ffmpeg**）。实测一条解出 60.1s 正确音频。
+
+**图片（type=3）**：`.dat` per-user AES，chatlog-keeper `images` 命令处理；md5 在 packed_info_data。
+
 ## 四、下一步
 
 1. 用户跑 chatlog-keeper 文字 + 图片导出 → `people/mama/raw/wechat/`
