@@ -14,7 +14,7 @@
 | 多人架构 | 方案 A：单仓库多人，`people/<slug>/`，工具/prompts 通用 |
 | 产品形态 | **混合 C**（构建端 Claude skill + 消费端自包含静态 HTML + 可选 BYOK 对话页）✅ 用户已确认 |
 | 语音选型 | Fun-CosyVoice3 主选（含上海话）· VoxCPM2 备选 · GPT-SoVITS 普通话对照；M1 必做跨方言 A/B，**家人盲听是唯一标准**；跨方言掉音色就尊重素材语言 |
-| 微信导出 | 首选 chatlog 镜像 `forkgitss/sjzar-chatlog`（语音直出 MP3）；备选 WeChatMsg_2026（补朋友圈）。**用户手动执行** |
+| 微信导出 | **并列首选**（2026-08-04 存亡核查后更正，原 forkgitss 镜像已弃用）：① `WechatRagAgent/chatlog-new`（语音实时 MP3）② `labazhou2024/chatlog-keeper`（MIT，唯一吃微信 4.1.x 新版，JSON+HTML）。取 key 辅助 `ycccccccy/wx_key`。备选 GUI：`AwAcitizen/WeChatMsg_2026`（补朋友圈）。用户自测哪个先跑通。**待确认**：chatlog-keeper 语音是 MP3 还是裸 silk（裸 silk 用 silk_decode.py 兜底） |
 | 数据源架构 | 源适配器 → UIF 统一中间格式（`schema/uif.schema.json`）→ 下游只消费 UIF |
 | 三条自我保护约束 | 已入 CLAUDE.md 铁律（Tier 分级+人工闸门 / 保留完整性 / 沉浸度克制） |
 | 硬件 | RTX 4090 24GB + i9-14900KF + 64GB RAM，全本地无约束 |

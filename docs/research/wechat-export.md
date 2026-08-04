@@ -6,9 +6,39 @@
 
 ## 三行摘要
 
-1. **首选 `chatlog`（sjzar 原版已于 2025-10 自行删库，请用活跃镜像 `forkgitss/sjzar-chatlog`）**：纯本地、Apache-2.0、同时支持微信 3.x 与 4.0，**语音会实时把 SILK 转成 MP3**、图片/视频自动解密，是当前对「语音可用音频」支持最干净的方案。
-2. 若想要「一键生成 HTML/Word 存档 + 年度报告 + 朋友圈」的图形界面，用 **`WeChatMsg_2026`（留痕 WeChatMsg 的社区续命镜像，支持微信 4.0）** 作为备选；桌面 App 类的 `MemoTrace`、`EchoTrace` 分别存在版本滞后与停更问题。
-3. **两大拦路虎**：①腾讯 2026-01 向 GitHub 发 DMCA 下架约 4195 个仓库，原始仓库（PyWxDump、WeChatMsg、wechat-dump-rs 等）多数 404/451，必须走镜像；②微信 **Windows 4.0.3.36 及以上版本不再把密钥留在内存**，chatlog 自带取密钥会失败，需**临时降级到 4.0.3.x 以下**或借助第三方取密钥工具（如 `ycccccccy/wx_key`）后手动填入。
+1. **两个并列首选（用户选择自测哪个先跑通）**：① **`WechatRagAgent/chatlog-new`**（chatlog 原版的活跃续版，Apache-2.0，有 Win/Mac 发布包，**语音实时 SILK→MP3**）；② **`labazhou2024/chatlog-keeper`**（MIT，2026-07 活跃，有 Windows exe，**唯一支持微信 4.1.10.31+ 新版**，JSON+HTML 双导出）。
+2. 若想要「一键生成 HTML/Word 存档 + 年度报告 + 朋友圈」的图形界面，用 **`WeChatMsg_2026`（留痕 WeChatMsg 的社区续命镜像，支持微信 4.0）** 作为备选。
+3. **两大拦路虎**：①腾讯 2026-01 向 GitHub 发 DMCA 下架约 4195 个仓库，原始仓库多数删库/451，必须走镜像/续版；②微信 **Windows 4.0.3.36+ 不再把密钥留在内存**、**4.1.10.31+（2026-05）更把明文 key 移出进程堆**——被动内存扫描取不到 key，需临时降级、用 `ycccccccy/wx_key` 手动取，或用能自动回退到调试器取 key 的 `chatlog-keeper`。
+
+> ⚠️ **2026-08-04 存亡核查更正**：原报告首选的镜像 `forkgitss/sjzar-chatlog` 经 GitHub API 实测为**冷门旧快照**（2025-04、1⭐、无 Releases），已不推荐；改用下方「零、仓库存亡核查」表中标 ✅ 的活跃仓库。
+
+---
+
+## 零、仓库存亡核查（2026-08-04 GitHub API 实测）
+
+> 每个仓库都用 `gh api repos/<owner>/<repo>` 实测了 `archived`/`disabled`/`pushed_at`/`stars`/Releases。下载前请再核一次（镜像随时可能被下架）。
+
+| 仓库 | 存活 | 最近更新 | Star | 可下载包 | 微信版本 | 结论 |
+|---|---|---|---|---|---|---|
+| **WechatRagAgent/chatlog-new** | ✅ | 2025-07 | 18 | ✅ v0.0.16 Win/Mac | ≤4.0 | **首选①**：chatlog 活跃续版，语音实时→MP3 |
+| **labazhou2024/chatlog-keeper** | ✅ | 2026-07 | 25 | ✅ v0.2.0 `chatlog-keeper.exe` | **≤4.0 + 4.1.x** | **首选②**：MIT，唯一吃新版微信；JSON+HTML；图片.dat 自动还原 |
+| `ycccccccy/wx_key` | ✅ | 2026-06 | 1786 | — | 4.0+ 取密钥 | 辅助：取 key 工具，配合上面用 |
+| `xlight/chatlog-session` | ✅ | 2026-07 | 122 | — | 依赖 chatlog | chatlog 的 Web 前端（挂 NAS 用），非独立导出器 |
+| `sjzar/chatlog` | ⚠️ 空壳 | 2025-10 删库 | 9185 | — | ≤4.0 | 原版代码已清空，仅存说明 |
+| `forkgitss/sjzar-chatlog` | ⚠️ 弃用 | 2025-04 | 1 | ❌ | — | 冷门旧快照，**原报告首选，已撤** |
+| `AwAcitizen/WeChatMsg_2026` | ✅ | 2025-04 | 8 | — | 4.0 | 备选：GUI+HTML+朋友圈，三个镜像内容一致 |
+| `yangbuyiya/WeChatMsg_2026` | ✅ | 2025-04 | 0 | — | 4.0 | 同上镜像拷贝 |
+| `tigriszhang/WeChatMsg_2026` | ✅ | 2025-04 | 1 | — | 4.0 | 同上镜像拷贝 |
+| `LC044/WeChatMsg`（原留痕） | ✅ | 2025-12 | 41k | — | ≤4.0 | 作者已声明**不再更新** |
+| `xaoyaoo/PyWxDump` | ⚠️ | 2025-10 | 9k | — | 3.x–4.0 | 仓库描述已变「删库」，停更 |
+
+**下载地址**：
+- https://github.com/WechatRagAgent/chatlog-new/releases （首选①）
+- https://github.com/labazhou2024/chatlog-keeper/releases （首选②）
+- https://github.com/ycccccccy/wx_key （取 key 辅助）
+- https://github.com/AwAcitizen/WeChatMsg_2026 （备选 GUI）
+
+**⚠️ 待你今晚实测确认的一点**：`chatlog-keeper` 的 README 明确了它导出 JSON+HTML、能还原图片，但**未说明语音消息导出后是 MP3 还是裸 silk**。若它吐裸 silk，就用本项目的 `tools/silk_decode.py` 兜底解码；`chatlog-new` 则确认是实时 MP3。哪个先跑通看哪个的语音格式，据此决定后续解析器怎么写。
 
 ---
 
@@ -134,25 +164,33 @@
 
 > ⚠️ 全程离线本地进行。开始前**先给微信数据目录整目录做一次冷备份**（复制一份到移动硬盘），任何解密都在副本上操作，避免动到原始数据。
 
-### 路线 A：chatlog（首选，拿到 MP3 语音 + 结构化数据）
+> 通用前置：先看微信版本（设置→关于）。**≤4.0.3.35（含 3.x）**取 key 最省事；**4.0.3.36+** 密钥不驻留内存、**4.1.10.31+（2026-05）**明文 key 移出堆——被动扫描取不到，需 chatlog-keeper 的调试器兜底、临时降级、或用 `wx_key` 手动取。全程保持微信**登录运行**（取 key 要读进程内存）。
 
-1. **确认微信版本**（微信「设置 → 关于」）。
-   - 若为 **Windows 微信 ≤ 4.0.3.35（含 3.x）**：chatlog 自带取密钥可直接用，跳到第 3 步。
-   - 若为 **≥ 4.0.3.36 或 4.1.x**：密钥不在内存，需二选一：
-     a) **临时降级**微信到 4.0.3.x 以下，取到 key 后再升级回来；或
-     b) 用第三方取密钥工具 `ycccccccy/wx_key` 取得 key，稍后在 chatlog UI **手动填入**。
-2. 保持微信**登录且在运行**（取密钥要读进程内存）。
-3. 从镜像 `github.com/forkgitss/sjzar-chatlog` 的 Releases 下载 Windows 版 `chatlog.exe`，**以管理员身份运行**。
-4. 在界面里执行「获取密钥 / Get Key」→「解密数据库 / Decrypt」（或手动粘贴上一步拿到的 key）。工具会解密并建立本地数据。
-5. 启动其内置 **HTTP 服务**（默认 `http://127.0.0.1:5030`，以实际为准）。
-6. （建议）安装 **FFmpeg** 并加入 PATH，保证图片 WXGF/视频转码正常。
-7. 导出：
-   - **文字**：调 HTTP API 按联系人+时间段取 **JSON/CSV/TXT**（这就是长期存档主体）。
-   - **语音**：请求语音资源时，chatlog **实时把 SILK 转成 MP3 返回**——直接保存即为可播放 MP3，**无需再解码**。
-   - **图片/视频/文件**：API 返回 302 跳到已解密的媒体地址，逐一保存。
-8. 归档：把 JSON + media 文件夹（含 mp3/图片/视频）一起打包留存。
+### 路线 A①：chatlog-new（首选，语音实时 MP3 + 结构化 JSON）
+
+1. 确认微信版本；≥4.0.3.36 按上面的通用前置准备好取 key 方式。
+2. 从 `github.com/WechatRagAgent/chatlog-new/releases` 下载 `chatlog-new_*_windows_amd64.zip`，解压，**管理员身份**运行 `chatlog.exe`。
+3. 执行「获取密钥 / Get Key」→「解密数据库 / Decrypt」（或手动粘贴 `wx_key` 取得的 key）。
+4. 启动内置 **HTTP 服务**（默认 `http://127.0.0.1:5030`，以实际为准）。
+5. （建议）装 **FFmpeg** 加入 PATH，保证图片 WXGF/视频转码。
+6. 导出：文字→调 HTTP API 按联系人+时间段取 **JSON/CSV/TXT**；语音→请求语音资源时**实时转 MP3 返回**，直接存即可播放，无需解码；图片/视频→API 302 跳到已解密媒体地址逐一保存。
+7. 归档：JSON + media 文件夹（mp3/图片/视频）打包，放进 `people/mama/raw/wechat/`。
+
+### 路线 A②：chatlog-keeper（首选备用，唯一吃微信 4.1.x 新版）
+
+1. 从 `github.com/labazhou2024/chatlog-keeper/releases` 下载 `chatlog-keeper.exe`（或 `pip install .` 源码装，需 Python 3.9+）。
+2. 探测：`chatlog-keeper probe`（看能导出什么、key 取到没）。
+3. 取 key（多数自动）：`chatlog-keeper extract-key --source wechat`——默认先被动扫描，取不到自动转调试器（新版微信需要）。也可 `set-key --key <64位hex>` 手动填。
+4. 导出微信：`chatlog-keeper wechat --days <天数或不限> --out ./out` → 得 `wechat_messages.json` + 怀旧 HTML。
+5. 还原图片：`chatlog-keeper images --src "<微信图片.dat目录>" --out ./out/images`。
+6. **⚠️ 检查语音格式**：看 `out/` 里语音是 `.mp3` 还是 `.silk/.aud`。若是裸 silk，用本项目 `tools/silk_decode.py` 批量解码。
+7. 归档整个 `out/` 到 `people/mama/raw/wechat/`。
+
+> 封号风险（chatlog-keeper README 明确）：导出本地自己的数据风险≈0；风险只来自取 key 方式——优先被动扫描，取到就缓存复用，**绝不**用它做任何服务器侧自动化。腾讯的处置是下架**仓库**（DMCA），不是封**用户账号**。
 
 ### 路线 B：WeChatMsg_2026（要 GUI + HTML 纪念册 + 朋友圈）
+
+> 三个镜像 `AwAcitizen` / `yangbuyiya` / `tigriszhang` 内容一致（同一快照拷贝，2025-04）；只支持微信 ≤4.0，新版不适用。地址：https://github.com/AwAcitizen/WeChatMsg_2026
 
 1. 同样先确认微信版本、做好数据备份、保持微信登录。
 2. 从可信 `*_2026` 镜像（如 `AwAcitizen/WeChatMsg_2026`）获取程序，管理员运行。
