@@ -47,7 +47,12 @@
    - ✅ 素材普查：妈妈 99 条语音中 61 条 ≥15s（爱发 60s 长语音），参考素材充足
    - ✅ 候选试听：5 条最连续长语音切 18s 窗口发用户试听，**用户确认"音质可以"**（SILK 窄带可作克隆基底）
    - ✅ 参考固化：`people/mama/voice/reference/`（5 条 full + 5 条 clip18 + reference_manifest.json 含溯源/窗口偏移/sha256）
-   - 🔄 下一步：Fun-CosyVoice3 环境搭建（Windows 原生，4090/驱动591.86/仅 Python 3.13——版本兼容性研究中）→ zero-shot 克隆需 prompt_text（参考音频逐字转写，上海话用字，**需用户人工转写选中片段**）→ 上海话+普通话跨方言 A/B → 家人盲听
+   - ✅ 环境搭建完成（2026-08-05）：CosyVoice 源码在 `C:\Users\justin\CosyVoice`，py3.10 venv 在 `C:\Users\justin\venvs\cosyvoice`（torch 2.3.1+cu121，cuda 可用），模型在 `C:\Users\justin\CosyVoice-models\Fun-CosyVoice3-0.5B`。装机坑：setuptools<81 约束修 whisper 构建、wget 需 --no-build-isolation 补装、prompt 传**文件路径**别传 load_wav 张量。冒烟脚本 `scratchpad/clone_smoke.py`（带参=zero-shot prompt_text 文件）。单句合成约 4-5s
+   - ✅ 首轮 A/B（2026-08-05）：**用户判定音色"非常像妈妈"（关键 go 信号）**，但 instruct2 模式**发音不够地道**。已跑 zero-shot 版（prompt_text 用 ASR 草稿保守清理，非用户校对定稿）做对比，待用户听 zero-shot 是否改善发音
+   - ✅ 二次研究（2026-08-05，workflow）：发音不地道判定为**工程问题非模型天花板**，最高杠杆三步=校对转写/吴语本字/换病中参考；完整调优指南与 VoxCPM2 备选触发条件见 `docs/research/cosyvoice3-deploy.md` 第五节
+   - ✅ 5 条参考内容 ASR 识别（判健康期）：ref01(2022-07 设计花坛庭院,最日常) / ref02(聊买房) / ref03(2020-12 验血病中,当前主参考待换) / ref04(聊买房) / ref05(2021-11 失眠吃药)
+   - 🔄 **待用户**：①从 5 条 instruct2 对比选音色最像的一条（建议排除病中 ref03，ref01 内容最日常）②选定后对该条校对转写（对着 18s 音频改 ASR 草稿字 + 用吴语本字）——这是解锁地道 zero-shot 的关键前置。之后跑 A/B/C 盲听矩阵
+   - ASR 草稿环境：`C:\Users\justin\venvs\asr`（funasr+SenseVoiceSmall，CPU）；3号切片草稿在 `scratchpad/asr_draft_clip18.txt`
    - 环境事实：ffmpeg 不在 PATH；pysilk/numpy 在 chatlog-keeper venv；磁盘余 1.1TB
 
 **注意 pysilk.decode 要传完整含 0x02 头的 blob（剥离会报 Not a valid silk_data）。**
