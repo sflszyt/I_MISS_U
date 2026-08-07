@@ -68,6 +68,19 @@
 
 **跨方言（普通话）支线**：技术上最容易（普通话是模型强项），但**对本档案要克制**——铁律"她说什么话就让她说什么话"。仅当原素材本身是她说普通话时才合成普通话，不把上海话记忆"翻译"成普通话让她说。挑参考时"是不是上海话"优先级 > "是不是最干净"。
 
+## 六、当前上海话基线配置（2026-08-07 暂存，instruct2）
+
+用户 2026-08-07 决定：上海话发音 CosyVoice3 达不到地道（instruct2/zero-shot 都试过），**暂时保留 instruct2 版作为可用基线**，等方言深度研究（workflow）出结论再定是否替换/转向。可复现配置：
+
+- 模型 `Fun-CosyVoice3-0.5B`，venv `C:\Users\justin\venvs\cosyvoice`（py3.10）
+- 参考 `people/mama/voice/reference/ref01_clip18_20220731_...wav`（健康期日常，用户盲选，音色"非常像"）
+- 调用 `inference_instruct2(tts_text, 'You are a helpful assistant. 请用上海话表达。<|endofprompt|>', ref01_wav)`
+- **tts_text 必须连贯长句、无极短分句**（用逗号连、每段≥8字、结尾不留 3-4 字短句）——否则 zero-shot 会因 split 出 3 帧特征在 f0_predictor `kernel 4 > input 3` 崩溃；instruct2 更耐受但同样建议
+- 产物存档 `people/mama/voice/baseline_instruct2_20260807/`（3 条样本 + README）
+- 状态：**音色达标，发音不够地道**（普通话腔/缺连读变调），待替换
+
+**已证伪的路线**：zero-shot（ref01 健康参考 + 用户校对转写，格式与长度坑都填平后）发音仍不地道——说明不是输入质量问题，是 CosyVoice3 对上海话的模型能力上限。下一步靠 `shanghainese-tts-deep-dive` workflow 找 CosyVoice3 之外的路线。
+
 ## 来源（关键）
 
 - https://github.com/FunAudioLLM/CosyVoice （README/requirements/issues #1046 #1078）

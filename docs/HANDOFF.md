@@ -51,7 +51,11 @@
    - ✅ 首轮 A/B（2026-08-05）：**用户判定音色"非常像妈妈"（关键 go 信号）**，但 instruct2 模式**发音不够地道**。已跑 zero-shot 版（prompt_text 用 ASR 草稿保守清理，非用户校对定稿）做对比，待用户听 zero-shot 是否改善发音
    - ✅ 二次研究（2026-08-05，workflow）：发音不地道判定为**工程问题非模型天花板**，最高杠杆三步=校对转写/吴语本字/换病中参考；完整调优指南与 VoxCPM2 备选触发条件见 `docs/research/cosyvoice3-deploy.md` 第五节
    - ✅ 5 条参考内容 ASR 识别（判健康期）：ref01(2022-07 设计花坛庭院,最日常) / ref02(聊买房) / ref03(2020-12 验血病中,当前主参考待换) / ref04(聊买房) / ref05(2021-11 失眠吃药)
-   - 🔄 **待用户**：①从 5 条 instruct2 对比选音色最像的一条（建议排除病中 ref03，ref01 内容最日常）②选定后对该条校对转写（对着 18s 音频改 ASR 草稿字 + 用吴语本字）——这是解锁地道 zero-shot 的关键前置。之后跑 A/B/C 盲听矩阵
+   - ✅ 参考定稿：**ref01**（2022-07 健康期日常，用户从 5 条盲选，音色"非常像"）；转写已由用户校对（`voice/reference/ref01_transcript.txt`，上海话本字）
+   - ✅ zero-shot 正路跑通（格式坑已解：源码 `llm.py:585` 确认 CosyVoice3 需 `指令<|endofprompt|>转写`；f0 崩溃因 tts_text split 出极短分句→改连贯长句）。但**用户判定 zero-shot 上海话发音仍不地道**，instruct2 也不地道 → CosyVoice3 上海话发音走不通
+   - **决定（2026-08-07 用户）**：上海话**暂时保留 instruct2 版作为基线**（音色对、发音将就），存档于 `people/mama/voice/baseline_instruct2_20260807/`（配置见该目录 README + deploy 文档第六节）。音色链路已完全稳（最难部分成了）
+   - 🔬 **方言 TTS 单独立项深挖（进行中，workflow wf_3cccb434-dcc）**：穷尽上海话所有路线（专门吴语模型/音素强制发音/微调/换模型/商用API）+ 判定地道度上限 + 量化对比普通话/广东话成熟度。用户在考虑普/粤是否更成熟作为退路——但"她说什么话就让她说什么话"是铁律，最终价值判断归用户
+   - 待研究出结果 → 决策：继续攻上海话某新路线 / 退守普通话 / 混合
    - ASR 草稿环境：`C:\Users\justin\venvs\asr`（funasr+SenseVoiceSmall，CPU）；3号切片草稿在 `scratchpad/asr_draft_clip18.txt`
    - 环境事实：ffmpeg 不在 PATH；pysilk/numpy 在 chatlog-keeper venv；磁盘余 1.1TB
 
