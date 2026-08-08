@@ -54,8 +54,8 @@
    - ✅ 参考定稿：**ref01**（2022-07 健康期日常，用户从 5 条盲选，音色"非常像"）；转写已由用户校对（`voice/reference/ref01_transcript.txt`，上海话本字）
    - ✅ zero-shot 正路跑通（格式坑已解：源码 `llm.py:585` 确认 CosyVoice3 需 `指令<|endofprompt|>转写`；f0 崩溃因 tts_text split 出极短分句→改连贯长句）。但**用户判定 zero-shot 上海话发音仍不地道**，instruct2 也不地道 → CosyVoice3 上海话发音走不通
    - **决定（2026-08-07 用户）**：上海话**暂时保留 instruct2 版作为基线**（音色对、发音将就），存档于 `people/mama/voice/baseline_instruct2_20260807/`（配置见该目录 README + deploy 文档第六节）。音色链路已完全稳（最难部分成了）
-   - 🔬 **方言 TTS 单独立项深挖（进行中，workflow wf_3cccb434-dcc）**：穷尽上海话所有路线（专门吴语模型/音素强制发音/微调/换模型/商用API）+ 判定地道度上限 + 量化对比普通话/广东话成熟度。用户在考虑普/粤是否更成熟作为退路——但"她说什么话就让她说什么话"是铁律，最终价值判断归用户
-   - 待研究出结果 → 决策：继续攻上海话某新路线 / 退守普通话 / 混合
+   - ✅ **方言 TTS 深挖完成（08-07 首轮 + 08-08 补跑，报告 `docs/research/dialect-tts-maturity.md`）**。决定性发现：**CosyVoice2-Wu 全套权重已公开**（HF `ASLP-lab/WenetSpeech-Wu-Speech-Generation`，Apache-2.0 免申请，5 变体，SS 最佳 IMOS≈4.0，原生 zero-shot 克隆 + `<|wuyu|>` 标签，参考按 16kHz 加载窄带不吃亏）。路线修订：**B0**（Wu 底座 zero-shot，零训练）> B1（+她 55 分钟 AP-BWE 增强后本地 SFT，4090 可跑）> **D**（新增：沪语 TTS→Seed-VC timbre-only 换她音色，两段式绕开克隆×方言死结）> C（CosyVoice3 拼音标注只是字音补丁，音系天花板被本机 tokenizer 代码实锤）> A（退普通话，仅对照）。**工程红线：Wu 权重是 CosyVoice2 栈的 llm.pt，与 Fun-CosyVoice3 不通用**
+   - **下一步（技术排序已排死，待用户点头即做）**：下载 Wu 权重跑 B0 zero-shot → 与 instruct2 基线同文本 A/B → 可加 D/VoxCPM2 样本 → 家人盲听（批次建议见报告）
    - ASR 草稿环境：`C:\Users\justin\venvs\asr`（funasr+SenseVoiceSmall，CPU）；3号切片草稿在 `scratchpad/asr_draft_clip18.txt`
    - 环境事实：ffmpeg 不在 PATH；pysilk/numpy 在 chatlog-keeper venv；磁盘余 1.1TB
 
