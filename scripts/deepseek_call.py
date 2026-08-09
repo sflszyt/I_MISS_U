@@ -22,15 +22,19 @@ SYSTEM = (
     "no summary - unless the spec explicitly asks for it. Prefer complete, runnable code over snippets."
 )
 
-body = json.dumps({
-    "model": "deepseek-v4-flash",
+payload = {
+    "model": os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash"),
     "messages": [
         {"role": "system", "content": SYSTEM},
         {"role": "user", "content": open(SPEC, encoding="utf-8").read()},
     ],
     "max_tokens": MAXTOK,
     "stream": True,
-}).encode("utf-8")
+}
+# DEEPSEEK_NOTHINK=1 关闭推理链：大文件生成时推理会烧光 max_tokens（实测 60k 中 59k 是推理）
+if os.environ.get("DEEPSEEK_NOTHINK") == "1":
+    payload["thinking"] = {"type": "disabled"}
+body = json.dumps(payload).encode("utf-8")
 
 for attempt in range(1, 4):
     try:
