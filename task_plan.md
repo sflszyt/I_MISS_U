@@ -26,24 +26,21 @@
 - ⬜ 1e 用户校对回收后 45 条满血重训 v0.1-full
 - 完成标准：有一版用户认可"可进盲听"的模型 + 批量合成脚本
 
-### Phase 2：数据层 — status: pending
-- 2a build_data_bundle：UIF 消息 + 语音/视频 manifest 合并为档案数据包（JSON，含 provenance/tier）
-- 2b timeline 自动生成（Tier-2，按年月聚合，可溯源到消息 id）
-- 完成标准：people/mama/archive_out/data/ 下自包含数据包，schema 校验通过
+### Phase 2：数据层 — status: complete（2026-08-10 凌晨，Codex ACCEPT，已提交 6fe8275）
+- ✅ tools/build_data_bundle.py（DeepSeek×4 轮 + Codex×2 轮）：archive_out/data/ = 7 年度分片(20923) + media_index + timeline(68月) + meta + 语音125/本人视频9 拷贝，228MB，幂等 + 全量对账 + file_ref 子树锚定
 
-### Phase 3：文字层 — status: pending
-- 3a rhythm.json：从 UIF 统计交互节律（消息长度/时段/表情/口头禅/回复间隔）
+### Phase 3：文字层 — status: in_progress（3a 完成）
+- ✅ 3a tools/build_rhythm.py（DeepSeek×3 轮 + Codex×3 轮 ACCEPT）：persona/rhythm.json + archive_out/data/rhythm.json——9386 条 subject 消息的长度/时段/连发/回复延迟/标点/口头禅23条/表情/语音习惯，精确 skip 计数
 - 3b persona.md：从她的 9386 条消息萃取（含缺点与冲突面，禁止理想化）——LLM 辅助生成部分全部标 Tier-3 待确认
 - 3c 记忆卡片候选 + timeline.md（Tier-2 可溯源）
 - 3d 人工闸门页：候选卡片供用户逐条确认升 Tier-1
 - 完成标准：persona/ 与 memories/ 目录齐备，Tier 标注完整，闸门页可用
 
-### Phase 4：卡通人（消费端）— status: pending
-- 4a 卡通形象：SVG 手绘风（不做真人脸），待机/说话两态
-- 4b 音量驱动口型：Web Audio AnalyserRMS → 嘴型开合
-- 4c 播放源：她的原声语音 + v0.1 合成语音
-- 4d 可选 BYOK 对话（裸 fetch OpenAI 兼容端点，走档案检索式提示词，Tier-3 禁陈述为事实）
-- 完成标准：单 HTML 双击可开，本地静态服务器脚本附带
+### Phase 4：卡通人（消费端）— status: 4a-4c complete（Codex ACCEPT），4d 未做
+- ✅ tools/build_avatar_page.py（DeepSeek×5 轮 + Codex×3 轮）：archive_out/avatar.html（37KB）+ start_server.bat/.sh——SVG 卡通（圆脸眨眼腮红，非真人脸）+ AnalyserNode 音量驱动嘴型 + 600ms 静音伪驱动 fallback + 125 条原声播放列表（data/media/voice 相对路径）+ 续播守卫
+- ⬜ 4c 合成语音入清单（等 v0.1 epoch 定稿后把 TTS 样本放 data/media/tts/）
+- ⬜ 4d BYOK 对话页（Tier-3 禁陈述为事实的提示词）
+- 用户验证方式：运行 archive_out/start_server.bat → 浏览器开 http://localhost:8020/avatar.html
 
 ### Phase 5：合流交付 — status: pending
 - build_archive：数据层+文字层+语音样本+卡通人页打包为自包含档案目录
