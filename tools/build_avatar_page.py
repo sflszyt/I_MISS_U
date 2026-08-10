@@ -512,7 +512,7 @@ def format_duration(seconds) -> str:
 def build_playlist(media_index: dict) -> list:
     voice = media_index.get("voice") or []
     entries = []
-    for i, item in enumerate(sorted(voice, key=lambda x: x.get("timestamp") or "")):
+    for i, item in enumerate(sorted(voice, key=lambda x: str(x.get("timestamp") or ""))):
         ap = item.get("archive_path") or item.get("path") or ""
         if ap.startswith("media/"):
             src = "data/" + ap
@@ -542,15 +542,237 @@ def build_playlist(media_index: dict) -> list:
         }
         entries.append(entry)
     def sort_key(e):
-        t = e.get("timestamp") or ""
-        if isinstance(t, (int, float)):
-            return t
-        return str(t)
+        return str(e.get("timestamp") or "")
     entries.sort(key=sort_key)
     for idx, e in enumerate(entries):
         if not e.get("date"):
             e["display"] = "语音 {}".format(idx + 1)
     return entries
+
+
+def select_preview_clips(media_index: dict, n: int) -> list:
+    """Select N clips for the preview page deterministically.
+    
+    Returns a list of (entry, archive_path) tuples.
+    """
+    voice = media_index.get("voice") or []
+    
+    # Candidate selection: is_subject True and 4000 <= duration_ms <= 15000
+    candidates = []
+    for item in voice:
+        if not item.get("is_subject"):
+            continue
+        dur_ms = item.get("duration_ms")
+        if dur_ms is None or not (4000 <= dur_ms <= 15000):
+            continue
+        candidates.append(item)
+    
+    # Sort by timestamp (string comparison for robustness)
+    candidates.sort(key=lambda x: str(x.get("timestamp") or ""))
+    
+    if len(candidates) >= n:
+        # Evenly spaced indices across the sorted list
+        if n == 1:
+            indices = [0]
+        else:
+            # Pick first, last, and evenly spaced points in between
+            indices = [int(round(i * (len(candidates) - 1) / (n - 1))) for i in range(n)]
+            # Ensure uniqueness
+            indices = sorted(set(indices))
+            # If deduplication reduced count, fill in evenly spaced unique ones
+            if len(indices) < n:
+                remaining = list(range(len(candidates)))
+                for idx in indices:
+                    remaining.remove(idx)
+                step = len(remaining) / (n - len(indices))
+                for i in range(n - len(indices)):
+                    indices.append(remaining[min(len(remaining) - 1, int(i * step))])
+                indices = sorted(set(indices))
+        selected = [candidates[i] for i in indices]
+    else:
+        # Fallback: all is_subject entries sorted by |duration_ms - 8000|, take top N
+        all_subject = [item for item in voice if item.get("is_subject")]
+        all_subject.sort(key=lambda x: abs((x.get("duration_ms") or 0) - 8000))
+        selected = all_subject[:n]
+        if len(selected) < n:
+            print("Warning: only {} preview clips available, requested {}".format(len(selected), n))
+        # Re-sort selected by timestamp string to maintain chronological order
+        selected.sort(key=lambda x: str(x.get("timestamp") or ""))
+    
+    # Ensure we have archive_path for each
+    result = []
+    for item in selected:
+        ap = item.get("archive_path") or item.get("path") or ""
+        result.append((item, ap))
+    return result
+
+
+def encode_mp3(wav_path: Path, bitrate: int) -> bytes:
+    """Convert WAV to MP3 bytes using soundfile + lameenc + numpy."""
+    try:
+        import soundfile as sf
+        import lameenc
+        import numpy as np
+    except ImportError as e:
+        print("Error: preview mode requires soundfile, lameenc, and numpy.")
+        print("Please run with a python that has these libs, e.g.:")
+        print("  C:\\Users\\justin\\venvs\\cosyvoice\\Scripts\\python.exe tools\\build_avatar_page.py --preview N")
+        sys.exit(1)
+    
+    try:
+        data, sr = sf.read(str(wav_path), dtype="float32", always_2d=True)
+    except Exception as e:
+        print("Error: failed to read WAV file {}: {}".format(wav_path, e))
+        sys.exit(1)
+    
+    # Mix to mono
+    if data.shape[1] > 1:
+        mono = np.mean(data, axis=1)
+    else:
+        mono = data[:, 0]
+    
+    # Clip and convert to int16
+    mono = np.clip(mono, -1.0, 1.0)
+    pcm = (mono * 32767.0).astype(np.int16)
+    
+    # Encode MP3
+    encoder = lameenc.Encoder()
+    encoder.set_bit_rate(bitrate)
+    encoder.set_in_sample_rate(sr)
+    encoder.set_channels(1)
+    encoder.set_quality(2)  # high quality
+    
+    mp3_bytes = encoder.encode(pcm.tobytes())
+    mp3_bytes += encoder.flush()
+    return mp3_bytes
+
+
+def verify_mp3_bytes(mp3_bytes: bytes) -> bool:
+    """Verify encoded MP3 is valid audio using soundfile read-back.
+    
+    Returns True if valid, False if decode failure or RMS <= 0.005 (near silence).
+    """
+    try:
+        import soundfile as sf
+    except ImportError:
+        print("Error: soundfile not available for verification")
+        return False
+    
+    import tempfile
+    import numpy as np
+    
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+        tmp.write(mp3_bytes)
+        tmp_path = tmp.name
+    
+    try:
+        data, _ = sf.read(tmp_path, dtype="float32")
+        if len(data) == 0:
+            return False
+        rms = float(np.sqrt(np.mean(np.square(data))))
+        ok = rms > 0.005
+        if not ok:
+            print("Warning: bad audio - RMS {:.6f} <= 0.005".format(rms))
+        return ok
+    except Exception as e:
+        print("Error: failed to verify MP3: {}".format(e))
+        return False
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+
+def build_preview_playlist(media_index: dict, archive_dir: Path, n: int, bitrate: int) -> list:
+    """Build playlist for preview page with base64 data URIs."""
+    import base64
+    
+    # Get all subject candidate items sorted deterministically by timestamp string
+    voice = media_index.get("voice") or []
+    subject_items = [item for item in voice if item.get("is_subject")]
+    # Sort: first 4000-15000ms (by timestamp string), then rest (by timestamp string)
+    good = [item for item in subject_items if (item.get("duration_ms") or 0) >= 4000 and (item.get("duration_ms") or 0) <= 15000]
+    good.sort(key=lambda x: str(x.get("timestamp") or ""))
+    rest = [item for item in subject_items if not ((item.get("duration_ms") or 0) >= 4000 and (item.get("duration_ms") or 0) <= 15000)]
+    rest.sort(key=lambda x: str(x.get("timestamp") or ""))
+    all_candidates = good + rest
+    
+    # Initial selection
+    selected_pairs = select_preview_clips(media_index, n)
+    used_aps = set()
+    for _, ap in selected_pairs:
+        if ap:
+            used_aps.add(ap)
+    
+    playlist = []
+    # For each selected candidate, attempt encode+verify; on failure, try next unused
+    # Build a queue of candidates to try: first the selected ones, then the rest
+    remaining_queue = []
+    for item in all_candidates:
+        ap = item.get("archive_path") or item.get("path") or ""
+        if ap not in used_aps:
+            remaining_queue.append(item)
+    
+    while len(playlist) < n and (selected_pairs or remaining_queue):
+        # Take next candidate
+        if selected_pairs:
+            item, ap = selected_pairs.pop(0)
+        else:
+            item = remaining_queue.pop(0)
+            ap = item.get("archive_path") or item.get("path") or ""
+        
+        if not ap:
+            continue
+        
+        wav_path = archive_dir / "data" / ap
+        if not wav_path.exists():
+            print("Warning: WAV file not found, skipping: {}".format(wav_path))
+            continue
+        
+        try:
+            mp3_bytes = encode_mp3(wav_path, bitrate)
+        except SystemExit:
+            # Encode failure is hard error (encoding chain broken)
+            raise
+        
+        if not verify_mp3_bytes(mp3_bytes):
+            print("Warning: encoded MP3 failed verification for {}, trying next".format(ap))
+            continue
+        
+        data_uri = "data:audio/mpeg;base64," + base64.b64encode(mp3_bytes).decode("ascii")
+        
+        ts = item.get("timestamp") or ""
+        date = str(ts)[:10] if ts else ""
+        dur_ms = item.get("duration_ms")
+        dur = None
+        if dur_ms is not None:
+            dur = dur_ms / 1000.0
+        dur_str = format_duration(dur)
+        display = date if date else "语音 {}".format(len(playlist) + 1)
+        if dur_str:
+            display = "{} ({})".format(date if date else "语音 {}".format(len(playlist) + 1), dur_str)
+        
+        entry = {
+            "src": data_uri,
+            "timestamp": ts,
+            "display": display,
+            "date": date,
+            "duration": dur_str,
+        }
+        playlist.append(entry)
+        print("  preview clip {}: {}".format(len(playlist), ap))
+        print("    duration: {:.1f}s".format((dur_ms or 0) / 1000.0))
+    
+    # Final chronological sort: reorder by timestamp string ascending
+    playlist.sort(key=lambda e: str(e.get("timestamp") or ""))
+    
+    if len(playlist) < n:
+        print("Warning: only {} of {} requested preview clips were successfully produced".format(
+            len(playlist), n
+        ))
+    
+    return playlist
 
 
 def write_atomic(target: Path, content: str):
@@ -572,12 +794,27 @@ def main():
     parser = argparse.ArgumentParser(description="Build avatar voice page")
     parser.add_argument("--person", required=True, help="person slug")
     parser.add_argument("--repo-root", default=None, help="repo root (default: parent of script)")
+    parser.add_argument("--preview", type=int, default=0, help="generate preview page with N embedded clips (default: 0 = off)")
+    parser.add_argument("--preview-bitrate", type=int, default=24, help="MP3 bitrate for preview clips, 16-64 kbps (default: 24)")
+    parser.add_argument("--preview-max-mb", type=float, default=1.0, help="max size of preview HTML in MB (default: 1.0)")
     args = parser.parse_args()
 
     slug = args.person
     if not SLUG_RE.match(slug):
         print("Error: invalid slug")
         sys.exit(1)
+
+    if args.preview < 0:
+        print("Error: --preview must be >= 0")
+        sys.exit(1)
+    
+    if args.preview > 0:
+        if args.preview_bitrate < 16 or args.preview_bitrate > 64:
+            print("Error: --preview-bitrate must be between 16 and 64")
+            sys.exit(1)
+        if args.preview_max_mb <= 0:
+            print("Error: --preview-max-mb must be positive")
+            sys.exit(1)
 
     script_dir = Path(__file__).resolve().parent
     repo_root = Path(args.repo_root).resolve() if args.repo_root else script_dir.parent
@@ -631,6 +868,39 @@ def main():
     print("clips: {}".format(len(playlist)))
     print("HTML KB: {:.1f}".format(html_kb))
     print("wrote: {}".format(html_path))
+
+    # Preview page generation
+    if args.preview > 0:
+        print("Building preview page with {} clips...".format(args.preview))
+        
+        preview_playlist = build_preview_playlist(media_index, archive_dir, args.preview, args.preview_bitrate)
+        
+        actual_count = len(preview_playlist)
+        footer_note = FOOTER_NOTE + " 手机预览版：内嵌 {} 条语音；完整版 {} 条请在电脑上打开 avatar.html".format(
+            actual_count, len(playlist)
+        )
+        
+        preview_html = generate_html(preview_playlist, footer_note)
+        preview_path = archive_dir / "avatar_preview.html"
+        
+        preview_size = len(preview_html.encode("utf-8"))
+        max_bytes = int(args.preview_max_mb * 1024 * 1024)
+        
+        if preview_size > max_bytes:
+            print("Error: preview HTML size {:.2f} MB exceeds limit {:.2f} MB".format(
+                preview_size / (1024 * 1024), args.preview_max_mb
+            ))
+            print("Try reducing --preview N or --preview-bitrate")
+            sys.exit(1)
+        
+        write_atomic(preview_path, preview_html)
+        
+        print("preview clips: {}".format(actual_count))
+        for i, (item, ap) in enumerate(select_preview_clips(media_index, args.preview)):
+            dur_ms = item.get("duration_ms") or 0
+            print("  {}: {} ({:.1f}s)".format(i + 1, ap, dur_ms / 1000.0))
+        print("preview HTML MB: {:.2f}".format(preview_size / (1024 * 1024)))
+        print("wrote: {}".format(preview_path))
 
 
 if __name__ == "__main__":

@@ -106,7 +106,7 @@ def needs_review(text):
     return bool(BAD_CHAR_RE.search(text)) or bool(LATIN_RE.search(text))
 
 
-def build_html(items, review_items, normal_items, total_count, review_count, only_flagged=False):
+def build_html(items, review_items, normal_items, total_count, review_count, only_flagged=False, page_id='', source_dataset='', source_total=0):
     # Compute dataset_id from ordered utt + '\0' + text concatenation
     dataset_str = '\0'.join(it['utt'] + '\0' + it['text'] for it in items)
     dataset_id = hashlib.md5(dataset_str.encode('utf-8')).hexdigest()[:12]
@@ -124,6 +124,14 @@ def build_html(items, review_items, normal_items, total_count, review_count, onl
 
     json_payload = json.dumps(data_for_js, ensure_ascii=False).replace('</', '<\\/')
 
+    # Escape page_id for safe JSON string embedding
+    if page_id:
+        page_id_escaped = json.dumps(page_id, ensure_ascii=False)[1:-1]
+    else:
+        page_id_escaped = ''
+
+    source_total_str = str(int(source_total))
+
     # Determine whether to show normal section
     show_normal = not only_flagged
     normal_count = len(normal_items) if show_normal else 0
@@ -134,10 +142,10 @@ def build_html(items, review_items, normal_items, total_count, review_count, onl
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>Shanghai TTS Correction</title>
+<title>上海话转写校对</title>
 <style>
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; margin: 0; padding: 0 12px 40px; background: #f5f6fa; color: #222; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; margin: 0; padding: 0 12px 120px; background: #f5f6fa; color: #222; }
 #toolbar { position: sticky; top: 0; background: #2c3e50; color: #fff; padding: 10px 12px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; z-index: 99; box-shadow: 0 2px 8px rgba(0,0,0,0.2); margin: 0 -12px 16px; border-radius: 0 0 8px 8px; }
 #toolbar h1 { font-size: 16px; margin: 0 12px 0 0; white-space: nowrap; }
 #stats { font-size: 14px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
@@ -147,6 +155,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helv
 .btn.danger { background: #e74c3c; }
 .btn.outline { background: transparent; border: 1px solid rgba(255,255,255,0.6); color: #fff; }
 .btn:active { transform: scale(0.96); }
+#bottom-bar { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); box-shadow: 0 -2px 10px rgba(0,0,0,0.15); z-index: 98; }
+#bottom-bar .btn { width: 100%; font-size: 17px; padding: 14px; }
 .card { background: #fff; border-radius: 10px; padding: 14px; margin: 0 0 14px; box-shadow: 0 2px 6px rgba(0,0,0,0.08); border-left: 4px solid #bdc3c7; }
 .card.review { border-left-color: #e74c3c; }
 .card.dropped { opacity: 0.55; background: #fdf2f2; }
@@ -164,13 +174,14 @@ audio { width: 100%; margin: 8px 0 4px; min-height: 44px; }
 .speed-btn.active { background: #3498db; color: #fff; border-color: #3498db; }
 textarea { width: 100%; font-size: 18px; line-height: 1.5; padding: 10px; border: 1px solid #dcdde1; border-radius: 6px; font-family: inherit; resize: none; min-height: 60px; overflow: hidden; }
 textarea:focus { outline: 2px solid #3498db; border-color: #3498db; }
-.drop-row { display: flex; align-items: center; margin-top: 6px; font-size: 15px; gap: 8px; min-height: 44px; cursor: pointer; }
-.drop-row input[type="checkbox"] { width: 20px; height: 20px; min-width: 20px; min-height: 20px; cursor: pointer; }
-.drop-row label { cursor: pointer; display: flex; align-items: center; min-height: 44px; margin: 0; }
+.drop-btn { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 44px; margin-top: 8px; border: 2px solid #e74c3c; border-radius: 8px; background: transparent; color: #e74c3c; font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+.drop-btn.dropped { background: #e74c3c; color: #fff; border-color: #e74c3c; }
+.drop-btn:active { transform: scale(0.97); }
 details summary { padding: 12px; background: #ecf0f1; border-radius: 8px; font-size: 15px; font-weight: 600; color: #2c3e50; cursor: pointer; margin: 8px 0 12px; min-height: 44px; display: flex; align-items: center; }
 #overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.55); display: none; z-index: 100; justify-content: center; align-items: center; padding: 16px; }
 #modal { background: #fff; border-radius: 10px; padding: 16px; width: 100%; max-width: 700px; max-height: 90vh; overflow-y: auto; }
 #modal h2 { margin: 0 0 10px; font-size: 18px; }
+#modal-note { font-size: 13px; color: #666; margin: 0 0 10px; padding: 8px; background: #f0f9ff; border-radius: 6px; border-left: 3px solid #3498db; }
 #export-out { width: 100%; height: 260px; font-family: Consolas, monospace; font-size: 13px; border: 1px solid #dcdde1; border-radius: 6px; padding: 8px; white-space: pre; overflow: auto; }
 .modal-buttons { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 .section-title { font-size: 16px; font-weight: 700; margin: 0 0 8px; padding: 6px 0; border-bottom: 2px solid #2c3e50; color: #2c3e50; }
@@ -178,33 +189,37 @@ details summary { padding: 12px; background: #ecf0f1; border-radius: 8px; font-s
 </head>
 <body>
 <div id="toolbar">
-  <h1>Shanghai TTS Correction</h1>
+  <h1>上海话转写校对</h1>
   <div id="stats">
-    <span class="stat">Total: <b id="st-total">0</b></span>
-    <span class="stat">Review Req: <b id="st-review">0</b></span>
-    <span class="stat">Edited: <b id="st-edited">0</b></span>
-    <span class="stat">Dropped: <b id="st-dropped">0</b></span>
-    <button class="btn outline" onclick="clearAllDrafts()">Clear Draft</button>
-    <button class="btn" onclick="showExport()">Export</button>
+    <span class="stat">总数: <b id="st-total">0</b></span>
+    <span class="stat">需校对: <b id="st-review">0</b></span>
+    <span class="stat">已改: <b id="st-edited">0</b></span>
+    <span class="stat">已剔除: <b id="st-dropped">0</b></span>
+    <button class="btn outline" onclick="clearAllDrafts()">清空草稿</button>
   </div>
 </div>
 
-<div id="review-section"><div class="section-title">Need Correction (<span id="review-count"></span>)</div></div>
+<div id="review-section"><div class="section-title">需校对 (<span id="review-count"></span>)</div></div>
 ''' + ('''
 <details id="normal-section">
-  <summary>Normal (optional review, <span id="normal-count"></span> items)</summary>
+  <summary>正常（可选校对，<span id="normal-count"></span> 条）</summary>
   <div id="normal-container"></div>
 </details>
 ''' if show_normal else '') + '''
 
+<div id="bottom-bar">
+  <button class="btn" onclick="showExport()">✅ 完成校对 · 生成回贴码</button>
+</div>
+
 <div id="overlay">
   <div id="modal">
-    <h2>Export Corrections (JSON Lines)</h2>
+    <h2>回贴码（复制后粘贴回聊天即可）</h2>
+    <div id="modal-note">没改过的条目会自动按"原转写正确"处理，不用逐条确认。</div>
     <textarea id="export-out" readonly></textarea>
     <div class="modal-buttons">
-      <button class="btn" onclick="copyExport()">Copy to Clipboard</button>
-      <button class="btn" onclick="downloadExport()">Download corrections.jsonl</button>
-      <button class="btn danger" onclick="hideModal()">Close</button>
+      <button class="btn" onclick="copyExport()">复制回贴码</button>
+      <button class="btn" onclick="downloadExport()">下载 corrections.jsonl</button>
+      <button class="btn danger" onclick="hideModal()">关闭</button>
     </div>
   </div>
 </div>
@@ -275,7 +290,7 @@ function onTextChange(obj, ta) {
   if (obj.edited && !badge) {
     var tb = document.createElement('span');
     tb.className = 'tag edited';
-    tb.textContent = 'Edited';
+    tb.textContent = '已改';
     obj.el.querySelector('.card-header').appendChild(tb);
   } else if (!obj.edited && badge) {
     badge.remove();
@@ -283,8 +298,8 @@ function onTextChange(obj, ta) {
   updateTotals();
 }
 
-function onDropChange(obj, cb) {
-  obj.dropped = cb.checked;
+function onDropChange(obj, btn) {
+  obj.dropped = !obj.dropped;
   saveDrop(obj);
   if (obj.dropped) obj.el.classList.add('dropped');
   else obj.el.classList.remove('dropped');
@@ -292,11 +307,13 @@ function onDropChange(obj, cb) {
   if (obj.dropped && !badge) {
     var tb = document.createElement('span');
     tb.className = 'tag drop';
-    tb.textContent = 'Dropped';
+    tb.textContent = '已剔除';
     obj.el.querySelector('.card-header').appendChild(tb);
   } else if (!obj.dropped && badge) {
     badge.remove();
   }
+  btn.classList.toggle('dropped', obj.dropped);
+  btn.textContent = obj.dropped ? '↩ 已剔除，点击恢复' : '🗑 剔除这条（不进训练集）';
   updateTotals();
 }
 
@@ -311,19 +328,19 @@ function createCard(obj) {
   if (obj.needsReview) {
     var tagR = document.createElement('span');
     tagR.className = 'tag review';
-    tagR.textContent = 'REVIEW';
+    tagR.textContent = '需校对';
     header.appendChild(tagR);
   }
   if (obj.edited) {
     var tagE = document.createElement('span');
     tagE.className = 'tag edited';
-    tagE.textContent = 'Edited';
+    tagE.textContent = '已改';
     header.appendChild(tagE);
   }
   if (obj.dropped) {
     var tagD = document.createElement('span');
     tagD.className = 'tag drop';
-    tagD.textContent = 'Dropped';
+    tagD.textContent = '已剔除';
     header.appendChild(tagD);
   }
   var uttId = document.createElement('div');
@@ -341,7 +358,7 @@ function createCard(obj) {
   var speedDiv = document.createElement('div');
   speedDiv.className = 'speed-control';
   var lbl = document.createElement('span');
-  lbl.textContent = 'Speed:';
+  lbl.textContent = '倍速:';
   speedDiv.appendChild(lbl);
   var btn07 = document.createElement('button');
   btn07.className = 'speed-btn';
@@ -364,24 +381,12 @@ function createCard(obj) {
   autoResize(ta);
   ta.addEventListener('input', function() { onTextChange(obj, ta); autoResize(ta); });
 
-  var dropRow = document.createElement('div');
-  dropRow.className = 'drop-row';
-  var cbId = 'drop_' + obj.utt.replace(/[^a-zA-Z0-9]/g, '_');
-  var cb = document.createElement('input');
-  cb.type = 'checkbox';
-  cb.id = cbId;
-  cb.checked = obj.dropped;
-  cb.addEventListener('change', function() { onDropChange(obj, cb); });
-  var lblDrop = document.createElement('label');
-  lblDrop.htmlFor = cbId;
-  lblDrop.textContent = ' Remove this entry';
-  lblDrop.style.margin = '0';
-  lblDrop.style.cursor = 'pointer';
-  lblDrop.style.display = 'flex';
-  lblDrop.style.alignItems = 'center';
-  dropRow.appendChild(cb);
-  dropRow.appendChild(lblDrop);
-  card.appendChild(dropRow);
+  var dropBtn = document.createElement('button');
+  dropBtn.type = 'button';
+  dropBtn.className = 'drop-btn' + (obj.dropped ? ' dropped' : '');
+  dropBtn.textContent = obj.dropped ? '↩ 已剔除，点击恢复' : '🗑 剔除这条（不进训练集）';
+  dropBtn.addEventListener('click', function() { onDropChange(obj, dropBtn); });
+  card.appendChild(dropBtn);
 
   return card;
 }
@@ -396,7 +401,7 @@ function setActive(btn) {
 function renderAll() {
   var reviewSection = document.getElementById('review-section');
   var normalContainer = document.getElementById('normal-container');
-  reviewSection.innerHTML = '<div class="section-title">Need Correction (<span id="review-count"></span>)</div>';
+  reviewSection.innerHTML = '<div class="section-title">需校对 (<span id="review-count"></span>)</div>';
   if (normalContainer) normalContainer.innerHTML = '';
 
   var reviewArr = [];
@@ -447,7 +452,7 @@ function updateTotals() {
 }
 
 function clearAllDrafts() {
-  if (!confirm('Clear all saved drafts? This cannot be undone.')) return;
+  if (!confirm('确定清空所有已保存的草稿吗？此操作无法撤销。')) return;
   Object.keys(items).forEach(function(k) {
     var it = items[k];
     try {
@@ -460,8 +465,8 @@ function clearAllDrafts() {
     if (it.el) {
       var ta = it.el.querySelector('textarea');
       if (ta) { ta.value = it.text; autoResize(ta); }
-      var cb = it.el.querySelector('input[type=checkbox]');
-      if (cb) cb.checked = false;
+      var btn = it.el.querySelector('.drop-btn');
+      if (btn) { btn.classList.remove('dropped'); btn.textContent = '🗑 剔除这条（不进训练集）'; }
       it.el.classList.remove('dropped');
     }
   });
@@ -469,15 +474,35 @@ function clearAllDrafts() {
 }
 
 function buildExport() {
-  var lines = [];
+  var changed = [];
+  var editedCount = 0;
+  var droppedCount = 0;
   Object.keys(items).forEach(function(k) {
     var it = items[k];
-    lines.push(JSON.stringify({
-      utt: it.utt,
-      text: it.text,
-      drop: !!it.dropped
-    }));
+    if (it.dropped) {
+      droppedCount++;
+      changed.push({ utt: it.utt, drop: true });
+    } else if (it.edited) {
+      editedCount++;
+      changed.push({ utt: it.utt, text: it.text });
+    }
   });
+  var meta = {
+    meta: 1,
+    dataset: "''' + '__DATASET_ID__' + '''",
+    page: "''' + '__PAGE_ID__' + '''",
+    source_dataset: "''' + '__SOURCE_DATASET_ID__' + '''",
+    source_total: ''' + '__SOURCE_TOTAL__' + ''',
+    total: Object.keys(items).length,
+    edited: editedCount,
+    dropped: droppedCount
+  };
+  var lines = [JSON.stringify(meta)];
+  if (changed.length === 0) {
+    lines.push(JSON.stringify({ all_ok: true }));
+  } else {
+    changed.forEach(function(c) { lines.push(JSON.stringify(c)); });
+  }
   return lines.join('\\n');
 }
 
@@ -494,7 +519,7 @@ function copyExport() {
   var text = out.value;
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(function() {
-      alert('Copied to clipboard!');
+      alert('已复制！回到聊天窗口粘贴给 Claude 即可');
     }, function() {
       fallbackCopy(out);
     });
@@ -508,9 +533,9 @@ function fallbackCopy(ta) {
   ta.setSelectionRange(0, ta.value.length);
   try {
     document.execCommand('copy');
-    alert('Copied to clipboard!');
+    alert('已复制！回到聊天窗口粘贴给 Claude 即可');
   } catch(e) {
-    alert('Copy failed - please select and copy manually.');
+    alert('复制失败 - 请手动选择并复制。');
   }
 }
 
@@ -534,6 +559,9 @@ init();
 '''
     html = html.replace('__DATA__', json_payload)
     html = html.replace('__DATASET_ID__', dataset_id)
+    html = html.replace('__PAGE_ID__', page_id_escaped)
+    html = html.replace('__SOURCE_DATASET_ID__', source_dataset)
+    html = html.replace('__SOURCE_TOTAL__', source_total_str)
     return html
 
 
@@ -545,6 +573,8 @@ def main():
     parser.add_argument('--bitrate', type=int, default=64, help='MP3 bitrate (16-128, default 64)')
     parser.add_argument('--only-flagged', action='store_true', help='Only include items that need review')
     parser.add_argument('--limit', type=int, default=0, help='Only process first N review items (0=unlimited)')
+    parser.add_argument('--page-id', default='', help='Page identifier, e.g. "1/2"')
+    parser.add_argument('--source-text', default='', help='Path to full source text file (Kaldi format)')
     args = parser.parse_args()
 
     if args.bitrate < 16 or args.bitrate > 128:
@@ -560,6 +590,15 @@ def main():
     if not text_entries:
         print('ERROR: no entries in text file')
         sys.exit(1)
+
+    # Compute source dataset hash and total if --source-text provided
+    source_dataset = ''
+    source_total = 0
+    if args.source_text:
+        source_entries = load_text(args.source_text)
+        source_str = '\0'.join(e['utt'] + '\0' + e['text'] for e in source_entries)
+        source_dataset = hashlib.md5(source_str.encode('utf-8')).hexdigest()[:12]
+        source_total = len(source_entries)
 
     # Filter to review-only if requested
     if args.only_flagged:
@@ -607,7 +646,7 @@ def main():
     review_items = [it for it in items if it['needsReview']]
     normal_items = [it for it in items if not it['needsReview']]
 
-    html = build_html(items, review_items, normal_items, total, review_count, args.only_flagged)
+    html = build_html(items, review_items, normal_items, total, review_count, args.only_flagged, args.page_id, source_dataset, source_total)
 
     with open(args.out, 'w', encoding='utf-8') as f:
         f.write(html)
