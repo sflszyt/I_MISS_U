@@ -1,7 +1,22 @@
 # 交接文档（HANDOFF）
 
-> 给下一个会话的 Claude（或未来的自己）。最后更新：2026-08-04，Phase 1 完成时。
-> 读这份之前先读 `CLAUDE.md`（铁律）。研究依据在 `docs/research/`。
+> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-08-10 凌晨，MVP 冲刺后清理上下文前**。
+> 读这份之前先读 `CLAUDE.md`（铁律），再读仓库根的 `task_plan.md` / `progress.md` / `findings.md`（MVP 计划与实时状态，2026-08-09 起启用）。研究依据在 `docs/research/`。
+
+## ⓪ 当前最热状态（2026-08-10，先看这里）
+
+**MVP 四层冲刺中**（用户 08-09 拍板：纯微信数据的数据层/语音层/文字层/虚拟桌面卡通人）。详细 phase 状态看 `task_plan.md`，一句话版：
+
+- **DeepSeek 管道已修**：病根=推理烧光 token；`scripts/deepseek_call.py` 加了 `DEEPSEEK_NOTHINK=1`（关推理，必用）与 `DEEPSEEK_MODEL` 环境变量。用法：PS 里 `$env:DEEPSEEK_NOTHINK="1"; python scripts/deepseek_call.py <spec> <out> 30000`。产物常带 markdown 围栏，剥首尾行再 py_compile
+- **数据层 ✅**：`tools/build_data_bundle.py` → `people/mama/archive_out/data/`（228MB，20923 消息/125 语音/9 视频/68 月 timeline）
+- **文字层节律 ✅**：`tools/build_rhythm.py` → `persona/rhythm.json`（9386 条 subject 消息统计）
+- **卡通人 ✅ 核心**：`tools/build_avatar_page.py` → `archive_out/avatar.html`（SVG 非真人脸 + 音量驱动口型 + 125 条原声）。用户验证：跑 `archive_out/start_server.bat` 开 `http://localhost:8020/avatar.html`
+- **语音层等用户**：v0.1-clean27 已训完（`~/wu-sft/v01_clean27/exp/mama_v01c27_llm/` epoch_0..14）
+- **等用户三件事**：①校对页 2 页（18 条脏转写）导出 JSONL 贴回 → 触发 45 条满血重训 v0.1-full；②试听页 3 页 epoch 排序（2/4/8/14）→ 定盲听候选；③avatar.html 体验反馈
+- **未做**：persona.md（文字层大头，含缺点不理想化，建议专门会话）、记忆卡片+人工闸门页、BYOK 对话页、合成语音进卡通人清单、M3 build_archive 合流
+- **工具链新增（全 Codex ACCEPT）**：`tools/make_listen_page.py`（manifest 试听页生成，--bitrate/--max-mb）、`tools/make_correction_page.py`（转写校对页，--only-flagged/--limit）。**发手机的 HTML 必须 <1MB/页**（24kbps + 分页，大页面用户手机打不开）
+- **训练环境坑**（详见 findings.md）：OOM=重启治愈；venv 内有 ASCII deepspeed stub 勿加 PYTHONPATH 遮蔽；`executor.py:146` 已改 @torch.no_grad()；CosyVoice 仓库两处未提交补丁勿还原
+- **08-09 分工违规已纠正**：8/7-9 代码曾 Claude 直写被用户查账发现（记忆 deepseek-division-enforcement.md）。之后全部恢复 DeepSeek 写 + Codex 审，Claude 直写仅限声明过的 hotfix/glue
 
 ## 一、项目一句话
 
