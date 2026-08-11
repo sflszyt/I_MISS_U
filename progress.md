@@ -46,4 +46,5 @@
 - **用户 review 中插反馈（语音）**："full44 e14 好点，但开头 1s 内有奇怪的话，是垫进去的吗？"→ 探针实锤：6 条样本前 300ms 全部 0.000 纯静音（垫无声，清白），"话"在 300ms 后=模型起始幻觉；且 f44 e14 比 c27 e14 明显长（02 号 8.2s vs 5.4s），正文重音更晚 → 正文前多生成了低音量语音状内容
 - 处理：/free 释放 ComfyUI 显存（21.3G→1.8G）→ synth_epoch_samples.py 重合成 f44 e14（新随机采样，tag v01f44r2，samples_rerun/）验证幻觉是随机还是固有；随机→重抽即可，固有→导出侧加起始能量截除或改推 e8
 - **用户确认（2026-08-12）："干净了"** → 幻觉实锤随机，重抽即除；**盲听候选定稿 v01_full44 epoch14**；新增 1f 批量合成脚本待办（起始幻觉 QC：时长阈值+自动重抽）
-- 4e 批量开跑：30 张（10 照 × 3 风格 × s1000）脱离进程生成中（日志 scratchpad/avatar_batch.log，Monitor 守完成）；dry-run 30 任务矩阵验证过；make_contact_sheet.py（DeepSeek 写，Codex 审核中）产手机拼图
+- 4e 批量开跑：30 张（10 照 × 3 风格 × s1000）脱离进程生成中（日志 scratchpad/avatar_batch.log，Monitor 守完成）；dry-run 30 任务矩阵验证过；~70s/张
+- make_contact_sheet.py 四轮闭环入库 tools/：DeepSeek v1 → Codex REJECT（布局/压缩循环/index 页/边界全有实缺；其中"90/93 行语法错误"一条经本机 py_compile+读行实证为 Codex 误报）→ 规格简化重写 v2（去 index 页/通用网格/压缩伪代码明确/纯 ASCII 标题）→ DeepSeek v2 → Codex REJECT（Windows 路径断言字符串前缀必炸 + 标注编号反查 IndexError）→ DeepSeek v3 修复 + Claude 声明 hotfix（删重复告警死代码）→ Codex 终审 ACCEPT with fixes（仅剩空源照硬失败）→ DeepSeek v4 修完 diff 验证。教训：**拼图布局类规格要给伪代码级细节，first-shot 质量与规格精细度强相关**
