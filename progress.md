@@ -52,3 +52,12 @@
 - **用户挑风格（2026-08-12）："第一套风格的都不错" → warm 暖手绘方向定稿**；已启动 warm 加抽 seeds 1001/1002（20 张新图，PID 34096，日志 avatar_batch2.log，Monitor 守）→ 完成后拼 30 选 warm 大图发用户挑最终头像
 - **1f 完成闭环入库 tools/synth_blind_batch.py**：spec 基于已验证 synth_epoch_samples.py 改造 → DeepSeek v1 → Codex ACCEPT with fixes（2 MAJOR：SKIP 在任务级 try 外+except 直写报告可断批 / 全超限 retries 多记 1；3 MINOR）→ DeepSeek v2 修复（diff+代码双验证：except 自算 elapsed、引用变量 try 顶部全初始化、retries=takes-1、SKIP schema 明确）+ Claude 声明 hotfix（check_sr 死变量）→ py_compile 过。**尚未实跑**（待盲听文本清单定稿后 GPU 实测）
 - 4e 假警报教训：PS `Get-ChildItem -Filter` 不支持 `[12]` 字符类（FindFirstFile 语义），计数用 Where-Object 正则；warm 加抽批次正常（~55s/张）
+
+## Session 2026-08-12 深夜（文字层全面开工 + 头像终选）
+- **用户指令：同步推进文字层；泛化基线重申（anyone，MVP=mama）**→ 已写入 task_plan Phase 3 设计基线 + 记忆 i-miss-u-project-state
+- **头像终选：04 s1001（用户拍板）**→ 固化 people/mama/persona/avatar.png + avatar_choice.json（溯源：源照/seed/prompt/model）。warm 加抽批次 20/20 成功（总 30 warm 候选，6 列大图发用户后即选定）。**下一步 4e-集成：build_avatar_page.py 支持图片头像+口型动画（DeepSeek 轮，未开工）**
+- **Tool-1 extract_persona_digest.py 闭环入库**：DeepSeek×3 + Codex（REJECT：kw 抽样死循环+未降级 UnboundLocal → REJECT：kw 元素类型+池排序行序敏感 → ACCEPT with fixes：sender 必填缺失）+ Claude 声明 hotfix（sender 入必填）。**实跑通过：206KB digest**（random50/longest25/threads14/9 组关键词，全带 record_id）
+- **Tool-2 extract_memory_candidates.py 闭环入库**：DeepSeek×4 + Codex（REJECT：duration_ms 类型炸+title str(dict)+candidate_id 碰撞+is_subject 宽松 → REJECT：UIF 入口解析未收紧 → ACCEPT → v4 配额增量审核中）。实跑：五信号 908 候选 → 配额 40/15/15/15/15+轮转补位 → 150 条（61/23/22/22/22），candidates.jsonl 已产
+- **persona.md 起草已派 Claude 子代理**（后台，判断类工作留 Claude 家族）：读 digest+rhythm+relationship，铁律 2 全文约束（必写缺点冲突面/Tier-3 全标注/禁编造/逐论断带 record_id 证据），产物 people/mama/persona/persona.md + 待确认清单
+- 配置直写（已声明）：tools/persona_keywords.zh.json（9 组通用中文+吴语特征关键词）、people/mama/persona/relationship.json（关系参数化落点，泛化架构第一实例）
+- 文字层剩余：3d 闸门页 make_gate_page.py + apply 工具（下轮）、timeline.md 渲染（下轮）、persona 草稿等子代理回报

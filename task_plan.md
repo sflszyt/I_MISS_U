@@ -26,17 +26,18 @@
 - ✅ 1c 头尾截断已修：synth_epoch_samples.py 加 --pad-ms 300/--exp-tag（DeepSeek 两轮 + Codex ACCEPT，存 v01_full44/），9 条样本探针验证首尾全静音；空 token/embedding 以探针代偿（44/44 全过）
 - ✅ 1e 满血重训完成（2026-08-11）：v01_full44 44 条 15 epochs，final loss 0.095/acc 0.986（exp/mama_v01f44_llm）。A/B 终选页 ab_final.html 已上局域网入口（full44 e8/e14 vs clean27 e14 对照，全部带 pad）。坑：PS Set-Content 写 utt2spk 带 BOM 崩 extract_embedding（GBK 读），改 awk 无 BOM
 - ✅ 1e 用户定稿（2026-08-12）：**盲听候选 = v01_full44 epoch14**。"开头 1s 奇怪的话"已探针实锤：300ms 垫为纯静音（0.000），怪话是模型随机起始幻觉（02 号重抽后 8.2s→5.4s 消失），用户确认重抽版"干净了"
-- ⬜ 1f 批量合成脚本（进盲听批次前）：需带**起始幻觉 QC**——按文本长度估计合理时长，超阈值/起始段低能量语音状前缀 → 自动重抽 N 次；产物仍走 --pad-ms 300
+- 🔶 1f 批量合成脚本：tools/synth_blind_batch.py 已闭环入库（54c2668，DeepSeek×2 + Codex ACCEPT with fixes 已修）——texts JSONL + 时长 QC 自动重抽 + 起始能量标记 + qc_report.jsonl；**待盲听文本清单定稿后 GPU 实跑验证**（批次建议见 dialect-tts-maturity.md）
 - 完成标准：有一版用户认可"可进盲听"的模型（✅ full44 e14）+ 批量合成脚本（1f）
 
 ### Phase 2：数据层 — status: complete（2026-08-10 凌晨，Codex ACCEPT，已提交 6fe8275）
 - ✅ tools/build_data_bundle.py（DeepSeek×4 轮 + Codex×2 轮）：archive_out/data/ = 7 年度分片(20923) + media_index + timeline(68月) + meta + 语音125/本人视频9 拷贝，228MB，幂等 + 全量对账 + file_ref 子树锚定
 
-### Phase 3：文字层 — status: in_progress（3a 完成）
+### Phase 3：文字层 — status: in_progress（3a 完成，2026-08-12 全面开工）
+- **设计基线（2026-08-12 用户重申）**：项目未来泛化到一切人物（父母/配偶/子女/朋友/anyone），MVP 基于 mama。**所有 Phase 3 工具必须 person-generic**：吃 `--person <slug>` + UIF，人物/关系特定内容全部进 `people/<slug>/persona/relationship.json` 配置与 prompts/ 参数化模板，工具代码零硬编码人名/关系
 - ✅ 3a tools/build_rhythm.py（DeepSeek×3 轮 + Codex×3 轮 ACCEPT）：persona/rhythm.json + archive_out/data/rhythm.json——9386 条 subject 消息的长度/时段/连发/回复延迟/标点/口头禅23条/表情/语音习惯，精确 skip 计数
-- 3b persona.md：从她的 9386 条消息萃取（含缺点与冲突面，禁止理想化）——LLM 辅助生成部分全部标 Tier-3 待确认
-- 3c 记忆卡片候选 + timeline.md（Tier-2 可溯源）
-- 3d 人工闸门页：候选卡片供用户逐条确认升 Tier-1
+- 🔶 3b persona.md 两步走：①tools/extract_persona_digest.py（DeepSeek）——UIF → persona_digest.json（分年统计 + 分层抽样：随机/最长/冲突关键词命中/高频短语例句，全带 provenance，体量上限约 200KB）；②Claude 读 digest + rhythm.json 起草 persona.md（判断类工作属主模型职责），含缺点与冲突面、逐条款 Tier-3 标注 + 溯源指针 → 用户确认后升级
+- 🔶 3c 两件：①tools/extract_memory_candidates.py（DeepSeek）——确定性信号挖候选：事件关键词簇（关键词表外置配置，通用非 mama 专用）/长消息/同日媒体爆发/≥30s 语音/年度首次，输出 memories/candidates.jsonl（Tier-2 带 source ids+日期+摘录）；②timeline.md 复用 archive_out/data/timeline 月度数据渲染人读版（Tier-2）
+- 🔶 3d tools/make_gate_page.py（DeepSeek）——人工闸门移动页（沿 R2 定型模式：<1MB/大按钮/回贴码只含改动项/dataset hash 校验）：候选卡逐条 确认/改写/拒绝 → 回贴码 → apply 工具合并出 memories/memories.md（Tier-1）
 - 完成标准：persona/ 与 memories/ 目录齐备，Tier 标注完整，闸门页可用
 
 ### Phase 4：卡通人（消费端）— status: 4a-4c complete（Codex ACCEPT），4d 未做
