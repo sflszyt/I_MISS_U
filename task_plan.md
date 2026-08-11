@@ -22,8 +22,9 @@
 - ✅ 1a 校对页发用户（45 条全量、18 条标红；DeepSeek 两轮 + Codex 两轮 ACCEPT；工具存 ~/wu-sft/v0/scripts/make_correction_html_final.py）→ **等用户回贴 corrections.jsonl**
 - ✅ 1b 干净数据先行重训 v0.1-clean27（27 条＝45−18，非原计划 31；epoch_0..14 存 ~/wu-sft/v01_clean27/exp/mama_v01c27_llm/，最终 loss 0.072/acc 0.992）
 - ✅ 1d 三方试听页已发用户（epochs 2/4/8/14 × 3 文本；synth_epoch_samples + make_listen_page 均 DeepSeek 写 + Codex ACCEPT with fixes）→ **等用户 epoch 排序反馈**
-- ⬜ 1c 管线加固（空token fail-fast / parquet 命名 / accum_grad flush / listen_page 两处 minor）→ 与 1e 合并做
-- ⬜ 1e 用户校对回收后 45 条满血重训 v0.1-full
+- ✅ 1d 用户反馈（2026-08-11）：**epoch14 总体最好**，但头尾有小部分被切。探针实锤（wav 第 0ms 即 RMS 0.05-0.07，无起始静音；文本3 末 50ms 仍 0.067）：合成/导出侧无首尾缓冲
+- 🔶 1c 管线加固：本轮以探针代偿（44 条 token 0 空、embedding 44/44）；合成导出首尾静音垫留待出样本时修（synth 脚本改造走 DeepSeek+Codex）
+- 🔶 1e 满血重训进行中（2026-08-11）：apply_corrections.py（tools/，Codex ACCEPT with fixes 已修，f48a9ef）→ v01_full44/data(44条,指纹96b74b4613a0) → embedding/token/parquet 齐 → **训练已启动**（run_train.sh 沿用 clean27 配置，exp/mama_v01f44_llm）。坑：PS Set-Content 写的 utt2spk 带 BOM 崩 extract_embedding（GBK 读），改 awk 无 BOM 重写
 - 完成标准：有一版用户认可"可进盲听"的模型 + 批量合成脚本
 
 ### Phase 2：数据层 — status: complete（2026-08-10 凌晨，Codex ACCEPT，已提交 6fe8275）
@@ -40,6 +41,7 @@
 - ✅ tools/build_avatar_page.py（DeepSeek×5 轮 + Codex×3 轮）：archive_out/avatar.html（37KB）+ start_server.bat/.sh——SVG 卡通（圆脸眨眼腮红，非真人脸）+ AnalyserNode 音量驱动嘴型 + 600ms 静音伪驱动 fallback + 125 条原声播放列表（data/media/voice 相对路径）+ 续播守卫
 - ⬜ 4c 合成语音入清单（等 v0.1 epoch 定稿后把 TTS 样本放 data/media/tts/）
 - ⬜ 4d BYOK 对话页（Tier-3 禁陈述为事实的提示词）
+- 🔶 4e 形象升级（2026-08-11 用户反馈"太卡通"）：**照片→风格化卡通头像**，全本地（铁律 3）。调研定稿 docs/research/photo-cartoon-avatar.md（首选 Qwen-Image-Edit-2509 Apache-2.0）；用户已放 10 张照片进 raw/photos/；**权重+ComfyUI 已全部下载完**（comfy_dl/：主模型19.5G+编码器8.9G+VAE+便携包2G）；下一步：解压装 ComfyUI → 批量出候选头像给用户挑
 - 用户验证方式：运行 archive_out/start_server.bat → 浏览器开 http://localhost:8020/avatar.html
 
 ### Phase R：移动 review 体验（2026-08-10 用户提出）— status: complete（R1/R2 Codex ACCEPT，R3 已执行）
