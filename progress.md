@@ -48,3 +48,7 @@
 - **用户确认（2026-08-12）："干净了"** → 幻觉实锤随机，重抽即除；**盲听候选定稿 v01_full44 epoch14**；新增 1f 批量合成脚本待办（起始幻觉 QC：时长阈值+自动重抽）
 - 4e 批量开跑：30 张（10 照 × 3 风格 × s1000）脱离进程生成中（日志 scratchpad/avatar_batch.log，Monitor 守完成）；dry-run 30 任务矩阵验证过；~70s/张
 - make_contact_sheet.py 四轮闭环入库 tools/：DeepSeek v1 → Codex REJECT（布局/压缩循环/index 页/边界全有实缺；其中"90/93 行语法错误"一条经本机 py_compile+读行实证为 Codex 误报）→ 规格简化重写 v2（去 index 页/通用网格/压缩伪代码明确/纯 ASCII 标题）→ DeepSeek v2 → Codex REJECT（Windows 路径断言字符串前缀必炸 + 标注编号反查 IndexError）→ DeepSeek v3 修复 + Claude 声明 hotfix（删重复告警死代码）→ Codex 终审 ACCEPT with fixes（仅剩空源照硬失败）→ DeepSeek v4 修完 diff 验证。教训：**拼图布局类规格要给伪代码级细节，first-shot 质量与规格精细度强相关**
+- **4e 批量收官**：30/30 全成功零失败（avg ~70s/张，最长 193s）；manifest.jsonl 30 行溯源齐；3 张风格拼图（281-314KB，1648×1380）自查渲染正确后已直发用户手机；两工具已提交（2fd781a / 44e294f）。运行环境注意：make_contact_sheet 需 Pillow，用 ComfyUI 内嵌 python 跑（系统 python 无 PIL）
+- **用户挑风格（2026-08-12）："第一套风格的都不错" → warm 暖手绘方向定稿**；已启动 warm 加抽 seeds 1001/1002（20 张新图，PID 34096，日志 avatar_batch2.log，Monitor 守）→ 完成后拼 30 选 warm 大图发用户挑最终头像
+- **1f 完成闭环入库 tools/synth_blind_batch.py**：spec 基于已验证 synth_epoch_samples.py 改造 → DeepSeek v1 → Codex ACCEPT with fixes（2 MAJOR：SKIP 在任务级 try 外+except 直写报告可断批 / 全超限 retries 多记 1；3 MINOR）→ DeepSeek v2 修复（diff+代码双验证：except 自算 elapsed、引用变量 try 顶部全初始化、retries=takes-1、SKIP schema 明确）+ Claude 声明 hotfix（check_sr 死变量）→ py_compile 过。**尚未实跑**（待盲听文本清单定稿后 GPU 实测）
+- 4e 假警报教训：PS `Get-ChildItem -Filter` 不支持 `[12]` 字符类（FindFirstFile 语义），计数用 Where-Object 正则；warm 加抽批次正常（~55s/张）
