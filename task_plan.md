@@ -23,9 +23,11 @@
 - ✅ 1b 干净数据先行重训 v0.1-clean27（27 条＝45−18，非原计划 31；epoch_0..14 存 ~/wu-sft/v01_clean27/exp/mama_v01c27_llm/，最终 loss 0.072/acc 0.992）
 - ✅ 1d 三方试听页已发用户（epochs 2/4/8/14 × 3 文本；synth_epoch_samples + make_listen_page 均 DeepSeek 写 + Codex ACCEPT with fixes）→ **等用户 epoch 排序反馈**
 - ✅ 1d 用户反馈（2026-08-11）：**epoch14 总体最好**，但头尾有小部分被切。探针实锤（wav 第 0ms 即 RMS 0.05-0.07，无起始静音；文本3 末 50ms 仍 0.067）：合成/导出侧无首尾缓冲
-- 🔶 1c 管线加固：本轮以探针代偿（44 条 token 0 空、embedding 44/44）；合成导出首尾静音垫留待出样本时修（synth 脚本改造走 DeepSeek+Codex）
-- 🔶 1e 满血重训进行中（2026-08-11）：apply_corrections.py（tools/，Codex ACCEPT with fixes 已修，f48a9ef）→ v01_full44/data(44条,指纹96b74b4613a0) → embedding/token/parquet 齐 → **训练已启动**（run_train.sh 沿用 clean27 配置，exp/mama_v01f44_llm）。坑：PS Set-Content 写的 utt2spk 带 BOM 崩 extract_embedding（GBK 读），改 awk 无 BOM 重写
-- 完成标准：有一版用户认可"可进盲听"的模型 + 批量合成脚本
+- ✅ 1c 头尾截断已修：synth_epoch_samples.py 加 --pad-ms 300/--exp-tag（DeepSeek 两轮 + Codex ACCEPT，存 v01_full44/），9 条样本探针验证首尾全静音；空 token/embedding 以探针代偿（44/44 全过）
+- ✅ 1e 满血重训完成（2026-08-11）：v01_full44 44 条 15 epochs，final loss 0.095/acc 0.986（exp/mama_v01f44_llm）。A/B 终选页 ab_final.html 已上局域网入口（full44 e8/e14 vs clean27 e14 对照，全部带 pad）。坑：PS Set-Content 写 utt2spk 带 BOM 崩 extract_embedding（GBK 读），改 awk 无 BOM
+- ✅ 1e 用户定稿（2026-08-12）：**盲听候选 = v01_full44 epoch14**。"开头 1s 奇怪的话"已探针实锤：300ms 垫为纯静音（0.000），怪话是模型随机起始幻觉（02 号重抽后 8.2s→5.4s 消失），用户确认重抽版"干净了"
+- ⬜ 1f 批量合成脚本（进盲听批次前）：需带**起始幻觉 QC**——按文本长度估计合理时长，超阈值/起始段低能量语音状前缀 → 自动重抽 N 次；产物仍走 --pad-ms 300
+- 完成标准：有一版用户认可"可进盲听"的模型（✅ full44 e14）+ 批量合成脚本（1f）
 
 ### Phase 2：数据层 — status: complete（2026-08-10 凌晨，Codex ACCEPT，已提交 6fe8275）
 - ✅ tools/build_data_bundle.py（DeepSeek×4 轮 + Codex×2 轮）：archive_out/data/ = 7 年度分片(20923) + media_index + timeline(68月) + meta + 语音125/本人视频9 拷贝，228MB，幂等 + 全量对账 + file_ref 子树锚定
@@ -41,7 +43,7 @@
 - ✅ tools/build_avatar_page.py（DeepSeek×5 轮 + Codex×3 轮）：archive_out/avatar.html（37KB）+ start_server.bat/.sh——SVG 卡通（圆脸眨眼腮红，非真人脸）+ AnalyserNode 音量驱动嘴型 + 600ms 静音伪驱动 fallback + 125 条原声播放列表（data/media/voice 相对路径）+ 续播守卫
 - ⬜ 4c 合成语音入清单（等 v0.1 epoch 定稿后把 TTS 样本放 data/media/tts/）
 - ⬜ 4d BYOK 对话页（Tier-3 禁陈述为事实的提示词）
-- 🔶 4e 形象升级（2026-08-11 用户反馈"太卡通"）：**照片→风格化卡通头像**，全本地（铁律 3）。调研定稿 docs/research/photo-cartoon-avatar.md（首选 Qwen-Image-Edit-2509 Apache-2.0）；用户已放 10 张照片进 raw/photos/；**权重+ComfyUI 已全部下载完**（comfy_dl/：主模型19.5G+编码器8.9G+VAE+便携包2G）；下一步：解压装 ComfyUI → 批量出候选头像给用户挑
+- 🔶 4e 形象升级（2026-08-11 用户反馈"太卡通"）：**照片→风格化卡通头像**，全本地（铁律 3）。调研定稿 docs/research/photo-cartoon-avatar.md（首选 Qwen-Image-Edit-2509 Apache-2.0）；用户已放 10 张照片进 raw/photos/。**2026-08-12 进展**：ComfyUI 起服 + 官方 2509 管线探针 70s/张跑通；tools/gen_avatar_candidates.py 三轮闭环（DeepSeek×3 + Codex REJECT→ACCEPT with fixes→diff 验证）；30 张候选（10 照 × warm/watercolor/flat × s1000）批量生成中；拼图工具 make_contact_sheet.py Codex 审核中 → 拼图发手机挑选
 - 用户验证方式：运行 archive_out/start_server.bat → 浏览器开 http://localhost:8020/avatar.html
 
 ### Phase R：移动 review 体验（2026-08-10 用户提出）— status: complete（R1/R2 Codex ACCEPT，R3 已执行）

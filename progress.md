@@ -36,3 +36,14 @@
 - **1e 重训启动**：apply_corrections v2（Codex 两项 fix 已修，输出与 v1 逐字节一致）入库 tools/（f48a9ef）→ v01_full44 数据管线全通（44 embedding/44 token 0 空/parquet 21.5MB；坑：PS 写 utt2spk 带 BOM 崩 GBK 读，awk 重写）→ 训练进行中（epoch 9/15 时 loss 0.37/acc 0.93，显存 17.5G 正常）
 - **4e 环境就绪**：三大权重断点续传全部下完（19.5G+8.9G+0.2G），ComfyUI Portable 解压至 ~/ComfyUI_portable，权重已入位 models/。下一步：起 ComfyUI 批量出头像候选
 - 待办：synth 样本导出加首尾静音垫（epoch14 头尾截断修复）→ 训练完出样本前做
+
+## Session 2026-08-12（/clear 后恢复，4e 头像生成开工）
+- 恢复要点：语音层 1e 已完（ab_final.html 上局域网，**阻塞等用户挑盲听版本**）；4e 环境 100% 就绪 → 本会话推进 4e
+- ComfyUI 后台起服（run_nvidia_gpu 同款参数 + --disable-auto-launch，日志在便携包根 comfy_stdout/err.log），127.0.0.1:8188 就绪；GPU 空闲（1.75G/24G）
+- 官方模板 image_qwen_image_edit_2509.json 在便携包 site-packages 内（新版包成 subgraph），已解出真实节点图并经 /object_info 核对入参名；本地无 Lightning LoRA → 走 20 步/cfg 4/shift 3 标准路径
+- **探针成功（Claude 直写一次性探针，已声明，scratchpad/avatar_probe.py）**：单张照片→暖手绘卡通头像 70s（含首次模型加载），风格方向对、眼镜/发型/神态保留
+- 生产脚本 gen_avatar_candidates.py 三轮闭环入库 tools/：DeepSeek v1 → Codex REJECT（3 BLOCKER：symlink/junction 越界+manifest 绕过检查 / interrupt 发 GET / 落盘异常未任务级兜底；2 MAJOR：--photos 递归放宽读面）→ DeepSeek v2 → Codex ACCEPT with fixes（剩 poll_history 兜底）→ DeepSeek v3 → diff 精确验证仅含该修复 + py_compile 过
+- **用户 review 中插反馈（语音）**："full44 e14 好点，但开头 1s 内有奇怪的话，是垫进去的吗？"→ 探针实锤：6 条样本前 300ms 全部 0.000 纯静音（垫无声，清白），"话"在 300ms 后=模型起始幻觉；且 f44 e14 比 c27 e14 明显长（02 号 8.2s vs 5.4s），正文重音更晚 → 正文前多生成了低音量语音状内容
+- 处理：/free 释放 ComfyUI 显存（21.3G→1.8G）→ synth_epoch_samples.py 重合成 f44 e14（新随机采样，tag v01f44r2，samples_rerun/）验证幻觉是随机还是固有；随机→重抽即可，固有→导出侧加起始能量截除或改推 e8
+- **用户确认（2026-08-12）："干净了"** → 幻觉实锤随机，重抽即除；**盲听候选定稿 v01_full44 epoch14**；新增 1f 批量合成脚本待办（起始幻觉 QC：时长阈值+自动重抽）
+- 4e 批量开跑：30 张（10 照 × 3 风格 × s1000）脱离进程生成中（日志 scratchpad/avatar_batch.log，Monitor 守完成）；dry-run 30 任务矩阵验证过；make_contact_sheet.py（DeepSeek 写，Codex 审核中）产手机拼图
