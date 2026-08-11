@@ -61,3 +61,6 @@
 - **persona.md 起草已派 Claude 子代理**（后台，判断类工作留 Claude 家族）：读 digest+rhythm+relationship，铁律 2 全文约束（必写缺点冲突面/Tier-3 全标注/禁编造/逐论断带 record_id 证据），产物 people/mama/persona/persona.md + 待确认清单
 - 配置直写（已声明）：tools/persona_keywords.zh.json（9 组通用中文+吴语特征关键词）、people/mama/persona/relationship.json（关系参数化落点，泛化架构第一实例）
 - 文字层剩余：3d 闸门页 make_gate_page.py + apply 工具（下轮）、timeline.md 渲染（下轮）、persona 草稿等子代理回报
+- **persona.md 草稿回报（子代理 180k tokens/11.5 分钟）**：306 行 10 节，46 条论断（语言 9/性格 8/关心 5/观点 6/**缺点冲突面 9**/幽默 4/健康期 5）逐条带 record_id 证据，Q1-Q13 待确认清单。主模型抽查头尾：Tier 纪律/DRAFT 声明/证据格式/两面性全达标。已直发用户手机
+- 子代理三大发现：①**2024-02-09（数据最后一天）数字告别**——她集中交接全家密码/记账/抗癌药记录，**明文凭据在 UIF+archive_out/data 里（档案要发家人）**→ 已立敏感记录处理待办（task_plan Phase 3）；②她微信语音仅 76 条 0.8%（"文字召唤电话"型；注：克隆参考早已解决，55 分钟语音在库，此点不影响语音层）；③身份对应（郑韫瑜=爸爸/王铮=妈妈本人）系群聊生日链推断，Q1 最优先确认
+- Tool-2 v4 配额增量 Codex ACCEPT with fixes（--quota 重复 kind 静默覆盖 + nan 绕过正数校验）→ Claude 声明 hotfix 两处守卫 → 实测 exit 2 + 真跑配额正常 → 提交 7f34bb4
