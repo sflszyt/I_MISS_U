@@ -2,6 +2,8 @@
 """Build avatar page for a person's digital archive."""
 
 import argparse
+import base64
+import io
 import json
 import math
 import os
@@ -72,6 +74,33 @@ main {
 #eye-l, #eye-r {
     transform-origin: center center;
     transition: transform 0.08s ease;
+}
+/* Image-avatar styles */
+.avatar-image {
+    width: 100%;
+    height: 100%;
+    border-radius: 24px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    position: relative;
+    overflow: hidden;
+}
+.avatar-image img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    border-radius: inherit;
+    object-fit: cover;
+}
+.avatar-image .frame-open {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: none;
+}
+.avatar-image.speaking-scale {
+    transition: transform 0.1s ease;
 }
 .now-playing {
     text-align: center;
@@ -185,24 +214,7 @@ footer {
 <body>
 <main>
     <div class="avatar-wrap">
-        <div class="avatar" id="avatar">
-            <div class="avatar-inner">
-                <svg width="280" height="280" viewBox="0 0 280 280" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="卡通语音形象">
-                    <ellipse cx="140" cy="150" rx="95" ry="100" fill="#f2d3a8" stroke="#8a5a2e" stroke-width="4"/>
-                    <path d="M48 150 C48 85 80 50 140 50 C200 50 232 85 232 150 C232 170 228 185 224 195 C216 175 160 170 140 170 C120 170 64 175 56 195 C52 185 48 170 48 150 Z" fill="#7a4a2b" stroke="#5a3418" stroke-width="3"/>
-                    <path d="M60 140 C70 110 95 90 140 88 C185 90 210 110 220 140 C228 118 220 80 195 62 C170 44 110 44 85 62 C60 80 52 118 60 140 Z" fill="#7a4a2b" stroke="none" opacity="0.7"/>
-                    <ellipse cx="50" cy="148" rx="12" ry="18" fill="#f4d7ad" stroke="#8a5a2e" stroke-width="3"/>
-                    <ellipse cx="230" cy="148" rx="12" ry="18" fill="#f4d7ad" stroke="#8a5a2e" stroke-width="3"/>
-                    <circle id="eye-l" cx="112" cy="132" r="9" fill="#3b2a1d"/>
-                    <circle id="eye-r" cx="168" cy="132" r="9" fill="#3b2a1d"/>
-                    <ellipse cx="90" cy="158" rx="18" ry="12" fill="#e8a27c" opacity="0.6"/>
-                    <ellipse cx="190" cy="158" rx="18" ry="12" fill="#e8a27c" opacity="0.6"/>
-                    <path id="mouth-static" d="M118 168 Q140 184 162 168" fill="none" stroke="#8a2d1c" stroke-width="5" stroke-linecap="round"/>
-                    <ellipse id="mouth-speak" cx="140" cy="174" rx="22" ry="4" fill="#8a2d1c" style="display:none"/>
-                    <path d="M112 238 Q140 258 168 238 Q140 250 112 238 Z" fill="#f0c8a0" stroke="#8a5a2e" stroke-width="2"/>
-                </svg>
-            </div>
-        </div>
+        __AVATAR_BLOCK__
     </div>
 
     <div class="now-playing" id="now-info">
@@ -249,6 +261,11 @@ var mouthStatic = document.getElementById('mouth-static');
 var mouthSpeak = document.getElementById('mouth-speak');
 var eyeL = document.getElementById('eye-l');
 var eyeR = document.getElementById('eye-r');
+var avatarImage = document.getElementById('avatar-image');
+var frameClosed = document.getElementById('avatar-frame-closed');
+var frameOpen = document.getElementById('avatar-frame-open');
+var hasImageMode = document.getElementById('avatar-image') !== null;
+var hasOpenFrame = hasImageMode && document.getElementById('avatar-frame-open') !== null;
 
 var cur = -1;
 var srcMode = 'real';
@@ -256,6 +273,32 @@ var rms = 0;
 var fakePhase = 0;
 var rmsWindow = [];
 var zeroStart = null;
+
+// ---------- mouth frame pure function ----------
+var OPEN_THRESHOLD = 0.04;
+var FRAME_HOLD_MS = 90;
+function mouthFrameFor(level, speaking, nowMs, state) {
+    if (!speaking) {
+        state.current = 'closed';
+        state.lastSwitchMs = nowMs;
+        return 'closed';
+    }
+    var frame = (level > OPEN_THRESHOLD) ? 'open' : 'closed';
+    if (state.current === frame) {
+        return frame;
+    }
+    if (state.current === null) {
+        state.current = frame;
+        state.lastSwitchMs = nowMs;
+        return frame;
+    }
+    if (nowMs - state.lastSwitchMs < FRAME_HOLD_MS) {
+        return state.current;
+    }
+    state.current = frame;
+    state.lastSwitchMs = nowMs;
+    return frame;
+}
 
 // ---------- build list ----------
 function el(tag, cls, text) {
@@ -365,18 +408,36 @@ audio.addEventListener('ended', function () {
 audio.addEventListener('pause', function () {
     document.getElementById('btn-toggle').innerHTML = '\u25B6';
     avatar.classList.remove('speaking');
-    mouthStatic.style.display = '';
-    mouthSpeak.style.display = 'none';
+    if (hasImageMode) {
+        if (frameClosed) frameClosed.style.display = '';
+        if (frameOpen) frameOpen.style.display = 'none';
+        if (avatarImage) {
+            avatarImage.classList.remove('speaking-scale');
+        }
+        if (frameClosed) frameClosed.style.transform = '';
+        if (frameOpen) frameOpen.style.transform = '';
+    } else {
+        if (mouthStatic) mouthStatic.style.display = '';
+        if (mouthSpeak) mouthSpeak.style.display = 'none';
+    }
 });
 audio.addEventListener('play', function () {
     document.getElementById('btn-toggle').innerHTML = '\u23F8';
     avatar.classList.add('speaking');
-    mouthStatic.style.display = 'none';
-    mouthSpeak.style.display = '';
+    if (hasImageMode) {
+        if (avatarImage) {
+            avatarImage.classList.add('speaking-scale');
+            avatarImage.style.transition = 'transform 0.08s ease';
+        }
+    } else {
+        if (mouthStatic) mouthStatic.style.display = 'none';
+        if (mouthSpeak) mouthSpeak.style.display = '';
+    }
 });
 
-// ---------- blink animation ----------
+// ---------- blink animation (SVG mode only) ----------
 function blink() {
+    if (!eyeL || !eyeR) return;
     var doBlink = function () {
         eyeL.style.transition = eyeR.style.transition = 'none';
         eyeL.style.transform = 'scaleY(0.1)';
@@ -425,12 +486,20 @@ function setFakeMode() {
     // Do NOT disconnect analyser or disturb WebAudio chain - just switch data source
 }
 
+// ---------- mouth state for frame hold ----------
+var mouthState = { current: null, lastSwitchMs: 0 };
+
 // ---------- rAF loop ----------
 function updateMouth() {
     var targetRy;
+    var level = 0;
+    var speaking = avatar.classList.contains('speaking');
+    var now = Date.now();
+
     if (srcMode === 'real') {
         if (!analyser) {
             targetRy = 0;
+            level = 0;
         } else {
             var buf = new Uint8Array(analyser.fftSize);
             analyser.getByteTimeDomainData(buf);
@@ -440,6 +509,7 @@ function updateMouth() {
                 sum += v * v;
             }
             rms = Math.sqrt(sum / buf.length);
+            level = rms;
             targetRy = 2 + Math.min(12, rms * 30);
             if (rms < 0.0001) {
                 if (zeroStart === null) zeroStart = Date.now();
@@ -454,7 +524,36 @@ function updateMouth() {
         var jitter = Math.random() * 0.4;
         targetRy = 4 + osc * 8 + jitter * 4;
         targetRy = Math.min(14, Math.max(2, targetRy));
+        // Synthesize level for frame logic: alternate between open/closed via sine
+        level = Math.sin(fakePhase * 2.0) > 0 ? 1 : 0;
     }
+
+    // Image mode: frame swapping and scale effect
+    if (hasImageMode) {
+        var frame = mouthFrameFor(level, speaking, now, mouthState);
+        if (hasOpenFrame) {
+            if (frame === 'open') {
+                if (frameClosed) frameClosed.style.display = 'none';
+                if (frameOpen) frameOpen.style.display = '';
+            } else {
+                if (frameClosed) frameClosed.style.display = '';
+                if (frameOpen) frameOpen.style.display = 'none';
+            }
+        }
+        // Subtle scale effect while speaking — apply to IMG elements to avoid
+        // clobbering the bob animation's transform on the .avatar-inner container
+        if (speaking) {
+            var scale = 1 + Math.min(rms || level, 1) * 0.02;
+            var scaleStr = 'scale(' + scale.toFixed(4) + ')';
+            if (frameClosed) frameClosed.style.transform = scaleStr;
+            if (frameOpen) frameOpen.style.transform = scaleStr;
+        } else {
+            if (frameClosed) frameClosed.style.transform = '';
+            if (frameOpen) frameOpen.style.transform = '';
+        }
+    }
+
+    // SVG mode mouth
     if (mouthSpeak) {
         var curRy = parseFloat(mouthSpeak.getAttribute('ry')) || 4;
         var newRy = curRy * 0.6 + targetRy * 0.4;
@@ -485,6 +584,46 @@ document.addEventListener('click', function onceHandle() {
 </body>
 </html>
 """
+
+SVG_AVATAR_BLOCK = r"""        <div class="avatar" id="avatar">
+            <div class="avatar-inner">
+                <svg width="280" height="280" viewBox="0 0 280 280" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="卡通语音形象">
+                    <ellipse cx="140" cy="150" rx="95" ry="100" fill="#f2d3a8" stroke="#8a5a2e" stroke-width="4"/>
+                    <path d="M48 150 C48 85 80 50 140 50 C200 50 232 85 232 150 C232 170 228 185 224 195 C216 175 160 170 140 170 C120 170 64 175 56 195 C52 185 48 170 48 150 Z" fill="#7a4a2b" stroke="#5a3418" stroke-width="3"/>
+                    <path d="M60 140 C70 110 95 90 140 88 C185 90 210 110 220 140 C228 118 220 80 195 62 C170 44 110 44 85 62 C60 80 52 118 60 140 Z" fill="#7a4a2b" stroke="none" opacity="0.7"/>
+                    <ellipse cx="50" cy="148" rx="12" ry="18" fill="#f4d7ad" stroke="#8a5a2e" stroke-width="3"/>
+                    <ellipse cx="230" cy="148" rx="12" ry="18" fill="#f4d7ad" stroke="#8a5a2e" stroke-width="3"/>
+                    <circle id="eye-l" cx="112" cy="132" r="9" fill="#3b2a1d"/>
+                    <circle id="eye-r" cx="168" cy="132" r="9" fill="#3b2a1d"/>
+                    <ellipse cx="90" cy="158" rx="18" ry="12" fill="#e8a27c" opacity="0.6"/>
+                    <ellipse cx="190" cy="158" rx="18" ry="12" fill="#e8a27c" opacity="0.6"/>
+                    <path id="mouth-static" d="M118 168 Q140 184 162 168" fill="none" stroke="#8a2d1c" stroke-width="5" stroke-linecap="round"/>
+                    <ellipse id="mouth-speak" cx="140" cy="174" rx="22" ry="4" fill="#8a2d1c" style="display:none"/>
+                    <path d="M112 238 Q140 258 168 238 Q140 250 112 238 Z" fill="#f0c8a0" stroke="#8a5a2e" stroke-width="2"/>
+                </svg>
+            </div>
+        </div>"""
+
+
+def image_avatar_block(has_open: bool) -> str:
+    """Generate the image-avatar HTML block."""
+    open_img = ""
+    if has_open:
+        open_img = (
+            '                <img id="avatar-frame-open" class="frame-open" '
+            'src="data/avatar/avatar_open.png" alt="" aria-hidden="true" '
+            'style="display:none">\n'
+        )
+    return (
+        '        <div class="avatar" id="avatar">\n'
+        '            <div class="avatar-inner avatar-image" id="avatar-image" '
+        'role="img" aria-label="卡通语音形象">\n'
+        '                <img id="avatar-frame-closed" '
+        'src="data/avatar/avatar.png" alt="">\n'
+        + open_img +
+        '            </div>\n'
+        '        </div>'
+    )
 
 
 def html_escape(s: str) -> str:
@@ -684,6 +823,27 @@ def verify_mp3_bytes(mp3_bytes: bytes) -> bool:
             pass
 
 
+def downsample_image_for_preview(path: Path, max_edge: int = 480) -> str:
+    """Downscale image to max_edge px long edge, return base64 JPEG data URI."""
+    try:
+        from PIL import Image
+    except ImportError:
+        raise
+    img = Image.open(str(path))
+    img = img.convert("RGB")
+    w, h = img.size
+    long_edge = max(w, h)
+    if long_edge > max_edge:
+        ratio = max_edge / long_edge
+        new_w = max(1, int(w * ratio))
+        new_h = max(1, int(h * ratio))
+        img = img.resize((new_w, new_h), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=85)
+    data_uri = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+    return data_uri
+
+
 def build_preview_playlist(media_index: dict, archive_dir: Path, n: int, bitrate: int) -> list:
     """Build playlist for preview page with base64 data URIs."""
     import base64
@@ -782,11 +942,53 @@ def write_atomic(target: Path, content: str):
     os.replace(tmp, target)
 
 
-def generate_html(playlist: list, footer: str) -> str:
+def copy_binary(src: Path, dst: Path):
+    """Binary-exact copy, create parent dirs, overwrite stale."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    with open(src, "rb") as f_in:
+        with open(dst, "wb") as f_out:
+            f_out.write(f_in.read())
+
+
+def reconcile_avatar_dir(archive_dir: Path, use_image_mode: bool, has_open_frame: bool, has_choice_json: bool):
+    """Reconcile archive_out/data/avatar against the desired asset set.
+    
+    image mode active: desired = avatar.png (+ avatar_open.png if has_open_frame)
+    (+ avatar_choice.json if has_choice_json). Delete anything else.
+    image mode inactive: delete the whole dir if it exists.
+    """
+    avatar_dir = archive_dir / "data" / "avatar"
+    if not use_image_mode:
+        if avatar_dir.exists():
+            for f in avatar_dir.iterdir():
+                if f.is_file():
+                    f.unlink()
+            # Remove the (now empty) directory
+            try:
+                avatar_dir.rmdir()
+            except OSError:
+                pass
+        return
+
+    # image mode active
+    avatar_dir.mkdir(parents=True, exist_ok=True)
+    desired = {"avatar.png"}
+    if has_open_frame:
+        desired.add("avatar_open.png")
+    if has_choice_json:
+        desired.add("avatar_choice.json")
+
+    for f in avatar_dir.iterdir():
+        if f.is_file() and f.name not in desired:
+            f.unlink()
+
+
+def generate_html(playlist: list, footer: str, avatar_block: str) -> str:
     playlist_json = json.dumps(playlist, ensure_ascii=False)
     playlist_json = playlist_json.replace("</", "<\\/")
     html = HTML_TEMPLATE.replace("__PLAYLIST__", playlist_json)
     html = html.replace("__FOOTER__", html_escape(footer))
+    html = html.replace("__AVATAR_BLOCK__", avatar_block)
     return html
 
 
@@ -797,6 +999,7 @@ def main():
     parser.add_argument("--preview", type=int, default=0, help="generate preview page with N embedded clips (default: 0 = off)")
     parser.add_argument("--preview-bitrate", type=int, default=24, help="MP3 bitrate for preview clips, 16-64 kbps (default: 24)")
     parser.add_argument("--preview-max-mb", type=float, default=1.0, help="max size of preview HTML in MB (default: 1.0)")
+    parser.add_argument("--no-avatar-image", action="store_true", help="force SVG mode even when avatar.png exists")
     args = parser.parse_args()
 
     slug = args.person
@@ -837,7 +1040,43 @@ def main():
 
     playlist = build_playlist(media_index)
 
-    html = generate_html(playlist, FOOTER_NOTE)
+    # Determine image-avatar mode
+    persona_dir = (person_dir / "persona").resolve()
+    avatar_png = persona_dir / "avatar.png"
+    avatar_open_png = persona_dir / "avatar_open.png"
+    avatar_choice_json = persona_dir / "avatar_choice.json"
+
+    use_image_mode = False
+    has_open_frame = False
+    if not args.no_avatar_image and avatar_png.exists():
+        use_image_mode = True
+        has_open_frame = avatar_open_png.exists()
+
+    if use_image_mode:
+        # Copy assets into bundle
+        avatar_dst_dir = archive_dir / "data" / "avatar"
+        avatar_dst_dir.mkdir(parents=True, exist_ok=True)
+        copy_binary(avatar_png, avatar_dst_dir / "avatar.png")
+        avatar_mode_label = "image"
+        if has_open_frame:
+            copy_binary(avatar_open_png, avatar_dst_dir / "avatar_open.png")
+            avatar_mode_label = "image+open"
+        if avatar_choice_json.exists():
+            copy_binary(avatar_choice_json, avatar_dst_dir / "avatar_choice.json")
+        avatar_block = image_avatar_block(has_open_frame)
+    else:
+        avatar_block = SVG_AVATAR_BLOCK
+        avatar_mode_label = "svg"
+
+    # Reconcile stale assets in archive_out/data/avatar
+    reconcile_avatar_dir(
+        archive_dir,
+        use_image_mode,
+        has_open_frame,
+        avatar_choice_json.exists(),
+    )
+
+    html = generate_html(playlist, FOOTER_NOTE, avatar_block)
     html_path = archive_dir / "avatar.html"
     write_atomic(html_path, html)
 
@@ -852,7 +1091,7 @@ def main():
 
     sh_content = (
         '#!/bin/sh\n'
-        'cd "$(dirname "$0)"\n'
+        'cd "$(dirname "$0")"\n'
         'echo "Starting server: http://localhost:8020/avatar.html"\n'
         'python -m http.server 8020\n'
     )
@@ -868,6 +1107,7 @@ def main():
     print("clips: {}".format(len(playlist)))
     print("HTML KB: {:.1f}".format(html_kb))
     print("wrote: {}".format(html_path))
+    print("avatar={}".format(avatar_mode_label))
 
     # Preview page generation
     if args.preview > 0:
@@ -880,11 +1120,79 @@ def main():
             actual_count, len(playlist)
         )
         
-        preview_html = generate_html(preview_playlist, footer_note)
+        # Determine preview avatar block
+        preview_avatar_block = avatar_block
+        preview_used_image = use_image_mode
+        if use_image_mode:
+            try:
+                closed_uri = downsample_image_for_preview(avatar_png, 480)
+            except ImportError:
+                print("note: Pillow unavailable, preview uses svg face")
+                preview_avatar_block = SVG_AVATAR_BLOCK
+                preview_used_image = False
+            except Exception as e:
+                print("note: failed to process avatar image ({}), preview uses svg face".format(e))
+                preview_avatar_block = SVG_AVATAR_BLOCK
+                preview_used_image = False
+            else:
+                open_uri = None
+                if has_open_frame:
+                    try:
+                        open_uri = downsample_image_for_preview(avatar_open_png, 480)
+                    except Exception:
+                        open_uri = None
+                # Build preview image block with embedded data URIs
+                if open_uri:
+                    preview_avatar_block = (
+                        '        <div class="avatar" id="avatar">\n'
+                        '            <div class="avatar-inner avatar-image" id="avatar-image" '
+                        'role="img" aria-label="卡通语音形象">\n'
+                        '                <img id="avatar-frame-closed" src="{}" alt="">\n'
+                        '                <img id="avatar-frame-open" class="frame-open" '
+                        'src="{}" alt="" aria-hidden="true" style="display:none">\n'
+                        '            </div>\n'
+                        '        </div>'
+                    ).format(closed_uri, open_uri)
+                else:
+                    # Single-frame image (no open frame, or open failed)
+                    preview_avatar_block = (
+                        '        <div class="avatar" id="avatar">\n'
+                        '            <div class="avatar-inner avatar-image" id="avatar-image" '
+                        'role="img" aria-label="卡通语音形象">\n'
+                        '                <img id="avatar-frame-closed" src="{}" alt="">\n'
+                        '            </div>\n'
+                        '        </div>'
+                    ).format(closed_uri)
+                    if has_open_frame:
+                        print("note: open frame unavailable in preview, using single image")
+        
+        preview_html = generate_html(preview_playlist, footer_note, preview_avatar_block)
         preview_path = archive_dir / "avatar_preview.html"
         
         preview_size = len(preview_html.encode("utf-8"))
         max_bytes = int(args.preview_max_mb * 1024 * 1024)
+        
+        # Size-budget fallback chain: drop open frame, then fall back to SVG
+        if preview_size > max_bytes and preview_used_image:
+            # Try without open frame
+            if has_open_frame and open_uri:
+                print("note: preview too large, dropping open frame")
+                pre_open_block = (
+                    '        <div class="avatar" id="avatar">\n'
+                    '            <div class="avatar-inner avatar-image" id="avatar-image" '
+                    'role="img" aria-label="卡通语音形象">\n'
+                    '                <img id="avatar-frame-closed" src="{}" alt="">\n'
+                    '            </div>\n'
+                    '        </div>'
+                ).format(closed_uri)
+                preview_html = generate_html(preview_playlist, footer_note, pre_open_block)
+                preview_size = len(preview_html.encode("utf-8"))
+            
+            if preview_size > max_bytes:
+                print("note: preview too large, falling back to svg face")
+                preview_avatar_block = SVG_AVATAR_BLOCK
+                preview_html = generate_html(preview_playlist, footer_note, preview_avatar_block)
+                preview_size = len(preview_html.encode("utf-8"))
         
         if preview_size > max_bytes:
             print("Error: preview HTML size {:.2f} MB exceeds limit {:.2f} MB".format(

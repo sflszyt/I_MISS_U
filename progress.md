@@ -80,3 +80,12 @@
 - **闸门页敏感预标记校准（重要设计决策）**：source 元数据命中全废（svr_id/文件名长数字撞 card_number，voice 候选 22/22 全误报）→ 改为只扫**将进入 memories.md 的可见文本**（title+excerpts），150 卡中 5 high+1 medium=6 条默认剔除（全是"账号"类对话性提及，用户可翻回）
 - 工艺沉淀：①审核 JS 产物的标准从"node --check 语法"升级为"stub-DOM 实际执行断言契约"（Codex 先做，Claude 跟进复用）；②Grep/查看器显示层也会把 `//` 渲染成 `\`——py repr 才是字节仲裁；③共享契约的成对工具必须联审抓两端不一致
 - 产物：gate_page.html（192KB，150 卡）+ timeline.md 发用户手机；**等用户回贴码** → python tools/apply_gate_decisions.py --person mama --decisions <回贴码文件> 产 memories.md（Tier-1）
+
+## Session 2026-08-12（同回合续 2：4e-集成 图片头像+口型动画闭环）
+- 用户指令"先继续下回合" → 按 HANDOFF 顺序开工 4e-集成
+- **关键发现**：定稿头像本身就是张嘴笑（露齿）→ 帧映射反转设计：canonical=静息帧、生成变体=说话帧（零工具约定改动）
+- **说话帧生成**（复用上回合探针 avatar_probe.py，声明）：/free 释放显存（1.8→6.8GB）→ 3 种子实测：1001 背景跑偏、1003 眼翻白、**1002 完美一致**（仅嘴变 O 型）→ 定稿 persona/avatar_open.png + avatar_choice.json 加 open_frame 溯源块（含候选淘汰记录，用户可否决）
+- **build_avatar_page.py 4e 扩展两轮闭环**：spec（图片模式+纯函数 mouthFrameFor+资产拷贝+SVG 回退+预览降采样）→ DeepSeek v1 → 自验发现 **JS 引用未定义常量 OPEN_THRESHOLD/FRAME_HOLD_MS（运行时必 ReferenceError，node --check 不报）** → 声明 hotfix 补 0.04/90 两行 → Codex R1 REJECT：**High #avatar 契约破坏**（图片模式无 id="avatar" 但共享 JS 到处 avatar.classList → TypeError；Codex 忠实 stub 执行抓到，我方 harness 对任意 id 返回元素太宽漏过）+ Medium 陈旧资产不清理；同时 Codex 用 125 条真实语音 RMS 分布验证 0.04 阈值合理（median 0.034，46.5% 窗口超阈）→ DeepSeek v2 修复（#avatar 包裹层恢复 + data/avatar reconcile 陈旧删除）→ Claude 改用**忠实 stub harness**（缺失 id 返回 null，avatar_harness2.js）双页全脚本执行干净 + 矩阵 7 场景全过 + 陈旧文件植入实测清理 → 死常量三行声明 hotfix → Codex R2 **ACCEPT 零发现**（自建含 rAF tick+play/pause 派发的更严 harness 复验）
+- 工艺沉淀：**harness 的 DOM stub 必须忠实（缺失 id 返回 null）**——过宽的 Proxy stub 会把"元素不存在"类崩溃全部吞掉（本回合被 Codex 实锤教育）
+- 产物：archive_out/avatar.html（图片双帧模式）+ avatar_preview.html 0.26MB + data/avatar/ 三资产；LAN 8020 在跑可直接体验；两帧图已发用户手机（说话帧可否决重抽）
+- Phase 4 剩余：4c 合成语音入清单（等盲听定稿）、4d BYOK 对话页（Tier-3 禁陈述提示词，未开工）

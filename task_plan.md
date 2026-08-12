@@ -48,11 +48,14 @@
 - ✅ 3d 闸门页+apply 双工具闭环入库（2026-08-12，Codex 三轮 REJECT→REJECT→**ACCEPT 零发现**）：tools/make_gate_page.py（150 卡 192KB 自包含移动页，敏感可见文本预标记 6 条默认剔除，localStorage 草稿，回贴码 delta 契约）+ tools/apply_gate_decisions.py（多文件 later-wins 合并、```json 围栏容忍、action confirm/reject/pending 三态、敏感复检 confirmed_flagged、幂等重生成 memories.md Tier-1）。**审核升级：Codex 与 Claude 双方均用 Node stub-DOM 实际执行页面 JS 验证契约七场景矩阵**（工具 harness 存 scratchpad/gate_harness.js，抓到 v2 的"未动卡片全量导出"High 实锤）→ **gate_page.html 已发用户手机，等回贴码** → apply 后产 memories/memories.md（Tier-1）
 - 完成标准：persona/ 与 memories/ 目录齐备，Tier 标注完整，闸门页可用（✅ 工具链全备；剩余为用户动作：persona Q1-Q13 确认 + 闸门页回贴码 → apply 出 memories.md）
 
-### Phase 4：卡通人（消费端）— status: 4a-4c complete（Codex ACCEPT），4d 未做
+### Phase 4：卡通人（消费端）— status: 4e-集成 complete（2026-08-12），剩 4c（等盲听）/4d
+- ✅ **4e-集成完成（2026-08-12，DeepSeek×2 + Codex REJECT→ACCEPT 零发现 + 两处声明 hotfix）**：build_avatar_page.py 图片头像模式——`persona/avatar.png`（静息帧=定稿笑容）+ `persona/avatar_open.png`（说话帧，Qwen-Image-Edit seed1002 生成，1001 背景跑偏/1003 眼翻白已淘汰，溯源入 avatar_choice.json open_frame 块）按音量双帧切换（纯函数 mouthFrameFor：0.04 阈值经 Codex 用 125 条真实语音 RMS 分布验证 + 90ms 帧保持 + 假驱动交替）+ bob 弹动；资产 reconcile 进 archive_out/data/avatar/（陈旧自动清理）；无头像人物回退 SVG（person-generic 保持）；预览页 Pillow 降采样内嵌 0.26MB
+  - 审核实录：Codex R1 REJECT 抓 #avatar 契约破坏（图片模式 TypeError，我方 harness stub 过宽漏过）+ 陈旧资产不清理；R2 双方各自用"忠实 stub"（缺失 id 返回 null + rAF/play/pause 派发）执行双页全脚本干净 → ACCEPT。hotfix×2（声明）：JS 常量未定义补两行、Python 层死常量三行删除
+  - 验证方式：LAN http://192.168.3.69:8020/avatar.html（8020 服务在跑）；两帧图已发用户手机（用户可否决说话帧，重抽即换）
 - ✅ tools/build_avatar_page.py（DeepSeek×5 轮 + Codex×3 轮）：archive_out/avatar.html（37KB）+ start_server.bat/.sh——SVG 卡通（圆脸眨眼腮红，非真人脸）+ AnalyserNode 音量驱动嘴型 + 600ms 静音伪驱动 fallback + 125 条原声播放列表（data/media/voice 相对路径）+ 续播守卫
 - ⬜ 4c 合成语音入清单（等 v0.1 epoch 定稿后把 TTS 样本放 data/media/tts/）
 - ⬜ 4d BYOK 对话页（Tier-3 禁陈述为事实的提示词）
-- 🔶 4e 形象升级（2026-08-11 用户反馈"太卡通"）：**照片→风格化卡通头像**，全本地（铁律 3）。调研定稿 docs/research/photo-cartoon-avatar.md（首选 Qwen-Image-Edit-2509 Apache-2.0）；用户已放 10 张照片进 raw/photos/。**2026-08-12 进展**：ComfyUI 起服 + 官方 2509 管线探针 70s/张跑通；tools/gen_avatar_candidates.py 三轮闭环（DeepSeek×3 + Codex REJECT→ACCEPT with fixes→diff 验证）；30 张候选（10 照 × warm/watercolor/flat × s1000）批量生成中；拼图工具 make_contact_sheet.py Codex 审核中 → 拼图发手机挑选
+- ✅ 4e 形象升级全链路完成：照片→卡通生成链（gen_avatar_candidates.py + make_contact_sheet.py）→ 用户终选 04 s1001 → 双帧说话动画集成（见上）
 - 用户验证方式：运行 archive_out/start_server.bat → 浏览器开 http://localhost:8020/avatar.html
 
 ### Phase R：移动 review 体验（2026-08-10 用户提出）— status: complete（R1/R2 Codex ACCEPT，R3 已执行）
