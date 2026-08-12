@@ -143,3 +143,11 @@
 ## Session 2026-08-13 凌晨（修复轮终审收口）
 - Codex 复审：build_voice_transcripts / extract_memory_candidates 两修复确认通过；video_audio_prep 剩一条 Medium（缺 min_seg 钳位+三 CLI 守卫）→ DeepSeek v3 回炉**反而打碎直通逻辑**（全部 16 条误标 segmented=true）→ **三振协议触发：停整文件重生成，Claude 外科 hotfix**（单元组→直通分支恢复，声明）→ 重建生产视频池（passthrough=6/segmented=3/segments=10 与 Codex 预测精确一致，manifest 本体验证通过）→ 新边界重跑 ASR + 重建 video_transcripts 全链对齐
 - HANDOFF ⓪-2 增补 + 下回合顺序刷新（状态保留合并列为重挖前置）
+## Session 2026-08-13（persona Q2-Q13 聊天内全量裁决）
+- 用户指令"这里问我吧"→ AskUserQuestion 三批 12 问全部落定：
+  - **事实升 Tier-1**：Q2 生日 1 月 10 日；Q3 癌种=乳腺癌（写入健康期章节）；Q4 太平系保险任职照写
+  - **重论断全保留**：Q6 T30"用病和眼泪表达失望"保留原样（定性公允、生日长信留档）；Q7 T34"说教与钻空并存"保留定性；Q8 T36"单线运作"成立保留——完整性铁律用户亲手执行
+  - **删除**：Q9 2023 婚姻纠纷**全部移除**（T27/T37 相关引文已删，正文无事件展开；taboo_topics 入 relationship.json 对话层禁提；派生层延伸清理待另定）；Q10 T22"数字告别"整条删除
+  - **语言层**：Q12 姆妈=口语/妈妈=文字分场景（入 relationship.json self_reference）；Q13 赞咯/一天世界/很残过全进词表（confirmed_catchphrases）
+  - **待用户文字补充**：Q5 人名关系标注、Q11 沪语释义
+- persona.md 头部 DRAFT 声明改为"用户裁决状态"；relationship.json 增 confirmed_facts/self_reference/confirmed_catchphrases/taboo_topics；chat_context 重建（8.9 万字，裁决后 persona 生效）
