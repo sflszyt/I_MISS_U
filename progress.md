@@ -65,3 +65,10 @@
 - 子代理三大发现：①**2024-02-09（数据最后一天）数字告别**——她集中交接全家密码/记账/抗癌药记录，**明文凭据在 UIF+archive_out/data 里（档案要发家人）**→ 已立敏感记录处理待办（task_plan Phase 3）；②她微信语音仅 76 条 0.8%（"文字召唤电话"型；注：克隆参考早已解决，55 分钟语音在库，此点不影响语音层）；③身份对应（郑韫瑜=爸爸/王铮=妈妈本人）系群聊生日链推断，Q1 最优先确认
 - Tool-2 v4 配额增量 Codex ACCEPT with fixes（--quota 重复 kind 静默覆盖 + nan 绕过正数校验）→ Claude 声明 hotfix 两处守卫 → 实测 exit 2 + 真跑配额正常 → 提交 7f34bb4
 - **会话收尾（用户远控指令）**：①persona 反馈"整理的很好（要看哭了）"；②答疑：persona 提炼只用文字消息，音频仅计数参与、视频未用（可选增强已记 HANDOFF）；③**敏感记录拍板：删除**（派生层全删/raw 不动/重跑下游），泛化为任意人物管线标准关卡 → 记忆 sensitive-data-cleanup.md；④HANDOFF ⓪ 全量重写 + README 里程碑刷新 → 推 GitHub → 用户清理上下文进下回合
+
+## Session 2026-08-12（/clear 后新回合：敏感记录清理关卡闭环）
+- 恢复上下文（planning-with-files + HANDOFF ⓪），按"下回合建议顺序"直取首要工程项：敏感记录清理工具
+- 侦察（Claude 探针，已声明）：2024-02-09 批共 14 条（13 subject + 1 viewpoint_owner；text 7/link 4/image 3；4 条长文本 827/806/5790/4167 字为凭据主体）；扩散 = UIF 14、messages_2024.json 14、digest 4、candidates 4、media_index 0、persona.md 0（仅前缀引用）。删除清单定稿全 14 条（整批交接会话，链接 URL 或含文档 token；派生层删除可从 raw 重建）
+- **tools/scrub_sensitive.py + tools/sensitive_patterns.json 闭环入库**：spec（scan/apply/verify 三模式、raw guard 单点、字节级保留、manifest 无正文、原子替换）→ DeepSeek v1（29s 一发成型）→ Codex REJECT（9 条：其中 2 条"py 语法错误/JSON 未闭合"BLOCKER 经 py_compile+json.load 双实证为误报——Codex 读 CJK 文件误判第二次发生；7 条真实：--patterns/--ids-file 未过 raw guard×2、rel_posix 越界 ValueError、dry-run 按唯一 id 计数、scrub 数据文件按名排除可被 symlink 绕过×2、record_id 大小写折叠）→ DeepSeek v2 全修（diff 逐条核对无越界改动）→ 冒烟全绿（dry-run 14 条精确；scan 21263 条命中 607；删前 verify residue=36 与侦察互证）→ Codex 复审 ACCEPT with fixes（7 修复全确认+2 误报自认撤回；仅剩 load_ids_file 一处 .lower()）→ Claude 声明 hotfix 一行
+- **实删执行**：apply 14 条（UIF 20923→20909，scrub_manifest.jsonl 落盘、无正文）→ 重跑 build_data_bundle（messages=20909，227.76MB）/build_rhythm/extract_persona_digest（204.7KB）/extract_memory_candidates（150 条，配额 61/23/22/22/22 不变）→ **verify ids=14 files=32 residue=0** → 删后重扫 601 条疑似（high 273/medium 50/low 278）存 sensitive_scan_report.{jsonl,md} 供 3d 闸门页默认剔除 + 后续人工复核
+- 注意事项落档：日后重跑 parse_wechat 会把 14 条重新引入 UIF，须按 scrub_manifest.jsonl 重新 apply（已写 task_plan + HANDOFF）

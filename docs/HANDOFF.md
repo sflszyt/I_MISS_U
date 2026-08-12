@@ -11,9 +11,9 @@
 - **数据层 ✅**：`archive_out/data/` 228MB（但见下面敏感记录清理——2024 分片需重建）
 - **文字层 60%**：`extract_persona_digest.py`（206KB digest）+ `extract_memory_candidates.py`（150 条候选，五信号配额 61/23/22/22/22）双双闭环入库并实跑；**persona.md 草稿 306 行 46 论断已发用户**（全 Tier-3 + Q1-Q13 待确认清单，等用户逐条回复；Q1 身份对应"郑韫瑜=爸爸/王铮=妈妈本人"系推断须最先确认）。剩：3d 闸门页 make_gate_page.py + apply 工具、timeline.md 渲染
 - **卡通人 80%**：**最终头像定稿 04 s1001**（用户拍板；`people/mama/persona/avatar.png` + `avatar_choice.json` 溯源）。生成链全套入库：`gen_avatar_candidates.py`（ComfyUI Qwen-Image-Edit-2509 批量客户端）+ `make_contact_sheet.py`（手机拼图，需 PIL → 用 ComfyUI 内嵌 python 跑）。剩：**4e-集成**（build_avatar_page.py 支持图片头像+口型动画）、4c 合成语音入清单、4d BYOK 对话页
-- ⚠️ **敏感记录清理（用户已拍板：删除；下回合首要工程项）**：2024-02-09 凭据交接批（全家账号密码/记账/抗癌药记录）从全部派生层删除（normalized UIF / archive_out/data / candidates.jsonl / persona_digest.json），**raw/ 不动**；删后重跑 bundle/candidates/digest；已泛化为任意人物管线标准关卡（记忆 sensitive-data-cleanup.md）。DeepSeek 写 + Codex 审
+- ✅ **敏感记录清理已闭环（2026-08-12）**：`tools/scrub_sensitive.py`（scan/apply/verify 三模式，person-generic）+ `tools/sensitive_patterns.json` 入库（DeepSeek×2 + Codex ACCEPT with fixes + 一行声明 hotfix）；2024-02-09 凭据批 **14 条已从全部派生层删除**（UIF 20923→20909），四下游全量重建，**verify residue=0**。审计清单 `people/mama/normalized/scrub_manifest.jsonl`（无正文）。⚠️ 两个尾巴：①日后重跑 parse_wechat 会重新引入这 14 条，须按 manifest 重新 apply；②删后全量扫描剩 **601 条疑似**（high 273/medium 50/low 278，报告 normalized/sensitive_scan_report.{jsonl,md}），供 3d 闸门页默认剔除 + 人工复核，**未经用户逐条确认前不得自动删**
 - **persona 提炼数据边界（用户问过）**：persona/digest/rhythm 只用了**文字消息**；音频仅以计数参与（[语音]76/[通话]74 占位符统计），语音**内容**与视频完全未进 persona。可选增强（未立项）：99 条语音转写反哺口语语域、视频日期反哺记忆卡片
-- **下回合建议顺序**：①敏感记录清理工具 ②3d 闸门页+apply（150 条候选等确认）③timeline.md ④4e-集成 ⑤盲听批次实跑
+- **下回合建议顺序**：①3d 闸门页+apply（150 条候选等确认，闸门页对 scan 命中候选默认剔除）②timeline.md ③4e-集成（build_avatar_page 图片头像+口型）④盲听批次实跑（等盲听文本清单定稿）
 - **环境现场**：ComfyUI 可能还在后台跑（127.0.0.1:8188，起服命令见 progress 08-12 节；显存吃紧就 POST /free）；语音合成用 cosyvoice venv；DeepSeek 必带 `DEEPSEEK_NOTHINK=1`（写法：`$env:DEEPSEEK_NOTHINK="1"; python scripts/deepseek_call.py <spec> <out> 32000`，产物剥围栏+py_compile）
 - **移动 review 定式**：HTML <1MB/页大按钮；音频逐条 MP3 直发（聊天渲染器不播内嵌音频）；图片拼图 SendUserFile 直发；选择题用 AskUserQuestion 按钮
 - **本会话审核实录速览**（详见 progress.md）：五个工具 DeepSeek×2~4 轮 + Codex 多轮至通过；Codex 一次误报（"语法错误"经 py_compile 实证不存在）——**对 Codex 判定要抽查验证，不盲从**

@@ -1,0 +1,54 @@
+{
+  "patterns": [
+    {
+      "name": "password",
+      "regex": "密码|口令|passwd|password|pwd",
+      "severity": "high"
+    },
+    {
+      "name": "account",
+      "regex": "账号|帐号|账户|帐户|用户名|登录名",
+      "severity": "high"
+    },
+    {
+      "name": "id_card",
+      "regex": "(?<!\\d)\\d{17}[\\dXx](?!\\d)",
+      "severity": "high"
+    },
+    {
+      "name": "card_number",
+      "regex": "(?<!\\d)\\d{16,19}(?!\\d)",
+      "severity": "high"
+    },
+    {
+      "name": "bank_kw",
+      "regex": "银行卡|储蓄卡|信用卡|卡号|开户行|网银|U盾",
+      "severity": "medium"
+    },
+    {
+      "name": "payment",
+      "regex": "支付宝|微信支付|云闪付",
+      "severity": "medium"
+    },
+    {
+      "name": "verify_code",
+      "regex": "验证码",
+      "severity": "medium"
+    },
+    {
+      "name": "phone_number",
+      "regex": "(?<!\\d)1[3-9]\\d{9}(?!\\d)",
+      "severity": "low"
+    },
+    {
+      "name": "finance_kw",
+      "regex": "记账|存款|理财|基金|股票|房贷|贷款|工资",
+      "severity": "low"
+    },
+    {
+      "name": "medical_kw",
+      "regex": "病历|化疗|抗癌|医保|社保|挂号",
+      "severity": "low"
+    }
+  ]
+}
