@@ -37,7 +37,7 @@
 - ✅ 3a tools/build_rhythm.py（DeepSeek×3 轮 + Codex×3 轮 ACCEPT）：persona/rhythm.json + archive_out/data/rhythm.json——9386 条 subject 消息的长度/时段/连发/回复延迟/标点/口头禅23条/表情/语音习惯，精确 skip 计数
 - ✅ 3b-① tools/extract_persona_digest.py 闭环入库（1afd573，DeepSeek×3 + Codex 三轮 + sender hotfix）；实跑产出 206KB persona_digest.json（分年样本/14 对话窗口/9 组关键词，全带 record_id）
 - 🔶 3b-② persona.md 草稿完成（2026-08-12 深夜，Claude 子代理起草）：46 条论断 T01-T46 逐条带 record_id 证据 + 待确认清单 Q1-Q13，含"缺点与冲突面"9 条（铁律 2 达标），全文 Tier-3 标注 → **等用户逐条确认**（最优先 Q1 身份对应：郑韫瑜=爸爸/王铮=妈妈本人 系推断）
-- ⚠️ **新增-敏感记录处理（persona 起草时发现，等用户 Q10 决定）**：2024-02-09（数据最后一天）她集中交接全家账号密码/记账/抗癌药记录——这些消息含明文凭据，目前存在于 UIF 与 archive_out/data 年度分片（档案将发家人！），且可能被 long_message 信号收进 memories/candidates.jsonl。待办：按用户决定在 UIF/bundle 层加访问标记或脱敏，闸门页把此类候选默认剔除
+- ⚠️ **敏感记录处理（用户已拍板 2026-08-12：删除）**：2024-02-09 凭据交接批（账号密码/记账/抗癌药记录）从**全部派生层删除**——normalized UIF、archive_out/data 年度分片、memories/candidates.jsonl、persona_digest.json；**raw/ 保留不动**（铁律 1 只读且永不出机）。实现（下回合首要工程项，DeepSeek 写 + Codex 审）：清理工具走"凭据模式扫描 + 用户指认 record_id 清单"双通道 → 删除后重跑 bundle/candidates/digest 保证无残留 → 闸门页对疑似敏感候选默认剔除。**此步骤已泛化为任何人物管线的标准关卡**（记忆 sensitive-data-cleanup.md）
 - 🔶 3c 两件：①tools/extract_memory_candidates.py（DeepSeek）——确定性信号挖候选：事件关键词簇（关键词表外置配置，通用非 mama 专用）/长消息/同日媒体爆发/≥30s 语音/年度首次，输出 memories/candidates.jsonl（Tier-2 带 source ids+日期+摘录）；②timeline.md 复用 archive_out/data/timeline 月度数据渲染人读版（Tier-2）
 - 🔶 3d tools/make_gate_page.py（DeepSeek）——人工闸门移动页（沿 R2 定型模式：<1MB/大按钮/回贴码只含改动项/dataset hash 校验）：候选卡逐条 确认/改写/拒绝 → 回贴码 → apply 工具合并出 memories/memories.md（Tier-1）
 - 完成标准：persona/ 与 memories/ 目录齐备，Tier 标注完整，闸门页可用

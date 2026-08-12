@@ -1,22 +1,22 @@
 # 交接文档（HANDOFF）
 
-> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-08-10 凌晨，MVP 冲刺后清理上下文前**。
-> 读这份之前先读 `CLAUDE.md`（铁律），再读仓库根的 `task_plan.md` / `progress.md` / `findings.md`（MVP 计划与实时状态，2026-08-09 起启用）。研究依据在 `docs/research/`。
+> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-08-12 深夜，四层大跃进会话收尾、清理上下文前**。
+> 读这份之前先读 `CLAUDE.md`（铁律），再读仓库根的 `task_plan.md` / `progress.md` / `findings.md`（MVP 计划与实时状态）。研究依据在 `docs/research/`。
 
-## ⓪ 当前最热状态（2026-08-10，先看这里）
+## ⓪ 当前最热状态（2026-08-12 深夜，先看这里）
 
-**MVP 四层冲刺中**（用户 08-09 拍板：纯微信数据的数据层/语音层/文字层/虚拟桌面卡通人）。详细 phase 状态看 `task_plan.md`，一句话版：
+**MVP 四层齐头并进后的状态**。详细 phase 看 `task_plan.md`，一句话版：
 
-- **DeepSeek 管道已修**：病根=推理烧光 token；`scripts/deepseek_call.py` 加了 `DEEPSEEK_NOTHINK=1`（关推理，必用）与 `DEEPSEEK_MODEL` 环境变量。用法：PS 里 `$env:DEEPSEEK_NOTHINK="1"; python scripts/deepseek_call.py <spec> <out> 30000`。产物常带 markdown 围栏，剥首尾行再 py_compile
-- **数据层 ✅**：`tools/build_data_bundle.py` → `people/mama/archive_out/data/`（228MB，20923 消息/125 语音/9 视频/68 月 timeline）
-- **文字层节律 ✅**：`tools/build_rhythm.py` → `persona/rhythm.json`（9386 条 subject 消息统计）
-- **卡通人 ✅ 核心**：`tools/build_avatar_page.py` → `archive_out/avatar.html`（SVG 非真人脸 + 音量驱动口型 + 125 条原声）。用户验证：跑 `archive_out/start_server.bat` 开 `http://localhost:8020/avatar.html`
-- **语音层等用户**：v0.1-clean27 已训完（`~/wu-sft/v01_clean27/exp/mama_v01c27_llm/` epoch_0..14）
-- **等用户三件事**：①校对页 2 页（18 条脏转写）导出 JSONL 贴回 → 触发 45 条满血重训 v0.1-full；②试听页 3 页 epoch 排序（2/4/8/14）→ 定盲听候选；③avatar.html 体验反馈
-- **未做**：persona.md（文字层大头，含缺点不理想化，建议专门会话）、记忆卡片+人工闸门页、BYOK 对话页、合成语音进卡通人清单、M3 build_archive 合流
-- **工具链新增（全 Codex ACCEPT）**：`tools/make_listen_page.py`（manifest 试听页生成，--bitrate/--max-mb）、`tools/make_correction_page.py`（转写校对页，--only-flagged/--limit）。**发手机的 HTML 必须 <1MB/页**（24kbps + 分页，大页面用户手机打不开）
-- **训练环境坑**（详见 findings.md）：OOM=重启治愈；venv 内有 ASCII deepspeed stub 勿加 PYTHONPATH 遮蔽；`executor.py:146` 已改 @torch.no_grad()；CosyVoice 仓库两处未提交补丁勿还原
-- **08-09 分工违规已纠正**：8/7-9 代码曾 Claude 直写被用户查账发现（记忆 deepseek-division-enforcement.md）。之后全部恢复 DeepSeek 写 + Codex 审，Claude 直写仅限声明过的 hotfix/glue
+- **语音层 90%**：模型定稿 **v0.1-full44 epoch14**（`~/wu-sft/v01_full44/exp/mama_v01f44_llm/`；起始幻觉=随机采样所致，重抽即除，用户已确认"干净了"）。`tools/synth_blind_batch.py` 已闭环入库（texts JSONL + 时长 QC 自动重抽 + qc_report）**但未实跑**。下一步：盲听文本清单定稿 → GPU 实跑 → 家人盲听（M1 关口，批次建议见 dialect-tts-maturity.md）
+- **数据层 ✅**：`archive_out/data/` 228MB（但见下面敏感记录清理——2024 分片需重建）
+- **文字层 60%**：`extract_persona_digest.py`（206KB digest）+ `extract_memory_candidates.py`（150 条候选，五信号配额 61/23/22/22/22）双双闭环入库并实跑；**persona.md 草稿 306 行 46 论断已发用户**（全 Tier-3 + Q1-Q13 待确认清单，等用户逐条回复；Q1 身份对应"郑韫瑜=爸爸/王铮=妈妈本人"系推断须最先确认）。剩：3d 闸门页 make_gate_page.py + apply 工具、timeline.md 渲染
+- **卡通人 80%**：**最终头像定稿 04 s1001**（用户拍板；`people/mama/persona/avatar.png` + `avatar_choice.json` 溯源）。生成链全套入库：`gen_avatar_candidates.py`（ComfyUI Qwen-Image-Edit-2509 批量客户端）+ `make_contact_sheet.py`（手机拼图，需 PIL → 用 ComfyUI 内嵌 python 跑）。剩：**4e-集成**（build_avatar_page.py 支持图片头像+口型动画）、4c 合成语音入清单、4d BYOK 对话页
+- ⚠️ **敏感记录清理（用户已拍板：删除；下回合首要工程项）**：2024-02-09 凭据交接批（全家账号密码/记账/抗癌药记录）从全部派生层删除（normalized UIF / archive_out/data / candidates.jsonl / persona_digest.json），**raw/ 不动**；删后重跑 bundle/candidates/digest；已泛化为任意人物管线标准关卡（记忆 sensitive-data-cleanup.md）。DeepSeek 写 + Codex 审
+- **persona 提炼数据边界（用户问过）**：persona/digest/rhythm 只用了**文字消息**；音频仅以计数参与（[语音]76/[通话]74 占位符统计），语音**内容**与视频完全未进 persona。可选增强（未立项）：99 条语音转写反哺口语语域、视频日期反哺记忆卡片
+- **下回合建议顺序**：①敏感记录清理工具 ②3d 闸门页+apply（150 条候选等确认）③timeline.md ④4e-集成 ⑤盲听批次实跑
+- **环境现场**：ComfyUI 可能还在后台跑（127.0.0.1:8188，起服命令见 progress 08-12 节；显存吃紧就 POST /free）；语音合成用 cosyvoice venv；DeepSeek 必带 `DEEPSEEK_NOTHINK=1`（写法：`$env:DEEPSEEK_NOTHINK="1"; python scripts/deepseek_call.py <spec> <out> 32000`，产物剥围栏+py_compile）
+- **移动 review 定式**：HTML <1MB/页大按钮；音频逐条 MP3 直发（聊天渲染器不播内嵌音频）；图片拼图 SendUserFile 直发；选择题用 AskUserQuestion 按钮
+- **本会话审核实录速览**（详见 progress.md）：五个工具 DeepSeek×2~4 轮 + Codex 多轮至通过；Codex 一次误报（"语法错误"经 py_compile 实证不存在）——**对 Codex 判定要抽查验证，不盲从**
 
 ## 一、项目一句话
 
