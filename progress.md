@@ -126,3 +126,11 @@
 - v0 训练底座查证：v0/v0.1 均从 Wu-SFT llm.pt 起训（run_train.sh 注释实锤）——v0.2 无换底座升级空间
 - **预期重校（依铁律"尊重素材语言"）**：v0.2 重训继续（她的数据把发音往本人拉，渐进改善），但长句地道度受底座压制；合成定位=短句场景（卡通人/对话页短回复），长内容播真声；**117 条全量转写是独立档案资产**（进 bundle 可检索，不系于 TTS 成败）
 - 观察项入 HANDOFF：吴语 TTS 生态 2026-02 才起步，留意 SS 权重放出或更强开源沪语模型
+## Session 2026-08-13 凌晨（语音/视频记忆卡文本化——用户提问当场落地）
+- 用户问"记忆卡能否把语音视频总结成文字"→ 当场三件套落地（闸门页恰好未开始做，无草稿冲突，用户确认后重生成）
+- **build_voice_transcripts.py 入库（person-generic 合并器）**：段级 ASR+校对稿（校对优先）按 start_s 排序聚合回原始条目，联 manifest 元数据；语音跑出 **99/99 全文本化**（44 corrected + 55 asr_draft，26 条非本人未转写）；--media-kind 复用跑视频。DeepSeek v1 守卫双向写反（禁仓库外+放行 raw）→ 声明 hotfix 改为仅禁 raw 树
+- **video_audio_prep.py 入库（工作区）**：imageio-ffmpeg 便携二进制抽音轨（9/9 全有音轨共 5.1 分钟）→ 同契约能量切段（16 池条目全 11-26s）→ u2++ ASR 16/16 → video_transcripts.jsonl（她的 9 条视频音轨全文本化；质量混合符合预期，闸门逐条判）。已知瑕疵：stdout 汇总计数自相矛盾（manifest 本体一致），入 Codex 批审
+- **extract_memory_candidates transcripts-v1 扩展**：①回填——22/22 voice_long 卡带她说的话（标题即内容首句）、media_burst 语音/视频摘录带文本；②**转写进 keyword_event 挖掘语料**（keyword 池 418→427，5 张关键词卡长出语音/视频摘录）；③has_asr_draft 顶层标记 37 张（闸门页忽略未知字段安全）。Tier-2 纪律：全部标注 transcript_corrected/asr_draft 来源
+- **闸门页 v2 已发用户**（150 卡 229KB，敏感预标记 10 张——语音可见文本进了扫描面）；旧页作废。用户校对 v0.2 转写完成后重挖一轮升级 draft→corrected
+- 视频画面内容描述（视觉模型）定为 MVP 后增强项
+- Codex 四工具批审后台进行（含 stdout 计数瑕疵与 hotfix 复核）
