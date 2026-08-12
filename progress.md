@@ -134,3 +134,12 @@
 - **闸门页 v2 已发用户**（150 卡 229KB，敏感预标记 10 张——语音可见文本进了扫描面）；旧页作废。用户校对 v0.2 转写完成后重挖一轮升级 draft→corrected
 - 视频画面内容描述（视觉模型）定为 MVP 后增强项
 - Codex 四工具批审后台进行（含 stdout 计数瑕疵与 hotfix 复核）
+## Session 2026-08-13 凌晨（Tier-1 记忆册诞生 + 四工具修复轮）
+- **Codex 批审 6 条全实锤**（1 High 潜伏未触发：全缺失段落клип误标 mixed；2 Medium：media 标签靠 chat_room 推断错标/缺 raw 守卫；video prep 切段算法偏离契约+相对路径风险+stdout 计数）——已核对**今晚已交付产物零污染**（mixed=0/路径全绝对/media 字段页面不渲染）→ DeepSeek 三工具修复轮 → 重跑全链零回归（视频重切段+ASR 重跑对齐新边界）
+- **用户回贴码到达（150 张全裁决）**：26 剔除（含全部 10 张敏感预标记）+ 文字指令"其他都是确认"→ 按 delta 契约补全 124 张确认文件（hash 9c6f3423e44a 双向验证）→ apply：**confirmed=124 rejected=26 pending=0 confirmed_flagged=0 → memories/memories.md 134KB/124 条 Tier-1 诞生**
+- **对话页升级**：build_chat_context 重跑，sources 首次含 memories——system prompt 1.8 万→9 万字（记忆全文嵌入）。待办：memories_block 加摘要/上限（9 万字对 BYOK 调用偏重）
+- **管线新缺口立项**：extract_memory_candidates 重生成会清空 status——需"状态保留合并"能力（下轮与校对升级重挖一起做）
+- Phase 3 完成标准实质达成：persona/（草稿待 Q2-Q13）+ memories/（Tier-1 记忆册+timeline）齐备
+## Session 2026-08-13 凌晨（修复轮终审收口）
+- Codex 复审：build_voice_transcripts / extract_memory_candidates 两修复确认通过；video_audio_prep 剩一条 Medium（缺 min_seg 钳位+三 CLI 守卫）→ DeepSeek v3 回炉**反而打碎直通逻辑**（全部 16 条误标 segmented=true）→ **三振协议触发：停整文件重生成，Claude 外科 hotfix**（单元组→直通分支恢复，声明）→ 重建生产视频池（passthrough=6/segmented=3/segments=10 与 Codex 预测精确一致，manifest 本体验证通过）→ 新边界重跑 ASR + 重建 video_transcripts 全链对齐
+- HANDOFF ⓪-2 增补 + 下回合顺序刷新（状态保留合并列为重挖前置）

@@ -73,6 +73,23 @@ def _parse_uif_line(line: str):
     return rec, 0
 
 
+def _parse_transcript_line(line: str):
+    """Parse a transcript line with validation. Returns (record, error_count)."""
+    try:
+        rec = json.loads(line)
+    except (json.JSONDecodeError, ValueError):
+        return None, 1
+    if not isinstance(rec, dict):
+        return None, 1
+    record_id = rec.get("record_id")
+    if not isinstance(record_id, str) or not record_id.strip():
+        return None, 1
+    timestamp = rec.get("timestamp")
+    if not isinstance(timestamp, str) or not extract_date(timestamp):
+        return None, 1
+    return rec, 0
+
+
 def extract_date(ts_str: str) -> str:
     """Extract YYYY-MM-DD from ISO timestamp string."""
     try:
@@ -164,14 +181,60 @@ def sort_candidates(candidates):
     )
 
 
-def extract_keyword_events(messages, groups_cfg, enabled_groups):
+def load_transcripts(path: Path, kind: str):
+    """Load transcript records from JSONL, returning (map, bad_count).
+    
+    Map: record_id -> transcript dict (with text, quality, kind, etc.)
+    Only entries with non-null non-empty text AND is_subject true are kept.
+    The passed `kind` is tagged onto each kept record.
+    """
+    transcript_map = {}
+    bad = 0
+    if not path.exists():
+        return transcript_map, bad
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            rec, err = _parse_transcript_line(line)
+            if rec is None:
+                bad += err
+                continue
+            text = rec.get("text")
+            if not isinstance(text, str) or not text.strip():
+                continue  # skip null/empty text
+            if not rec.get("is_subject") is True:
+                continue  # skip non-subject entries
+            record_id = rec.get("record_id")
+            rec["media_kind"] = kind  # explicit voice/video kind
+            transcript_map[record_id] = rec
+    return transcript_map, bad
+
+
+def _truncate_text(text, max_len=300):
+    """Truncate text to max_len characters on a character boundary."""
+    if text is None:
+        return ""
+    if len(text) <= max_len:
+        return text
+    return text[:max_len]
+
+
+def _text_source_quality(rec):
+    """Get quality string for a transcript record."""
+    quality = rec.get("quality", "corrected")
+    return f"transcript_{quality}"
+
+
+def extract_keyword_events(messages, groups_cfg, enabled_groups, transcript_map=None):
     """Extract keyword_event candidates."""
     candidates = []
     if not enabled_groups:
         return candidates
 
-    # Group messages by (group, chat_room, date)
-    clusters = defaultdict(list)
+    # Build scannable items: messages + transcript clips
+    scannable = []
     for msg in messages:
         if not is_subject(msg):
             continue
@@ -179,28 +242,70 @@ def extract_keyword_events(messages, groups_cfg, enabled_groups):
         date = extract_date(msg.get("timestamp", ""))
         if not date:
             continue
-        chat_room = msg.get("chat_room")
+        scannable.append({
+            "type": "message",
+            "record_id": msg.get("record_id"),
+            "text": text,
+            "timestamp": msg.get("timestamp", ""),
+            "date": date,
+            "chat_room": msg.get("chat_room"),
+            "source": msg,
+        })
+
+    if transcript_map:
+        for record_id, rec in transcript_map.items():
+            text = rec.get("text", "")
+            date = extract_date(rec.get("timestamp", ""))
+            if not date:
+                continue
+            scannable.append({
+                "type": "transcript",
+                "record_id": record_id,
+                "text": text,
+                "timestamp": rec.get("timestamp", ""),
+                "date": date,
+                "chat_room": rec.get("chat_room"),
+                "source": rec,
+                "media_kind": rec.get("media_kind"),
+            })
+
+    # Group by (group, chat_room, date)
+    clusters = defaultdict(list)
+    for item in scannable:
+        text = item["text"]
         for group in enabled_groups:
             keywords = groups_cfg.get("groups", {}).get(group, {}).get("keywords", [])
             if not keywords:
                 continue
             for kw in keywords:
                 if kw and kw in text:
-                    clusters[(group, chat_room, date)].append(msg)
+                    clusters[(group, item["chat_room"], item["date"])].append(item)
                     break
 
-    for (group, chat_room, date), msgs in clusters.items():
-        msgs_sorted = sorted(
-            msgs,
-            key=lambda m: m.get("timestamp", ""),
+    for (group, chat_room, date), items in clusters.items():
+        items_sorted = sorted(
+            items,
+            key=lambda m: m["timestamp"],
         )
-        excerpts = [
-            {"record_id": m.get("record_id"), "text": m.get("text", "")[:300],
-             "timestamp": m.get("timestamp", "")}
-            for m in msgs_sorted[:5]
-        ]
-        source_records = [m.get("record_id") for m in msgs_sorted if m.get("record_id")]
-        counts = {"hits": len(msgs)}
+        excerpts = []
+        for item in items_sorted[:5]:
+            if item["type"] == "message":
+                excerpts.append({
+                    "record_id": item["record_id"],
+                    "text": _truncate_text(item["text"]),
+                    "timestamp": item["timestamp"],
+                })
+            else:
+                excerpt = {
+                    "record_id": item["record_id"],
+                    "text": _truncate_text(item["text"]),
+                    "timestamp": item["timestamp"],
+                    "text_source": _text_source_quality(item["source"]),
+                    "media": item.get("media_kind"),
+                }
+                excerpts.append(excerpt)
+        source_records = [item["record_id"] for item in items_sorted if item["record_id"]]
+        counts = {"hits": len(items)}
         group_label = groups_cfg.get("groups", {}).get(group, {}).get("label", group)
         candidates.append(
             make_candidate(
@@ -252,7 +357,7 @@ def extract_burst_days(messages, burst_min, p95_daily):
                     seen_ids.add(rid)
                     excerpts.append({
                         "record_id": rid,
-                        "text": m.get("text", "")[:300],
+                        "text": _truncate_text(m.get("text", "")),
                         "timestamp": m.get("timestamp", ""),
                     })
             # Longest 2 by text length
@@ -267,7 +372,7 @@ def extract_burst_days(messages, burst_min, p95_daily):
                     seen_ids.add(rid)
                     excerpts.append({
                         "record_id": rid,
-                        "text": m.get("text", "")[:300],
+                        "text": _truncate_text(m.get("text", "")),
                         "timestamp": m.get("timestamp", ""),
                     })
 
@@ -301,7 +406,7 @@ def extract_long_messages(messages, min_long):
             rid = msg.get("record_id")
             excerpts = [{
                 "record_id": rid,
-                "text": text[:300],
+                "text": _truncate_text(text),
                 "timestamp": msg.get("timestamp", ""),
             }]
             candidates.append(
@@ -320,7 +425,7 @@ def extract_long_messages(messages, min_long):
     return candidates
 
 
-def extract_voice_long(voice_manifest_path: Path, min_voice_sec):
+def extract_voice_long(voice_manifest_path: Path, min_voice_sec, transcript_map=None):
     """Extract voice_long candidates from voice manifest."""
     candidates = []
     if not voice_manifest_path.exists():
@@ -350,30 +455,69 @@ def extract_voice_long(voice_manifest_path: Path, min_voice_sec):
                     continue
                 rid = rec.get("record_id")
                 file_ref = rec.get("file_ref", "")
-                excerpts = [{
+                excerpt = {
                     "record_id": rid,
                     "file_ref": file_ref,
                     "duration_ms": duration_ms,
                     "sender_alias": rec.get("sender_alias"),
                     "timestamp": rec.get("timestamp", ""),
-                }]
-                candidates.append(
-                    make_candidate(
-                        "voice_long",
-                        "长语音",
-                        date,
-                        rec.get("chat_room"),
-                        None,
-                        excerpts,
-                        {"duration_ms": duration_ms},
-                        [rid],
-                        key_suffix=rid,
+                }
+                # Enrich with transcript if available
+                if transcript_map and rid in transcript_map:
+                    trec = transcript_map[rid]
+                    text = trec.get("text", "")
+                    if isinstance(text, str) and text.strip():
+                        excerpt["text"] = _truncate_text(text)
+                        excerpt["text_source"] = _text_source_quality(trec)
+
+                title = None
+                if transcript_map and rid in transcript_map:
+                    text = transcript_map[rid].get("text", "")
+                    if isinstance(text, str) and text:
+                        title = f"{date} 长语音：{text[:18]}…"
+
+                if title is None:
+                    # Use default title from make_candidate
+                    candidates.append(
+                        make_candidate(
+                            "voice_long",
+                            "长语音",
+                            date,
+                            rec.get("chat_room"),
+                            None,
+                            [excerpt],
+                            {"duration_ms": duration_ms},
+                            [rid],
+                            key_suffix=rid,
+                        )
                     )
-                )
+                else:
+                    # Build with custom title
+                    aux_key = f"{date}|{rid}"
+                    hash_input = f"voice_long|{aux_key}".encode("utf-8")
+                    candidate_id = hashlib.sha256(hash_input).hexdigest()[:16]
+                    candidates.append({
+                        "candidate_id": candidate_id,
+                        "kind": "voice_long",
+                        "kind_label": "长语音",
+                        "date": date,
+                        "chat_room": rec.get("chat_room"),
+                        "group": None,
+                        "title": title,
+                        "excerpts": [excerpt],
+                        "counts": {"duration_ms": duration_ms},
+                        "tier": 2,
+                        "status": "pending",
+                        "provenance": {
+                            "generator": "extract_memory_candidates",
+                            "version": "1.0.0",
+                            "source_records": [rid],
+                        },
+                    })
     return candidates, bad
 
 
-def extract_media_bursts(media_manifest_paths, media_burst):
+def extract_media_bursts(media_manifest_paths, media_burst, transcript_map=None):
     """Extract media_burst candidates from combined manifests."""
     candidates = []
     if not any(p.exists() for p in media_manifest_paths):
@@ -412,8 +556,9 @@ def extract_media_bursts(media_manifest_paths, media_burst):
         if len(items) >= media_burst:
             items_sorted = sorted(items, key=lambda m: m.get("timestamp", ""))
             subject_count = sum(1 for i in items if is_subject(i))
-            excerpts = [
-                {
+            excerpts = []
+            for i in items_sorted[:5]:
+                excerpt = {
                     "record_id": i.get("record_id"),
                     "media_type": i.get("media_type"),
                     "file_ref": i.get("file_ref"),
@@ -421,8 +566,15 @@ def extract_media_bursts(media_manifest_paths, media_burst):
                     "is_subject": is_subject(i),
                     "timestamp": i.get("timestamp", ""),
                 }
-                for i in items_sorted[:5]
-            ]
+                # Enrich with transcript if available
+                rid = i.get("record_id")
+                if transcript_map and rid in transcript_map:
+                    trec = transcript_map[rid]
+                    text = trec.get("text", "")
+                    if isinstance(text, str) and text.strip():
+                        excerpt["text"] = _truncate_text(text)
+                        excerpt["text_source"] = _text_source_quality(trec)
+                excerpts.append(excerpt)
             source_records = [i.get("record_id") for i in items if i.get("record_id")]
             candidates.append(
                 make_candidate(
@@ -486,6 +638,19 @@ def load_uif_messages(uif_path: Path):
     return messages, bad
 
 
+def guard_transcript_path(transcript_path: Path, person: str) -> bool:
+    """Guard against raw-subtree input for transcript files.
+
+    Returns True if the path is allowed, False if it must be rejected.
+    """
+    resolved = transcript_path.resolve()
+    raw_root = (Path(__file__).resolve().parent.parent / "people" / person / "raw").resolve()
+    if resolved == raw_root or raw_root in resolved.parents:
+        print(f"[error] 转录文件不能位于 raw 子树下: {resolved}")
+        return False
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="从 UIF 消息 + 媒体 manifest 提取记忆卡片候选"
@@ -494,6 +659,8 @@ def main():
     parser.add_argument("--uif", type=Path, help="UIF 消息 JSONL 路径")
     parser.add_argument("--voice-manifest", type=Path, help="语音 manifest 路径")
     parser.add_argument("--video-manifest", type=Path, help="视频 manifest 路径")
+    parser.add_argument("--voice-transcripts", type=Path, help="语音转录 JSONL 路径")
+    parser.add_argument("--video-transcripts", type=Path, help="视频转录 JSONL 路径")
     parser.add_argument("--keywords", type=Path, help="关键词配置路径")
     parser.add_argument("--kw-groups", default="family_events,health", help="参与挖掘的组")
     parser.add_argument("--min-long", type=int, default=100, help="长消息字符阈值")
@@ -548,12 +715,16 @@ def main():
     default_video = repo_root / "people" / args.person / "normalized" / "wechat_video_manifest.jsonl"
     default_kw = repo_root / "tools" / "persona_keywords.zh.json"
     default_out = repo_root / "people" / args.person / "memories" / "candidates.jsonl"
+    default_voice_transcripts = repo_root / "people" / args.person / "normalized" / "voice_transcripts.jsonl"
+    default_video_transcripts = repo_root / "people" / args.person / "normalized" / "video_transcripts.jsonl"
 
     uif_path = args.uif if args.uif else default_uif
     voice_path = args.voice_manifest if args.voice_manifest else default_voice
     video_path = args.video_manifest if args.video_manifest else default_video
     kw_path = args.keywords if args.keywords else default_kw
     out_path = args.out if args.out else default_out
+    voice_transcripts_path = args.voice_transcripts if args.voice_transcripts else default_voice_transcripts
+    video_transcripts_path = args.video_transcripts if args.video_transcripts else default_video_transcripts
 
     # Resolve paths
     uif_path = uif_path.resolve()
@@ -561,6 +732,14 @@ def main():
     video_path = video_path.resolve()
     kw_path = kw_path.resolve()
     out_path = out_path.resolve()
+    voice_transcripts_path = voice_transcripts_path.resolve()
+    video_transcripts_path = video_transcripts_path.resolve()
+
+    # Guard transcript inputs against raw subtree
+    if not guard_transcript_path(voice_transcripts_path, args.person):
+        return 2
+    if not guard_transcript_path(video_transcripts_path, args.person):
+        return 2
 
     # Check UIF exists
     if not uif_path.exists():
@@ -586,14 +765,34 @@ def main():
     if bad_lines > 0:
         print(f"[warn] UIF 坏行数: {bad_lines}")
 
+    # Load transcripts with explicit kind tags
+    voice_transcript_map = {}
+    video_transcript_map = {}
+    voice_transcript_bad = 0
+    video_transcript_bad = 0
+    if voice_transcripts_path.exists():
+        voice_transcript_map, voice_transcript_bad = load_transcripts(voice_transcripts_path, "voice")
+        print(f"[info] voice_transcripts=loaded ({len(voice_transcript_map)} clips, {voice_transcript_bad} bad lines)")
+    else:
+        print(f"[info] voice_transcripts=absent")
+    if video_transcripts_path.exists():
+        video_transcript_map, video_transcript_bad = load_transcripts(video_transcripts_path, "video")
+        print(f"[info] video_transcripts=loaded ({len(video_transcript_map)} clips, {video_transcript_bad} bad lines)")
+    else:
+        print(f"[info] video_transcripts=absent")
+    
+    # Merge transcript maps
+    combined_transcript_map = dict(voice_transcript_map)
+    combined_transcript_map.update(video_transcript_map)
+
     # P95 computation
     p95_daily = compute_p95_daily(messages)
 
     # Extract candidates
     all_candidates = []
 
-    # keyword_event
-    kw_candidates = extract_keyword_events(messages, kw_config, enabled_groups)
+    # keyword_event (now with transcripts)
+    kw_candidates = extract_keyword_events(messages, kw_config, enabled_groups, combined_transcript_map)
     print(f"[info] keyword_event 候选: {len(kw_candidates)}")
     all_candidates.extend(kw_candidates)
 
@@ -608,14 +807,14 @@ def main():
     all_candidates.extend(long_candidates)
 
     # voice_long
-    voice_candidates, voice_bad = extract_voice_long(voice_path, args.min_voice_sec)
+    voice_candidates, voice_bad = extract_voice_long(voice_path, args.min_voice_sec, combined_transcript_map)
     print(f"[info] voice_long 候選: {len(voice_candidates)}")
     if voice_bad > 0:
         print(f"[warn] 语音 manifest 坏行数: {voice_bad}")
     all_candidates.extend(voice_candidates)
 
     # media_burst
-    media_candidates, media_bad = extract_media_bursts([voice_path, video_path], args.media_burst)
+    media_candidates, media_bad = extract_media_bursts([voice_path, video_path], args.media_burst, combined_transcript_map)
     print(f"[info] media_burst 候选: {len(media_candidates)}")
     if media_bad > 0:
         print(f"[warn] 媒体 manifest 坏行数: {media_bad}")
@@ -623,6 +822,17 @@ def main():
 
     # Sort
     sorted_candidates = sort_candidates(all_candidates)
+
+    # Add has_asr_draft flag to candidates containing asr_draft transcripts
+    for cand in sorted_candidates:
+        has_asr = False
+        for ex in cand.get("excerpts", []):
+            ts = ex.get("text_source", "")
+            if "asr_draft" in ts:
+                has_asr = True
+                break
+        if has_asr:
+            cand["has_asr_draft"] = True
 
     # Group by kind preserving kind priority order
     kind_order = {
@@ -673,6 +883,7 @@ def main():
     # Final sort by kind priority and internal order
     final_candidates = sort_candidates(final_candidates)
 
+    # Re-apply has_asr_draft after sort (already on candidates)
     # Report per-kind truncation
     print("[info] 截断报告:")
     for kind in ("keyword_event", "media_burst", "burst_day", "voice_long", "long_message"):
