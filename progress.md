@@ -89,3 +89,13 @@
 - 工艺沉淀：**harness 的 DOM stub 必须忠实（缺失 id 返回 null）**——过宽的 Proxy stub 会把"元素不存在"类崩溃全部吞掉（本回合被 Codex 实锤教育）
 - 产物：archive_out/avatar.html（图片双帧模式）+ avatar_preview.html 0.26MB + data/avatar/ 三资产；LAN 8020 在跑可直接体验；两帧图已发用户手机（说话帧可否决重抽）
 - Phase 4 剩余：4c 合成语音入清单（等盲听定稿）、4d BYOK 对话页（Tier-3 禁陈述提示词，未开工）
+
+## Session 2026-08-12（同回合续 3：4d BYOK 对话页收官，MVP 四层齐）
+- 用户指令"先做出mvp 继续推进" → 开工最后一块纯工程拼图 4d
+- **提示词模板 prompts/chat_system.zh.md（Claude 写，判断类）**：person-generic 六铁律——只说档案有的（事实源=Tier-1/2 标注+检索片段）/记不清就说记不清/Tier 标注纪律（Tier-3 只作语气参考）/保留缺点不美化/被问就承认是模拟不主动提/克制依赖（禁"我会一直在这里"）。占位符 8 个全来自 relationship.json+档案产物，零硬编码人物
+- **build_chat_context.py 闭环**：渲染模板+rhythm 蒸馏（口头禅 top15/长度/时段/标点/语音习惯）+persona.md 全文嵌入（自带 Tier-3 DRAFT 声明随行）+缺 memories 防伪造回退文案+timeline 年度概要+message_shards 清单；占位符漂移守卫（v1 正确拦下我模板注释里的字面 {{占位符}}——模板 bug 我修）；18074 字 system prompt，零残留
+- **build_chat_page.py 五轮闭环**：chat.html 23KB 自包含 BYOK（任意 OpenAI 兼容端点，key 只进 localStorage）+客户端检索（7 年度分片惰性并载，CJK 2-gram+拉丁词打分，top6 带日期"[档案检索 Tier-2]"）+真流式 SSE+永久"非本人"横幅。缺陷史全记：v1 esc 未定义→v2 %格式化撞 CSS 百分号（→定式：HTML 模板一律 __X__+replace）→v3 非 raw 模板 \n 变真换行+IIFE 罩纯函数（hotfix×2）→Codex R1 五实锤（分片 URL 双后缀检索全死/resp.text() 假流式/raw guard 弱/onerror 删整泡/context 输入绕守卫）→v4→R2 EOF 尾缓冲丢 delta（Codex Node 仿真）→v5 SSE 纯函数状态机→R3 新回归 fallback 只存首 chunk→声明 hotfix 累积→**ACCEPT**
+- **测试工艺再升级：e2e harness**（事件处理器捕获+脚本化 reader 驱动真实 send 流）——正是能同时抓住"假流式"与"fallback 丢块"这类集成缺陷的层级；沉淀三件套 chat/sse/e2e harness 于 scratchpad。教训：stub 的 querySelector/parentNode 也要忠实接线，否则 e2e 报的是 harness 自己的伤
+- 入口页 index.html 重排（直写声明）："档案体验"区（卡通人+对话）置顶，旧 review 区保留
+- **Phase 5 合流预检**：archive_out 233MB 自包含盘点通过——能打开（index+7 分片+meta）/能听（125 原声+双帧卡通人）/能看（timeline+头像）/能聊（chat BYOK）。正式打包（并入 persona/memories 文字层、剔除 review 页）等用户 Tier-1 确认后做
+- MVP 判定：**四层工具链全部闭环入库**。剩余全部为用户动作（回贴码/Q1-Q13/盲听文本）+ 等确认后的 Phase 5 打包

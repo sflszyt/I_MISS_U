@@ -54,7 +54,10 @@
   - 验证方式：LAN http://192.168.3.69:8020/avatar.html（8020 服务在跑）；两帧图已发用户手机（用户可否决说话帧，重抽即换）
 - ✅ tools/build_avatar_page.py（DeepSeek×5 轮 + Codex×3 轮）：archive_out/avatar.html（37KB）+ start_server.bat/.sh——SVG 卡通（圆脸眨眼腮红，非真人脸）+ AnalyserNode 音量驱动嘴型 + 600ms 静音伪驱动 fallback + 125 条原声播放列表（data/media/voice 相对路径）+ 续播守卫
 - ⬜ 4c 合成语音入清单（等 v0.1 epoch 定稿后把 TTS 样本放 data/media/tts/）
-- ⬜ 4d BYOK 对话页（Tier-3 禁陈述为事实的提示词）
+- ✅ **4d BYOK 对话页完成（2026-08-12，DeepSeek×5 轮 + Codex 两轮 REJECT→ACCEPT + 3 处声明 hotfix）**：三件套——`prompts/chat_system.zh.md`（person-generic 提示词模板，Claude 写：六条铁律=只说档案有的/记不清就说/Tier 标注纪律/保留缺点/不假装真人/克制依赖）+ `tools/build_chat_context.py`（模板渲染+rhythm 蒸馏+persona 全文含 Tier-3 声明嵌入+缺 memories 时防伪造回退文案+占位符漂移守卫，18074 字 system prompt）+ `tools/build_chat_page.py`（archive_out/chat.html 23KB 自包含：BYOK 设置抽屉 localStorage、客户端检索 7 分片 CJK 2-gram 打分 top6 带日期 Tier-2 标注、真流式 SSE 状态机 sseCreate/Feed/Finish 纯函数、非流式 fallback、AbortController、永久"非本人"横幅、消息 textContent 零 XSS）
+  - 审核历程：v1 esc 未定义 → v2 %格式化撞 CSS 百分号 → v3 非 raw 模板 \n 变真换行（JS 语法错）+ IIFE 罩住纯函数（两处声明 hotfix：r 前缀+window 导出）→ Codex R1 REJECT 5 条全实锤（分片 URL 双 .json 后缀检索全死/resp.text() 假流式/raw guard 弱/气泡头像 onerror 删整泡/context 固定输入绕守卫）→ v4 修 → Codex R2 仍 REJECT（EOF 尾缓冲丢最后 delta，Node 仿真实证）→ v5 SSE 纯函数状态机 → Codex R3 抓 v5 新回归（fallback 只存首 chunk）→ 声明 hotfix 累积 + **e2e harness**（捕获事件处理器+脚本化 reader 驱动真实 send 流，双场景过）→ **ACCEPT**
+  - 测试资产沉淀（scratchpad 可复用）：chat_harness（16 纯函数契约）、sse_harness（6 SSE 场景）、e2e_harness（真实 send 流驱动）
+  - 入口页 index.html 已加"档案体验"区（avatar+chat 卡片，直写声明）；LAN http://192.168.3.69:8020/chat.html
 - ✅ 4e 形象升级全链路完成：照片→卡通生成链（gen_avatar_candidates.py + make_contact_sheet.py）→ 用户终选 04 s1001 → 双帧说话动画集成（见上）
 - 用户验证方式：运行 archive_out/start_server.bat → 浏览器开 http://localhost:8020/avatar.html
 
