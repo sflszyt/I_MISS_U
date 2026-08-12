@@ -151,3 +151,7 @@
   - **语言层**：Q12 姆妈=口语/妈妈=文字分场景（入 relationship.json self_reference）；Q13 赞咯/一天世界/很残过全进词表（confirmed_catchphrases）
   - **待用户文字补充**：Q5 人名关系标注、Q11 沪语释义
 - persona.md 头部 DRAFT 声明改为"用户裁决状态"；relationship.json 增 confirmed_facts/self_reference/confirmed_catchphrases/taboo_topics；chat_context 重建（8.9 万字，裁决后 persona 生效）
+## Session 2026-08-13（Q5/Q11 文字补充落档）
+- Q5：「嬢嬢」称呼者均为爸爸的姐姐（justin 姑妈）→ persona.md + relationship.json family_annotations；其余人名维持不提及
+- Q11 三条释义（Tier-1）：侬盐才介来三了=你现在这么厉害了；臭哄哄咯宁臭哄哄咯添（**添=对儿子的称呼**）忒过浴了伐=洗过澡了吗；哈腻心=好恶心 → relationship.json dialect_glossary；皮雪雪/交难受/铿钱/老麻球维持拟音待释义
+- chat_context 重建；Q1-Q13 至此全部收口（仅剩零散人名与四个拟音词开放）
