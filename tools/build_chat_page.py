@@ -355,6 +355,17 @@ header {
 }
 .save-btn:active { background: var(--accent-dark); }
 .hidden { display: none !important; }
+.voice-bar { display:inline-flex; align-items:center; gap:8px; background:#95ec69; color:#0b3d0b; border-radius:8px; padding:9px 14px; cursor:pointer; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; min-width:70px; }
+.voice-bar .voice-icon { font-size:15px; }
+.voice-bar.playing .voice-icon { animation: voicePulse 1s infinite; }
+@keyframes voicePulse { 0%,100% { opacity:1; } 50% { opacity:0.35; } }
+.voice-dur { font-size:13px; }
+.voice-text { margin-top:6px; font-size:14px; color:#555; display:none; white-space:pre-wrap; }
+.voice-text.shown { display:block; }
+#voice-menu { position:fixed; z-index:60; background:#fff; border:1px solid #ddd; border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,0.15); display:none; overflow:hidden; }
+#voice-menu .vm-label { padding:8px 14px; font-size:12px; color:#999; border-bottom:1px solid #eee; }
+#voice-menu .vm-item { padding:10px 14px; font-size:14px; cursor:pointer; }
+#voice-menu .vm-item:active { background:#f0f0f0; }
 </style>
 </head>
 <body>
@@ -366,6 +377,8 @@ header {
   </div>
   <button class="settings-btn" id="settings-btn" title="设置">⚙</button>
 </header>
+
+<div id="voice-menu"><div class="vm-label">合成语音 · 非原声</div><div class="vm-item" id="voice-menu-toggle">转文字</div></div>
 
 <div id="chat"></div>
 
@@ -425,6 +438,12 @@ var streaming = false;
 var shardsLoading = false;
 var knowledgeCache = null;
 var knowledgeLoading = false;
+var ttsBase = location.protocol + '//' + location.hostname + ':8022';
+var ttsAvailable = false;
+var currentAudio = null;      // 当前播放的 Audio
+var currentBar = null;        // 当前播放的语音条元素
+var menuTargetWrap = null;    // 菜单当前指向的气泡内容容器
+var voiceUrls = [];           // Blob URL 池：超过 50 条回收最旧（防长会话泄漏）
 
 /* ========= helpers ========= */
 function esc(s) {
@@ -950,6 +969,69 @@ function streamRequest(messages, onDelta, onDone, onError) {
   });
 }
 
+/* ========= TTS functions ========= */
+function probeTts() {
+  fetch(ttsBase + '/health', {method:'GET'})
+    .then(function(r){ ttsAvailable = !!r.ok; })
+    .catch(function(){ ttsAvailable = false; });
+}
+
+function voiceDurToWidth(sec) {   // 纯函数：时长→语音条像素宽（微信式随时长变长）
+  var s = Math.max(1, Math.min(60, Math.round(sec)));
+  return 70 + Math.round((s - 1) * 3.2);
+}
+
+function attachVoiceBar(contentWrap, mp3Blob, durationSec, fullText) {
+  // contentWrap 是 subject 气泡的 .bubble-content；把其内容替换为语音条 + 隐藏文本
+  var url = URL.createObjectURL(mp3Blob);
+  voiceUrls.push(url);
+  if (voiceUrls.length > 50) { try { URL.revokeObjectURL(voiceUrls.shift()); } catch(e) {} }
+  contentWrap.textContent = '';
+  var bar = document.createElement('div');
+  bar.className = 'voice-bar';
+  bar.style.width = voiceDurToWidth(durationSec) + 'px';
+  var icon = document.createElement('span'); icon.className = 'voice-icon'; icon.textContent = '\uD83D\uDD0A';
+  var dur = document.createElement('span'); dur.className = 'voice-dur'; dur.textContent = Math.max(1, Math.round(durationSec)) + '"';
+  bar.appendChild(icon); bar.appendChild(dur);
+  var txt = document.createElement('div');
+  txt.className = 'voice-text';
+  txt.textContent = fullText;
+  contentWrap.appendChild(bar);
+  contentWrap.appendChild(txt);
+  var audio = new Audio(url);
+  audio.addEventListener('ended', function() { bar.classList.remove('playing'); if (currentAudio === audio) { currentAudio = null; currentBar = null; } });
+  bar.addEventListener('click', function() {
+    if (currentAudio && currentAudio !== audio) { currentAudio.pause(); if (currentBar) currentBar.classList.remove('playing'); }
+    if (audio.paused) { audio.currentTime = 0; audio.play(); bar.classList.add('playing'); currentAudio = audio; currentBar = bar; }
+    else { audio.pause(); bar.classList.remove('playing'); currentAudio = null; currentBar = null; }
+  });
+  // 右键菜单（桌面）
+  bar.addEventListener('contextmenu', function(ev) { ev.preventDefault(); showVoiceMenu(ev.clientX, ev.clientY, contentWrap); });
+  // 长按（移动端 600ms）
+  var pressTimer = null;
+  bar.addEventListener('touchstart', function(ev) {
+    pressTimer = setTimeout(function() { pressTimer = null; var t = ev.touches && ev.touches[0]; showVoiceMenu(t ? t.clientX : 40, t ? t.clientY : 40, contentWrap); }, 600);
+  });
+  bar.addEventListener('touchend', function() { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } });
+  bar.addEventListener('touchmove', function() { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } });
+  bar.addEventListener('touchcancel', function() { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } });
+}
+
+function showVoiceMenu(x, y, contentWrap) {
+  menuTargetWrap = contentWrap;
+  var menu = document.getElementById('voice-menu');
+  var toggle = document.getElementById('voice-menu-toggle');
+  var txt = contentWrap.querySelector('.voice-text');
+  toggle.textContent = (txt && txt.classList.contains('shown')) ? '收起文字' : '转文字';
+  menu.style.display = 'block';
+  var mw = menu.offsetWidth, mh = menu.offsetHeight;
+  var px = Math.min(x, window.innerWidth - mw - 8), py = Math.min(y, window.innerHeight - mh - 8);
+  menu.style.left = Math.max(4, px) + 'px';
+  menu.style.top = Math.max(4, py) + 'px';
+}
+
+function hideVoiceMenu() { document.getElementById('voice-menu').style.display = 'none'; menuTargetWrap = null; }
+
 /* ========= send flow ========= */
 function sendMessage() {
   if (!settingsComplete()) return;
@@ -998,6 +1080,27 @@ function sendMessage() {
         sendBtn.classList.remove('stop');
         controller = null;
         updateChatState();
+
+        var finalText = contentEl.textContent;
+        if (!aborted && ttsAvailable && finalText && finalText.length > 0 && finalText.length <= 120) {
+          var voiceWrap = contentEl;
+          fetch(ttsBase + '/tts', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({text: finalText})
+          })
+          .then(function(r) {
+            if (!r.ok) throw new Error('tts ' + r.status);
+            var durHdr = parseFloat(r.headers.get('X-Duration-Seconds') || '0');
+            return r.blob().then(function(b) { return {blob: b, dur: durHdr}; });
+          })
+          .then(function(res) {
+            var d = res.dur;
+            if (!d || isNaN(d)) d = Math.max(1, finalText.length * 0.3);
+            attachVoiceBar(voiceWrap, res.blob, d, finalText);
+          })
+          .catch(function() { /* 合成失败保持文字气泡 */ });
+        }
       },
       function(msg) {
         contentEl.parentNode.remove();
@@ -1034,6 +1137,7 @@ function init() {
   }
 
   loadSettings();
+  probeTts();
 
   // load context
   fetch('data/chat_context.json')
@@ -1073,6 +1177,14 @@ function init() {
   saveBtn.addEventListener('click', saveSettings);
   cfgProvider.addEventListener('change', updatePlaceholders);
 
+  // voice menu
+  document.getElementById('voice-menu-toggle').addEventListener('click', function() {
+    if (menuTargetWrap) { var txt = menuTargetWrap.querySelector('.voice-text'); if (txt) txt.classList.toggle('shown'); }
+    hideVoiceMenu();
+  });
+  document.addEventListener('click', function(ev) { var menu = document.getElementById('voice-menu'); if (menu.style.display === 'block' && !menu.contains(ev.target)) hideVoiceMenu(); });
+  window.addEventListener('scroll', hideVoiceMenu, true);
+
   renderFields();
 }
 
@@ -1100,6 +1212,7 @@ window.splitSystem = splitSystem;
 window.sseCreate = sseCreate;
 window.sseFeed = sseFeed;
 window.sseFinish = sseFinish;
+window.voiceDurToWidth = voiceDurToWidth;
 
 })();
 </script>
