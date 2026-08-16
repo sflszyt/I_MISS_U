@@ -176,3 +176,6 @@
 - **训练误杀事故与恢复（17:21 发现）**：harness 16:02 回收后台任务时杀掉外层 bash 管道，训练 worker（PID 49512，42.8GB RAM）stdout 断裂写阻塞卡死，占 21GB 显存不放，日志停在 Epoch 7 中段。清理 4 个残骸进程 → 显存 21GB→1.8GB → 从 epoch_6_whole.pt 续训（yaml 自带 epoch:6/step:1099，train.py 从 Epoch 7 续起；constantlr 续训等价）。**教训：长时 GPU 任务永不用 harness 后台 bash，须 Start-Process 独立进程 + 日志直写文件**；Monitor 挂三态监听（完成/报错/停滞）
 - **v0.2 训练收官（18:02）**：15 epochs 完成，CV loss 0.195/acc 0.964（数据 4 倍于 v0.1，loss 略高属预期）；epoch_14_whole.pt 落盘
 - 试听批 4 批 14 条全绿（e8/e14 × 沪语 3/沪普 4，--lang 开关首次实跑验证 mandarin 模式 OK）；ab_v02.html 自包含 1.38MB（21 条内嵌，base64 回读自检过）已发用户 + LAN listen_v02/ → **等用户两判：v0.2 vs v0.1 更像否；e8 vs e14**
+- **v0.2 e14 定稿（用户耳测："有比v0.1好点，v0.2 e14"）**：现役模型切换 v01f44e14 → v02f160e14（双语域）；渐进改善符合预期（底座天花板下 47 分钟数据的增益）
+- 盲听 v2 物料备齐：8 句训练集外文本（本字 5 + 试听 3，防训练背诵失真）× v02e14 合成全绿 + pilot 真声 4 条 → blind_v2.html 12 条乱序 0.64MB + key 分离（seed 46），已发用户，等用户安排家人（M1）
+- synth_blind_batch --lang 改动 Codex 补审 ACCEPT：前缀不污染 qc_report/chars、默认 wu 向后兼容、lang 三分支全写入、retry 路径一致
