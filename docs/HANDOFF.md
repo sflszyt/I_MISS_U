@@ -3,6 +3,12 @@
 > 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-08-16 晚，v0.2 定稿会话收尾、清理上下文前**。
 > 读这份之前先读 `CLAUDE.md`（铁律），再读仓库根的 `task_plan.md` / `progress.md` / `findings.md`（MVP 计划与实时状态）。研究依据在 `docs/research/`。
 
+## ⓪⁺⁺⁺ 增补（2026-08-17 凌晨：对话页四连升级 + 远程访问，最先看这段）
+
+1. **对话页新能力（全部 Codex 审 + 真浏览器 E2E）**：①file:// 直开引导（修"Failed to fetch"实报）②接口类型双模式——OpenAI 兼容（DeepSeek：`https://api.deepseek.com/chat/completions` + `deepseek-chat`）/ **Claude 官方**（`https://api.anthropic.com/v1/messages` + `anthropic-dangerous-direct-browser-access` 头，CORS 直连实测通；Max 订阅≠API 额度，需 console 充值）③**用户气泡漏渲染文本 bug 修复**（自 v1 潜伏）④**微信式语音回复**——tools/tts_server.py 本地合成服务 :8022（v0.2 e14，默认沪普；`wu-sft/tts_server/start_tts.bat` 一键启动，已常驻）+ 语音条 UI（点击播放/右键长按转文字/"合成语音·非原声"标签/≤120 字/四类失败降级文字）。审核插曲：Codex 首轮 REJECT 的 BLOCKER 被六格矩阵实证不能复现（其分帧实验污染自身连接），复审撤回改 ACCEPT；真发现（分帧加固/token 选项/blob 池/touchcancel）全修
+2. **远程访问已通（Tailscale 私网）**：**手机任何网络访问 `http://100.116.45.2:8020/`** = 家里档案站全部页面（含语音对话，TTS 走同主机 8022）。架构：**userspace 模式用户态 tailscaled**（腾讯电脑管家拦 SYSTEM 服务出网 WSAEACCES，服务版已停用禁用；提权用户态 + --unattended）；登录自启任务 `TailscaleUserspace`；设备 justin-pc(100.116.45.2) + iphone182(100.111.127.101)。排障链与风险详见 progress 08-17 节（管家若日后拦用户态进程需回家白名单；UDP 受限走 DERP TCP 中继）
+3. TTS 服务与 LAN http.server 均非开机自启（TTS 用 start_tts.bat、档案站用 archive_out/start_server.bat 手动起；后续可仿 TailscaleUserspace 注册计划任务）
+
 ## ⓪⁺⁺ MVP 已交付（2026-08-16 深夜收官，最先看这段）
 
 **Phase 5 完成，MVP 四层全部交付**：`people/mama/archive_dist/` = **161 文件 / 241.7MB 自包含离线档案**，拷走即用（无网机器双击 start_server.bat → http://localhost:8020/）。内含：干净入口 index.html、卡通人（125 条原声）、BYOK 对话（三源检索：记忆 Tier-1/转写 Tier-2/消息 Tier-2）、text/ 文字层四件（persona/memories/timeline/rhythm）、README、archive_manifest.json（逐文件 sha256，`build_archive --verify` 对账）。工具 tools/build_archive.py（DeepSeek×3 + Codex ACCEPT with fixes 五项全修 + 专项验收 11/11 + Playwright 三页真浏览器验收零错误）。重跑幂等；review 页全剔；relationship.json/candidates.jsonl 刻意不入交付面。
