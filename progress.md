@@ -179,3 +179,10 @@
 - **v0.2 e14 定稿（用户耳测："有比v0.1好点，v0.2 e14"）**：现役模型切换 v01f44e14 → v02f160e14（双语域）；渐进改善符合预期（底座天花板下 47 分钟数据的增益）
 - 盲听 v2 物料备齐：8 句训练集外文本（本字 5 + 试听 3，防训练背诵失真）× v02e14 合成全绿 + pilot 真声 4 条 → blind_v2.html 12 条乱序 0.64MB + key 分离（seed 46），已发用户，等用户安排家人（M1）
 - synth_blind_batch --lang 改动 Codex 补审 ACCEPT：前缀不污染 qc_report/chars、默认 wu 向后兼容、lang 三分支全写入、retry 路径一致
+
+## Session 2026-08-16 晚（/clear 后新回合：盲听 v2 回贴 + 状态保留合并开工）
+- 恢复上下文（planning-with-files + HANDOFF ⓪），用户令"继续开工+总结进度"→ 汇总后按 HANDOFF 顺序开工「extract_memory_candidates 状态保留合并」
+- 设计决策：不动已稳定的 942 行 extractor，新建独立工具 tools/merge_candidate_state.py（fresh 产物 × 旧 candidates.jsonl 按 candidate_id 合并）——审查面小、零回归、管线组合式符合仓风格
+- 用户中插"家人盲听在哪里"→ blind_v2.html 重发手机 + 复制上 LAN（http://192.168.3.69:8020/blind_v2.html；key 不上传保持盲测）
+- **盲听 v2 回贴码到达并对卷（dataset 69fbdcbc2417 核验通过，回贴存 wu-sft/blind_v2/responses/resp_20260816.json）**：**合成 8 条骗过 7 条**（6 条打 3 分、1 条 5 分=w08 旧衣裳），唯一识破 w07"吃饱饱"叠词句（1 分）——与预演低分共性一致；**真声 4/4 全认出全 5 分**（测试有效性基线成立）。合成均分 3.0 vs 真声 5.0：能骗过判定但确信度仍有差距。**听者身份待用户确认（本人预演还是家人）——决定 M1 是否正式通过**；对照预演（用户本人×v0.1）3/10 骗过 → 本轮 7/8，v0.2 e14 提升实锤
+- merge_candidate_state.py：spec → DeepSeek 一发（14s/8788 字符，剥围栏后 py_compile 过）→ Claude 自查两疑点（old_sig_cache 死代码；规则 1 漏 pop content_changed 陈旧标志）→ 九场景冒烟全 PASS（smoke_merge.py：全同保留 124/26/内容变更/缺卡结转/丢弃未裁决/新卡/dry-run/重复 id/幂等/守卫）→ Codex 审核后台进行中
