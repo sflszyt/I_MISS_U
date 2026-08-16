@@ -78,9 +78,10 @@
 - 回贴码还原规则（1e 执行时用）：以 source_dataset=5af37542bea2 校验全集版本；每 utt 三态：不出现=保留原转写 / {"utt","text"}=改文 / {"utt","drop":true}=剔除
 - **R4 实测修正（2026-08-10 用户实测）**：手机聊天 HTML 渲染器播不了内嵌音频（校对页无音频、avatar 预览播放无反应）→ 音频改逐条 MP3 直发（校对 18 条按页编号 + 试听 12 条按文本×epoch 已发）；HTML 页降级为无声编辑面；avatar 口型 demo 只能电脑看，待办：无声演示模式或录屏（见记忆 audio-review-via-html）
 
-### Phase 5：合流交付 — status: pending
-- build_archive：数据层+文字层+语音样本+卡通人页打包为自包含档案目录
-- 完成标准：整个 archive_out 拷走后在无网机器可打开
+### Phase 5：合流交付 — status: complete（2026-08-16 深夜，MVP 交付）
+- ✅ tools/build_archive.py（DeepSeek×3 轮 + Codex ACCEPT with fixes 五项全修 + 专项验收 11/11）：archive_out → **archive_dist（161 文件 / 241.7MB 自包含）**——白名单拷贝（review 页全剔）+ text/ 文字层四件 + 生成干净 index/README/启动脚本 + 六项一致性硬校验（离线红线三正则：src/href+srcset+css url）+ sha256 manifest + --verify/--dry-run（严格零写盘）+ 幂等 reconcile
+- 完成标准达成：**Playwright 真浏览器三页验收零 console 错误**（index/avatar/chat）；--verify 161/0/0/0；拷走 archive_dist 即为完整档案（刻意不含 relationship.json/candidates.jsonl 构建端文件）
+- 用户裁决记录：盲听 v2 回贴系用户本人（7/8 骗过；"不重要"），M1 家人盲听不阻塞 MVP 交付
 
 ## 决策记录
 - 2026-08-09 用户拍板 MVP 范围（本文件顶部指令）

@@ -3,6 +3,14 @@
 > 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-08-16 晚，v0.2 定稿会话收尾、清理上下文前**。
 > 读这份之前先读 `CLAUDE.md`（铁律），再读仓库根的 `task_plan.md` / `progress.md` / `findings.md`（MVP 计划与实时状态）。研究依据在 `docs/research/`。
 
+## ⓪⁺⁺ MVP 已交付（2026-08-16 深夜收官，最先看这段）
+
+**Phase 5 完成，MVP 四层全部交付**：`people/mama/archive_dist/` = **161 文件 / 241.7MB 自包含离线档案**，拷走即用（无网机器双击 start_server.bat → http://localhost:8020/）。内含：干净入口 index.html、卡通人（125 条原声）、BYOK 对话（三源检索：记忆 Tier-1/转写 Tier-2/消息 Tier-2）、text/ 文字层四件（persona/memories/timeline/rhythm）、README、archive_manifest.json（逐文件 sha256，`build_archive --verify` 对账）。工具 tools/build_archive.py（DeepSeek×3 + Codex ACCEPT with fixes 五项全修 + 专项验收 11/11 + Playwright 三页真浏览器验收零错误）。重跑幂等；review 页全剔；relationship.json/candidates.jsonl 刻意不入交付面。
+
+用户裁决（08-16 深夜）：盲听 v2 回贴系**用户本人**（合成 7/8 骗过 vs v0.1 预演 3/10——版本提升实锤），M1 家人盲听"不重要"不阻塞交付；家人盲听物料保持可用（blind_v2.html 在手机+LAN，key 分离）。
+
+下回合建议：①用户在别的机器/手机实测 archive_dist（真验收）②601 敏感疑似复核（交付面含 messages 分片，敏感疑似仍在数据层）③零散：说话帧 veto、拟音词释义、relative_to 小修（任务 #5）④档案分发方案（拷贝给爸爸等家人 + 双备份铁律执行）
+
 ## ⓪⁺ 增补（2026-08-16 深夜二回合，先看这段）
 
 1. **盲听 v2 首份回贴已对卷（dataset 69fbdcbc2417）**：**合成 7/8 骗过**（6 条打 3 分、1 条 5 分），唯一识破 w07"吃饱饱"叠词句；**真声 4/4 全认出全 5 分**（有效性基线成立）。对照预演（用户本人×v0.1）3/10 → 本轮 7/8，v0.2 e14 提升实锤。**听者身份待用户确认（本人还是家人）——决定 M1 是否正式通过**。回贴存 `wu-sft/blind_v2/responses/resp_20260816.json`；盲听页已上 LAN（/blind_v2.html，key 未上传）
