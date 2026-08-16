@@ -3,6 +3,15 @@
 > 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-08-16 晚，v0.2 定稿会话收尾、清理上下文前**。
 > 读这份之前先读 `CLAUDE.md`（铁律），再读仓库根的 `task_plan.md` / `progress.md` / `findings.md`（MVP 计划与实时状态）。研究依据在 `docs/research/`。
 
+## ⓪⁺ 增补（2026-08-16 深夜二回合，先看这段）
+
+1. **盲听 v2 首份回贴已对卷（dataset 69fbdcbc2417）**：**合成 7/8 骗过**（6 条打 3 分、1 条 5 分），唯一识破 w07"吃饱饱"叠词句；**真声 4/4 全认出全 5 分**（有效性基线成立）。对照预演（用户本人×v0.1）3/10 → 本轮 7/8，v0.2 e14 提升实锤。**听者身份待用户确认（本人还是家人）——决定 M1 是否正式通过**。回贴存 `wu-sft/blind_v2/responses/resp_20260816.json`；盲听页已上 LAN（/blind_v2.html，key 未上传）
+2. **tools/merge_candidate_state.py 闭环入库（702085e）**：状态保留合并——重挖记忆卡不再丢用户裁决（Codex ACCEPT with fixes；十场景冒烟含幂等/结转/守卫）
+3. **记忆卡 corrected 升级完成**：voice_transcripts 99/99 全校对稿（draft 归零）→ 重挖+合并（150↔150 全对齐，124/26 裁决零丢失，38 卡 content_changed=新文本即校对定稿不强制复审）→ memories.md 重生成 124 条
+4. **对话页知识源升级三件套（Codex 批审 ACCEPT with fixes，一行 hotfix 已修）**：①chat_context --memories-mode index 默认——system prompt 89.5k→23.9k 字符（记忆改索引）；②新工具 build_chat_knowledge.py → data/memories.json（124 Tier-1）+ data/transcripts.json（108 Tier-2，99 语音+9 视频）；③chat.html 检索三源混排（记忆 top3 优先带 [家人确认记忆 Tier-1] 标签、转写 top2 带媒体标签、404 容错、老契约零回归 harness 四套全绿）。原"转写进 bundle + chat 检索源扩展"待办一并落地
+5. 新立项（低优先）：build_chat_context 仓库外 --out 的 relative_to 写盘后崩（预生存缺陷，Codex 确认非本轮引入）
+6. 下回合看这里：①等盲听听者身份确认 + 更多家人样本 ②Phase 5 正式打包（工程侧当前无阻塞）③601 敏感疑似复核 ④零散：说话帧 veto/拟音词释义/relative_to 小修
+
 ## ⓪ 当前最热状态（2026-08-16 晚，先看这里）
 
 **语音层到达稳定台阶：v0.2 e14 定稿为现役，双语域一个模型。** MVP 四层工具链全部闭环，剩用户现实动作（家人盲听）+ 文字层收尾工程。

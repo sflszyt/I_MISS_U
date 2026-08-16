@@ -417,6 +417,8 @@ var history = [];
 var controller = null;
 var streaming = false;
 var shardsLoading = false;
+var knowledgeCache = null;
+var knowledgeLoading = false;
 
 /* ========= helpers ========= */
 function esc(s) {
@@ -603,14 +605,53 @@ function retrieveSnippets(tokens, records, opts) {
   });
 }
 
+function retrieveKnowledge(tokens, memories, transcripts, opts) {
+  opts = opts || {};
+  var memTop = opts.memTop || 3;
+  var transTop = opts.transTop || 2;
+  var mem = [];
+  var i, e, score, txt;
+  memories = memories || [];
+  transcripts = transcripts || [];
+  for (i = 0; i < memories.length; i++) {
+    e = memories[i];
+    var title = String(e.title || '').trim();
+    var texts = Array.isArray(e.texts) ? e.texts : [];
+    var hay = title + '\n' + texts.join('\n');
+    if (!hay.trim()) continue;
+    score = scoreText(tokens, hay);
+    if (score <= 0) continue;
+    var body = String(texts[0] || '').trim();
+    txt = title + (body ? ' — ' + body : '');
+    if (txt.length > 240) txt = txt.substring(0, 240);
+    mem.push({label: '[家人确认记忆 Tier-1]', date: String(e.date || ''), text: txt, score: score});
+  }
+  mem.sort(function(a, b) { return b.score - a.score; });
+  mem = mem.slice(0, memTop);
+  var trans = [];
+  for (i = 0; i < transcripts.length; i++) {
+    e = transcripts[i];
+    txt = String(e.text || '').trim();
+    if (!txt) continue;
+    score = scoreText(tokens, txt);
+    if (score <= 0) continue;
+    if (txt.length > 200) txt = txt.substring(0, 200);
+    var lbl = e.media === 'video' ? '[视频转写 Tier-2]' : '[语音转写 Tier-2]';
+    trans.push({label: lbl, date: String(e.date || ''), text: txt, score: score});
+  }
+  trans.sort(function(a, b) { return b.score - a.score; });
+  trans = trans.slice(0, transTop);
+  return {memories: mem, transcripts: trans};
+}
+
 function buildRetrievalBlock(snippets) {
   if (!snippets || snippets.length === 0) return '';
   var lines = [];
   for (var i = 0; i < snippets.length; i++) {
-    lines.push('[档案检索 Tier-2] ' + snippets[i].date + ' · ' + snippets[i].text);
+    lines.push((snippets[i].label || '[档案检索 Tier-2]') + ' ' + snippets[i].date + ' · ' + snippets[i].text);
   }
   var block = lines.join('\n');
-  var budget = 1600;
+  var budget = 2200;
   if (block.length <= budget) return block;
   var out = '';
   for (var j = 0; j < lines.length; j++) {
@@ -718,6 +759,27 @@ function loadShards() {
     shardsLoading = false;
     console.info('shards loaded=' + loadedCount + ' failed=' + failedCount + ' total=' + names.length);
   });
+}
+
+function loadKnowledge() {
+  if (knowledgeLoading || knowledgeCache !== null) return Promise.resolve(knowledgeCache);
+  knowledgeLoading = true;
+  var out = {memories: [], transcripts: []};
+  var one = function(name, key) {
+    return fetch('data/' + name)
+      .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(data) {
+        if (data && Array.isArray(data.entries)) out[key] = data.entries;
+      })
+      .catch(function() {});
+  };
+  return Promise.all([one('memories.json', 'memories'), one('transcripts.json', 'transcripts')])
+    .then(function() {
+      knowledgeCache = out;
+      knowledgeLoading = false;
+      console.info('knowledge memories=' + out.memories.length + ' transcripts=' + out.transcripts.length);
+      return out;
+    });
 }
 
 function collectAllRecords() {
@@ -847,7 +909,10 @@ function sendMessage() {
     var allRecords = collectAllRecords();
     var tokens = extractTokens(text);
     var snippets = retrieveSnippets(tokens, allRecords, {top:6});
-    var block = buildRetrievalBlock(snippets);
+    var kn = knowledgeCache || {memories: [], transcripts: []};
+    var kres = retrieveKnowledge(tokens, kn.memories, kn.transcripts, {memTop: 3, transTop: 2});
+    var combined = kres.memories.concat(snippets, kres.transcripts);
+    var block = buildRetrievalBlock(combined);
     var messages = buildMessages(systemPrompt, history, block, text);
 
     streamRequest(messages,
@@ -883,8 +948,13 @@ function sendMessage() {
     );
   };
 
-  if (!shardsLoading && Object.keys(shardCache).length === 0) {
-    loadShards().then(run);
+  var needShards = !shardsLoading && Object.keys(shardCache).length === 0;
+  var needKnowledge = !knowledgeLoading && knowledgeCache === null;
+  if (needShards || needKnowledge) {
+    Promise.all([
+      needShards ? loadShards() : Promise.resolve(),
+      needKnowledge ? loadKnowledge() : Promise.resolve()
+    ]).then(run);
   } else {
     run();
   }
@@ -948,6 +1018,8 @@ init();
 window.extractTokens = extractTokens;
 window.scoreText = scoreText;
 window.retrieveSnippets = retrieveSnippets;
+window.retrieveKnowledge = retrieveKnowledge;
+window.loadKnowledge = loadKnowledge;
 window.buildRetrievalBlock = buildRetrievalBlock;
 window.buildMessages = buildMessages;
 window.sseCreate = sseCreate;

@@ -41,6 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--template", help="Template path (default: prompts/chat_system.zh.md)")
     parser.add_argument("--out", help="Output path (default: people/<slug>/archive_out/data/chat_context.json)")
     parser.add_argument("--max-persona-kb", type=int, default=40, help="Max persona size in KB")
+    parser.add_argument("--memories-mode", choices=["index", "full"], default="index", help="记忆块模式：index=只嵌日期+标题索引（默认），full=嵌入全文（旧行为）")
     return parser.parse_args()
 
 
@@ -265,6 +266,27 @@ def build_timeline_block(timeline: dict[str, Any] | None) -> str:
     return "\n".join(lines)
 
 
+def build_memories_index(memories_md: str) -> str:
+    """Build a compact index of memory titles from the memories markdown."""
+    headings: list[str] = []
+    for line in memories_md.splitlines():
+        if line.startswith("## "):
+            title = line[len("## "):].strip()
+            if title:
+                headings.append(title)
+
+    if not headings:
+        return memories_md
+
+    lines: list[str] = [
+        f"以下为家人确认的记忆索引（Tier-1，共 {len(headings)} 条）。记忆全文不在本提示词内：对话页会把与当前话题相关的记忆片段作为检索结果附在用户消息里（标注「家人确认记忆 Tier-1」）。索引之外或未检索到的记忆，不得凭空展开细节，只能说记不清了。",
+        "",
+    ]
+    for h in headings:
+        lines.append(f"- {h}")
+    return "\n".join(lines)
+
+
 def main() -> None:
     args = parse_args()
 
@@ -355,7 +377,12 @@ def main() -> None:
         persona_block, persona_truncated = truncate_persona(persona_md, args.max_persona_kb)
 
     rhythm_block = build_rhythm_block(rhythm)
-    memories_block = memories_md if memories_md is not None else "（暂无家人确认的记忆——不得把任何具体事件说成\"家人确认过\"）"
+    if memories_md is None:
+        memories_block = "（暂无家人确认的记忆——不得把任何具体事件说成\"家人确认过\"）"
+    elif args.memories_mode == "index":
+        memories_block = build_memories_index(memories_md)
+    else:
+        memories_block = memories_md
     timeline_block = build_timeline_block(timeline)
 
     replacements = {
@@ -388,6 +415,7 @@ def main() -> None:
         "persona": persona_md is not None,
         "rhythm": rhythm is not None,
         "memories": memories_md is not None,
+        "memories_mode": args.memories_mode,
         "timeline": timeline is not None,
     }
 
@@ -418,8 +446,8 @@ def main() -> None:
     except OSError as e:
         fail(f"Cannot write output {out_path}: {e}")
 
-    source_list = ",".join(k for k, v in sources.items() if v)
-    print(f"context={out_path.relative_to(repo_root)} prompt_chars={len(rendered)} sources={source_list}")
+    source_list = ",".join(k for k, v in sources.items() if v is True)
+    print(f"context={out_path.relative_to(repo_root)} prompt_chars={len(rendered)} memories_mode={args.memories_mode} sources={source_list}")
 
 
 if __name__ == "__main__":
