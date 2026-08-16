@@ -173,3 +173,6 @@
 - 数据合并 prep_v02_data.py（Claude 声明直写，确定性拼装+全量审计）：160 条 / 47.2 分钟 / 零冲突 / 零超30s
 - 特征提取：extract_embedding + extract_speech_token 160/160 全过；make_parquet_list 官方版两连坑（GBK 默认编码崩 → PYTHONUTF8=1；apply_async 吞 Windows spawn NameError → 复用 v0/make_parquet_single.py）→ 127.9MB tar
 - run_train.sh（v02f160）后台开训 15 epochs → exp/mama_v02f160_llm
+- **训练误杀事故与恢复（17:21 发现）**：harness 16:02 回收后台任务时杀掉外层 bash 管道，训练 worker（PID 49512，42.8GB RAM）stdout 断裂写阻塞卡死，占 21GB 显存不放，日志停在 Epoch 7 中段。清理 4 个残骸进程 → 显存 21GB→1.8GB → 从 epoch_6_whole.pt 续训（yaml 自带 epoch:6/step:1099，train.py 从 Epoch 7 续起；constantlr 续训等价）。**教训：长时 GPU 任务永不用 harness 后台 bash，须 Start-Process 独立进程 + 日志直写文件**；Monitor 挂三态监听（完成/报错/停滞）
+- **v0.2 训练收官（18:02）**：15 epochs 完成，CV loss 0.195/acc 0.964（数据 4 倍于 v0.1，loss 略高属预期）；epoch_14_whole.pt 落盘
+- 试听批 4 批 14 条全绿（e8/e14 × 沪语 3/沪普 4，--lang 开关首次实跑验证 mandarin 模式 OK）；ab_v02.html 自包含 1.38MB（21 条内嵌，base64 回读自检过）已发用户 + LAN listen_v02/ → **等用户两判：v0.2 vs v0.1 更像否；e8 vs e14**
