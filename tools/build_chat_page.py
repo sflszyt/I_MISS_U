@@ -498,6 +498,7 @@ function addBubble(opts) {
   var div = document.createElement('div');
   if (opts.type === 'user') {
     div.className = 'bubble user';
+    div.textContent = opts.text;
   } else if (opts.type === 'subject') {
     div.className = 'bubble subject';
     var av = document.createElement('img');
