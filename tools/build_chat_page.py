@@ -377,6 +377,11 @@ header {
 <div id="drawer-overlay"></div>
 <div id="drawer">
   <div class="drawer-title">对话设置</div>
+  <label class="drawer-label" for="cfg-provider">接口类型</label>
+  <select class="drawer-input" id="cfg-provider">
+    <option value="openai">OpenAI 兼容（DeepSeek / OpenAI / 本地端点…）</option>
+    <option value="anthropic">Claude 官方（Anthropic）</option>
+  </select>
   <label class="drawer-label" for="cfg-url">接口地址</label>
   <input class="drawer-input" id="cfg-url" type="text" placeholder="https://api.deepseek.com/chat/completions（任意 OpenAI 兼容端点）">
   <label class="drawer-label" for="cfg-model">模型名</label>
@@ -403,6 +408,7 @@ var settingsBtn = document.getElementById('settings-btn');
 var drawer = document.getElementById('drawer');
 var drawerOverlay = document.getElementById('drawer-overlay');
 var saveBtn = document.getElementById('save-btn');
+var cfgProvider = document.getElementById('cfg-provider');
 var cfgUrl = document.getElementById('cfg-url');
 var cfgModel = document.getElementById('cfg-model');
 var cfgKey = document.getElementById('cfg-key');
@@ -433,13 +439,14 @@ function loadSettings() {
       settings = {
         url: parsed.url || '',
         model: parsed.model || '',
-        key: parsed.key || ''
+        key: parsed.key || '',
+        provider: parsed.provider || 'openai'
       };
     } else {
-      settings = {url:'', model:'', key:''};
+      settings = {url:'', model:'', key:'', provider:'openai'};
     }
   } catch(e) {
-    settings = {url:'', model:'', key:''};
+    settings = {url:'', model:'', key:'', provider:'openai'};
   }
 }
 
@@ -448,7 +455,7 @@ function settingsComplete() {
 }
 
 function saveSettings() {
-  settings = {url: cfgUrl.value.trim(), model: cfgModel.value.trim(), key: cfgKey.value.trim()};
+  settings = {url: cfgUrl.value.trim(), model: cfgModel.value.trim(), key: cfgKey.value.trim(), provider: cfgProvider.value};
   try {
     localStorage.setItem(storageKey, JSON.stringify(settings));
   } catch(e) {}
@@ -457,9 +464,11 @@ function saveSettings() {
 }
 
 function openDrawer() {
+  cfgProvider.value = settings.provider;
   cfgUrl.value = settings.url;
   cfgModel.value = settings.model;
   cfgKey.value = settings.key;
+  updatePlaceholders();
   drawer.classList.add('open');
   drawerOverlay.classList.add('open');
 }
@@ -467,6 +476,18 @@ function openDrawer() {
 function closeDrawer() {
   drawer.classList.remove('open');
   drawerOverlay.classList.remove('open');
+}
+
+function updatePlaceholders() {
+  if (cfgProvider.value === 'anthropic') {
+    cfgUrl.placeholder = 'https://api.anthropic.com/v1/messages';
+    cfgModel.placeholder = '例如 claude-opus-5';
+    cfgKey.placeholder = 'sk-ant-…';
+  } else {
+    cfgUrl.placeholder = 'https://api.deepseek.com/chat/completions（任意 OpenAI 兼容端点）';
+    cfgModel.placeholder = '例如 deepseek-chat';
+    cfgKey.placeholder = 'sk-…';
+  }
 }
 
 function clearChat() {
@@ -672,9 +693,18 @@ function buildMessages(systemPrompt, history, retrievalBlock, userText) {
   return messages;
 }
 
+function splitSystem(messages) {
+  var msgs = messages || [];
+  if (msgs.length && msgs[0] && msgs[0].role === 'system') {
+    return { system: String(msgs[0].content || ''), messages: msgs.slice(1) };
+  }
+  return { system: '', messages: msgs.slice() };
+}
+
 /* ========= SSE state machine (pure, testable) ========= */
-function sseCreate() {
-  return { buffer: '', sawData: false, done: false };
+function sseCreate(mode) {
+  // mode: 'openai'（默认，向后兼容）| 'anthropic' —— 双协议按 provider 隔离，防跨协议误触
+  return { buffer: '', sawData: false, done: false, mode: mode === 'anthropic' ? 'anthropic' : 'openai' };
 }
 
 function sseFeed(state, chunkText) {
@@ -725,8 +755,17 @@ function sseProcessLine(state, line) {
   }
   try {
     var obj = JSON.parse(data);
-    var delta = obj.choices && obj.choices[0] && obj.choices[0].delta && obj.choices[0].delta.content;
-    if (delta) deltas.push(delta);
+    if (state.mode === 'anthropic') {
+      if (obj.type === 'content_block_delta' && obj.delta && obj.delta.type === 'text_delta' && obj.delta.text) {
+        deltas.push(obj.delta.text);
+      }
+      if (obj.type === 'message_stop') {
+        state.done = true;
+      }
+    } else {
+      var delta = obj.choices && obj.choices[0] && obj.choices[0].delta && obj.choices[0].delta.content;
+      if (delta) deltas.push(delta);
+    }
   } catch(e) {
     // skip malformed / non-JSON lines silently
   }
@@ -809,15 +848,31 @@ function streamRequest(messages, onDelta, onDone, onError) {
 
   var acc = '';
   var fallbackText = ''; // raw text for non-stream fallback detection
-  var sseState = sseCreate();
-
-  fetch(endpoint, {
-    method: 'POST',
-    headers: {
+  var isAnthropic = settings.provider === 'anthropic';
+  var sseState = sseCreate(isAnthropic ? 'anthropic' : 'openai');
+  var reqHeaders;
+  var reqBody;
+  if (isAnthropic) {
+    var sp = splitSystem(messages);
+    reqHeaders = {
+      'Content-Type': 'application/json',
+      'x-api-key': settings.key,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    };
+    reqBody = {model: settings.model, max_tokens: 2048, stream: true, messages: sp.messages};
+    if (sp.system) reqBody.system = sp.system;
+  } else {
+    reqHeaders = {
       'Content-Type': 'application/json',
       'Authorization': 'Bearer ' + settings.key
-    },
-    body: JSON.stringify({model: settings.model, messages: messages, stream: true}),
+    };
+    reqBody = {model: settings.model, messages: messages, stream: true};
+  }
+  fetch(endpoint, {
+    method: 'POST',
+    headers: reqHeaders,
+    body: JSON.stringify(reqBody),
     signal: controller.signal
   })
   .then(function(resp) {
@@ -849,6 +904,15 @@ function streamRequest(messages, onDelta, onDone, onError) {
             try {
               var json = JSON.parse(fallbackText);
               var content = (json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content) || '';
+              if (!content && Array.isArray(json.content)) {
+                var textParts = [];
+                for (var p = 0; p < json.content.length; p++) {
+                  if (json.content[p] && json.content[p].type === 'text' && json.content[p].text) {
+                    textParts.push(json.content[p].text);
+                  }
+                }
+                content = textParts.join('');
+              }
               if (content) {
                 acc += content;
                 onDelta(content);
@@ -962,6 +1026,12 @@ function sendMessage() {
 
 /* ========= init ========= */
 function init() {
+  if (location.protocol === 'file:') {
+    addBubble({type:'notice', text:'本页需要通过本地服务器打开：请双击档案目录里的 start_server.bat（macOS / Linux 运行 start_server.sh），然后在浏览器访问 http://localhost:8020/ 。直接双击 HTML 文件无法加载档案数据。'});
+    sendBtn.disabled = true;
+    return;
+  }
+
   loadSettings();
 
   // load context
@@ -1000,16 +1070,19 @@ function init() {
   settingsBtn.addEventListener('click', openDrawer);
   drawerOverlay.addEventListener('click', closeDrawer);
   saveBtn.addEventListener('click', saveSettings);
+  cfgProvider.addEventListener('change', updatePlaceholders);
 
   renderFields();
 }
 
 function renderFields() {
   if (settings) {
+    cfgProvider.value = settings.provider;
     cfgUrl.value = settings.url;
     cfgModel.value = settings.model;
     cfgKey.value = settings.key;
   }
+  updatePlaceholders();
 }
 
 init();
@@ -1022,6 +1095,7 @@ window.retrieveKnowledge = retrieveKnowledge;
 window.loadKnowledge = loadKnowledge;
 window.buildRetrievalBlock = buildRetrievalBlock;
 window.buildMessages = buildMessages;
+window.splitSystem = splitSystem;
 window.sseCreate = sseCreate;
 window.sseFeed = sseFeed;
 window.sseFinish = sseFinish;
