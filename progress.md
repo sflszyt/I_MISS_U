@@ -168,4 +168,8 @@
 ## Session 2026-08-16（A 路定案 + 校对页空白破案）
 - **用户耳测：A 路（她的 SFT 无标签说普通话）"比较贴近妈妈"，B 路（口音指令）不像** → **沪普定案：主 SFT 模型双语域**（挂 <|wuyu|>=沪语 / 不挂=她的沪普）。战略红利：①普通话备选线并入主线（Fun-CosyVoice3 线退役）；②对话页合成免"普→沪本字转换"（LLM 普通话输出直喂）；③v0.2 重训同步强化双语域——校对杠杆再+1
 - synth_blind_batch 加 --lang {wu,mandarin} 开关（DeepSeek 10 行，qc_report 带 lang 标；Codex 待下批合审）
-- **校对页"全是空的"破案**：非 bug 系设计错配——R2 双区设计「需校对」置顶+「正常」折叠，本批质量太好 6/8 页标红 0 条 → 全部条目藏在折叠条里。修复：零标红页默认展开（make_correction_page 一行声明 hotfix），8 页已重生成
+- **校对页"全是空的"破案**：非 bug 系设计错配——R2 双区设计「需校对」置顶+「正常」折叠，本批质量太好 6/8 页标红 0 条 → 全部条目藏在折叠条里。修复：零标红页默认展开（make_correction_page 一行声明 hotfix），8 页已重生成## Session 2026-08-16（校对收口 → v0.2 重训启动）
+- 校对回贴收齐：p3（改12/留3）、p4（改1）、p5（改1，BROOKS BROTHERS 品牌名）逐条校验 utt 全对上；p1/p2/p6/p7/p8 用户裁决整页通过。全 8 页 = 14 修正 + 102 原样采纳
+- 数据合并 prep_v02_data.py（Claude 声明直写，确定性拼装+全量审计）：160 条 / 47.2 分钟 / 零冲突 / 零超30s
+- 特征提取：extract_embedding + extract_speech_token 160/160 全过；make_parquet_list 官方版两连坑（GBK 默认编码崩 → PYTHONUTF8=1；apply_async 吞 Windows spawn NameError → 复用 v0/make_parquet_single.py）→ 127.9MB tar
+- run_train.sh（v02f160）后台开训 15 epochs → exp/mama_v02f160_llm
