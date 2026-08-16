@@ -1,9 +1,44 @@
 # 交接文档（HANDOFF）
 
-> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-08-12 深夜，四层大跃进会话收尾、清理上下文前**。
+> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-08-16 晚，v0.2 定稿会话收尾、清理上下文前**。
 > 读这份之前先读 `CLAUDE.md`（铁律），再读仓库根的 `task_plan.md` / `progress.md` / `findings.md`（MVP 计划与实时状态）。研究依据在 `docs/research/`。
 
-## ⓪ 当前最热状态（2026-08-12 深夜，先看这里）
+## ⓪ 当前最热状态（2026-08-16 晚，先看这里）
+
+**语音层到达稳定台阶：v0.2 e14 定稿为现役，双语域一个模型。** MVP 四层工具链全部闭环，剩用户现实动作（家人盲听）+ 文字层收尾工程。
+
+### 本会话（08-16）拍板与产出
+
+1. **现役语音模型 = `~/wu-sft/v02_full/exp/mama_v02f160_llm/epoch_14_whole.pt`**（用户耳测定稿："有比v0.1好点，v0.2 e14"）。**双语域用法（关键）**：合成文本挂 `<|wuyu|>` 前缀 = 上海话；裸文本直喂 = 她的沪普（上海口音普通话，A/B 耳测 A 路胜出定案）。v01_full44 e14 与 Fun-CosyVoice3 普通话线**双双退役**（后者并入主线，对话页合成不再需要"普→沪本字转换"——LLM 普通话输出可直喂）
+2. **v0.2 训练闭环**：校对 8 页收口（用户回贴 14 处修正 + p1/2/6/7/8 整页通过）→ prep_v02_data.py 合并 **160 条 / 47.2 分钟**（v01 44 + 新转写 116，零冲突零超30s）→ 特征三件套 → 15 epochs（CV loss 0.195/acc 0.964）。中途遭 harness 误杀事故，从 e6 无损续训恢复（教训见下）
+3. **盲听 v2 物料就绪（M1 关口）**：`~/wu-sft/blind_v2/blind_v2.html`（12 条乱序 = v0.2 e14 合成 8 句**训练集外**文本 + pilot 真声 4 条，0.64MB）+ `blind_v2.key.json` 答案卷分离。已发用户手机 → **等用户安排家人盲听——M1 唯一有效标准**
+4. **synth_blind_batch `--lang {wu,mandarin}` 开关 Codex 补审 ACCEPT**（五项全过）；4 批 22 条实跑验证。双语域批量产线正式可用
+5. 校对页"全是空的"破案：零标红页内容藏在「正常」折叠条里 → make_correction_page 零标红默认展开 hotfix，8 页重生成
+
+### ⚠️ 本会话血泪教训（新增工艺红线）
+
+- **长时 GPU 任务（训练/大批合成）永不用 harness 后台 bash**——会被任务回收误杀，且 worker 成孤儿后 stdout 断裂写阻塞**卡死占显存**（本次 21GB 挂了 80 分钟）。正确姿势：`Start-Process -WindowStyle Hidden` 启动独立 bash + 日志 `> file 2>&1` 直写 + Monitor 工具挂三态监听（完成 marker/日志报错 grep/mtime 停滞）。疑似死掉先 `Get-CimInstance Win32_Process` 按 WorkingSetSize 找僵尸，杀干净再重启。CosyVoice 续训：`--checkpoint epoch_N_whole.pt` 即可（同名 yaml 自带 epoch/step，自动从 N+1 续起）
+- **官方 make_parquet_list.py 在 Windows 必挂两坑**：GBK 默认编码（`PYTHONUTF8=1` 解）+ apply_async 吞 spawn NameError（用 `~/wu-sft/v0/scripts/make_parquet_single.py` 单进程版）
+- PowerShell 5.1 `Get-Content` 对无 BOM UTF-8 中文文件**行数统计不可靠**（GBK 误解码吞行）——文本处理一律 python -X utf8
+
+### 下回合建议顺序
+
+1. **等家人盲听结果（M1）**——物料已就绪，时机用户定；结果对卷 `blind_v2.key.json`
+2. **extract_memory_candidates 状态保留合并**（DeepSeek 写 + Codex 审）——前置工程：现在重挖会清空用户已裁决的 150 条状态；做完才能用校对后 44 corrected 转写重挖记忆卡（draft→corrected 升级）
+3. **build_chat_context 记忆块摘要/上限**——当前 system prompt ~9 万字对 BYOK 太重
+4. 转写进 bundle + chat 检索源扩展（voice/video_transcripts.jsonl 已在 normalized/）
+5. Phase 5 正式打包（剔除 review 页、无网机器验收）
+6. 601 条敏感疑似人工复核（normalized/sensitive_scan_report.jsonl，闸门页已默认剔除）
+7. 零散开放项：说话帧用户 veto（"还没看"）；@郑韫玉 typo 疑问；4 个拟音词释义（皮雪雪/交难受/铿钱/老麻球）；观察更强开源沪语 TTS（吴语生态 2026-02 起步）
+
+### 环境现场（08-16 会话结束时）
+
+- LAN 服务器常驻：`python -m http.server 8020`（archive_out，PID 3136），入口 http://192.168.3.69:8020/（手机缓存顽固时加 `?v=N`）
+- 试听/盲听页：`listen_v02/ab_v02.html`（LAN）、`~/wu-sft/blind_v2/blind_v2.html`（已直发用户）
+- 合成调用式：cosyvoice venv + `PYTHONPATH='C:/Users/justin/CosyVoice;...Matcha-TTS'` + `PYTHONUTF8=1`，`tools/synth_blind_batch.py --texts <jsonl> --exp-dir <exp> --epoch 14 --lang {wu,mandarin} --out-dir <dir>`
+- ComfyUI 仍在后台（127.0.0.1:8188，占 ~1.7GB 显存）；DeepSeek 必带 `DEEPSEEK_NOTHINK=1`
+
+## ⓪-旧 会话历史快照（2026-08-12/13，已被上文覆盖处以上文为准）
 
 **MVP 四层齐头并进后的状态**。详细 phase 看 `task_plan.md`，一句话版：
 
@@ -94,8 +129,9 @@
 - **控制台中文乱码**是 GBK 代码页显示问题，文件都是 UTF-8，勿在脚本里强改 stdout 编码（Codex 建议保持现状）
 - 审核循环战绩参考：Codex 第一轮抓过 3 个 blocker（--person 路径注入写 raw/），修复模式是 slug 正则 + resolve() 锚定校验——新工具写 spec 时直接把这两条要求写进去
 
-## 六、用户待办
+## 六、用户待办（2026-08-16 刷新）
 
-- [ ] 今晚：chatlog 导出微信（先冷备份微信数据目录！版本 ≥4.0.3.36 需降级或 wx_key 取密钥，见 wechat-export.md 第五节）
-- [ ] DeepSeek API key 轮换
-- [ ] 准备两个备份目标（一个异地，如 NAS/网盘加密包/亲戚家硬盘）
+- [ ] **安排家人盲听**（blind_v2.html 已在手机；M1 唯一有效标准）
+- [ ] 说话帧确认（avatar_open.png，"还没看"，可否决重抽）
+- [ ] DeepSeek API key 轮换（历史遗留，key 曾在对话明文出现）
+- [ ] 4 个拟音词释义（皮雪雪/交难受/铿钱/老麻球）随手补
