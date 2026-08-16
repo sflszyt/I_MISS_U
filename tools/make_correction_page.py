@@ -430,7 +430,7 @@ function renderAll() {
     document.getElementById('normal-count').textContent = normalArr.length;
   }
   if (document.getElementById('normal-section')) {
-    document.getElementById('normal-section').open = false;
+    document.getElementById('normal-section').open = (reviewArr.length === 0);
   }
   updateTotals();
 }

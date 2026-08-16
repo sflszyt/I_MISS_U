@@ -97,6 +97,7 @@ def main():
     parser.add_argument('--onset-window', type=float, default=1.0)
     parser.add_argument('--onset-ratio', type=float, default=0.25)
     parser.add_argument('--overwrite', action='store_true', help='Overwrite existing outputs')
+    parser.add_argument('--lang', choices=['wu', 'mandarin'], default='wu', help='Language mode: wu (default, uses <|wuyu|> prefix) or mandarin (no prefix)')
     args = parser.parse_args()
 
     if args.pad_ms < 0:
@@ -148,6 +149,7 @@ def main():
     onset_window = args.onset_window
     onset_ratio = args.onset_ratio
     overwrite = args.overwrite
+    lang = args.lang
 
     wav_dir = os.path.join(out_dir, 'wav')
     mp3_dir = os.path.join(out_dir, 'mp3')
@@ -223,6 +225,7 @@ def main():
                     'text': text,
                     'chars': len(text),
                     'epoch': epoch,
+                    'lang': lang,
                     'skipped': True,
                     'takes': [],
                     'chosen_index': None,
@@ -242,7 +245,10 @@ def main():
             onset_flag = False
             retries_used = 0
 
-            full_text = '<|wuyu|>' + text
+            if lang == 'wu':
+                full_text = '<|wuyu|>' + text
+            else:
+                full_text = text
             limit = len(text) * sec_per_char + dur_slack
 
             # First take
@@ -326,6 +332,7 @@ def main():
                 'text': text,
                 'chars': len(text),
                 'epoch': epoch,
+                'lang': lang,
                 'takes': [{
                     'duration': round(t['duration'], 2),
                     'qc_pass': t['qc_pass'],
@@ -352,6 +359,7 @@ def main():
                 'text': text,
                 'chars': len(text),
                 'epoch': epoch,
+                'lang': lang,
                 'takes': [{
                     'duration': round(t['duration'], 2),
                     'qc_pass': t['qc_pass'],
@@ -368,6 +376,7 @@ def main():
 
     # Summary
     print(f'\n=== Summary ===')
+    print(f'Language: {lang}')
     print(f'Succeeded: {stats["success"]}')
     print(f'QC failed (duration): {stats["qc_fail"]}')
     print(f'Errors: {stats["error"]}')
