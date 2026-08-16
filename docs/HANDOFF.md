@@ -3,6 +3,8 @@
 > 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-08-16 晚，v0.2 定稿会话收尾、清理上下文前**。
 > 读这份之前先读 `CLAUDE.md`（铁律），再读仓库根的 `task_plan.md` / `progress.md` / `findings.md`（MVP 计划与实时状态）。研究依据在 `docs/research/`。
 
+> **📘 技术管道全景已成文：`docs/PIPELINE.md`**（2026-08-17）——七 Stage 全配方 + 七闸门清单 + 工程铁律 + **skill 化蓝图与泛化缺口清单**。用户确认初心 = 整套管道产品化为 Claude Code skill（形态 C 构建端），推进顺序见该文档 12.4。
+
 ## ⓪⁺⁺⁺ 增补（2026-08-17 凌晨：对话页四连升级 + 远程访问，最先看这段）
 
 1. **对话页新能力（全部 Codex 审 + 真浏览器 E2E）**：①file:// 直开引导（修"Failed to fetch"实报）②接口类型双模式——OpenAI 兼容（DeepSeek：`https://api.deepseek.com/chat/completions` + `deepseek-chat`）/ **Claude 官方**（`https://api.anthropic.com/v1/messages` + `anthropic-dangerous-direct-browser-access` 头，CORS 直连实测通；Max 订阅≠API 额度，需 console 充值）③**用户气泡漏渲染文本 bug 修复**（自 v1 潜伏）④**微信式语音回复**——tools/tts_server.py 本地合成服务 :8022（v0.2 e14，默认沪普；`wu-sft/tts_server/start_tts.bat` 一键启动，已常驻）+ 语音条 UI（点击播放/右键长按转文字/"合成语音·非原声"标签/≤120 字/四类失败降级文字）。审核插曲：Codex 首轮 REJECT 的 BLOCKER 被六格矩阵实证不能复现（其分帧实验污染自身连接），复审撤回改 ACCEPT；真发现（分帧加固/token 选项/blob 池/touchcancel）全修
