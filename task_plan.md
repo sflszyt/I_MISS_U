@@ -83,6 +83,18 @@
 - 完成标准达成：**Playwright 真浏览器三页验收零 console 错误**（index/avatar/chat）；--verify 161/0/0/0；拷走 archive_dist 即为完整档案（刻意不含 relationship.json/candidates.jsonl 构建端文件）
 - 用户裁决记录：盲听 v2 回贴系用户本人（7/8 骗过；"不重要"），M1 家人盲听不阻塞 MVP 交付
 
+### Phase 6：GPT-SoVITS 泛化普粤管道（任务 #14，2026-08-18 用户拍板）— status: in_progress
+> 用户指令："根据妈妈声音做一套泛化的普通话和粤语管道，用 GPT-SoVITS"。依据：docs/research/tts-frontier-2026.md 分语域选型定案；设计要点 HANDOFF ⓪⁺⁺⁺⁺ 第 3 条
+- 原则：person-generic（people/<slug>/ + voice_profile 参数化）；repo+CLI 不走 WebUI；抽卡对策=ASR 回读 CER 自动淘汰+人工尾筛；管道代码 DeepSeek 写 + Codex 审；A/B 对照现役 v0.2 e14 沪普域（裸文本），盲听唯一标准
+- ✅ 6a 环境底座完成（2026-08-18）：整合包 7.6GB 魔搭直链下载解压至 ~/gpt-sovits/GPT-SoVITS-v2pro-20250604（v2Pro/ProPlus 底模+sv 模型全在）；api_v2 服务 :9880 脱钩常驻（workdir/tts_infer_v2pro.yaml，cuda+half）；**zero-shot 冒烟 16/16 全出**（3 参考×4 句普通话 all_zh + 4 句粤语 all_yue，~2s/条，seed 42）；**抽卡当场实锤**（refB_h01 14 字仅 0.7s 截断）→ QC 必要性验证；8 条代表样本 MP3 已发用户手机（三参考同题对照 + 长句 + 粤语三条）→ **等用户耳测三判：音色像否/哪个参考最像/粤语音色保持否**
+  - 参考候选（从 v02 数据挑，5-10s 带校对转写）：refA=20211229_115226_s03（7.4s 转写近纯普通话）/ refB=20220204_154243（8.3s 健康期沪语密）/ refC=20211221_173049（7.3s 中密度）；语言代码 all_zh/all_yue；输出 32kHz
+- ⬜ 6b 转写策略小实验（首个待决）：普通话近似转写 vs 沪语本字直喂 vs 筛她偏普通话条目子集——小批微调对照定夺
+- ⬜ 6c 数据准备工具（person-generic）：现成资产（125 WAV + 99 corrected 转写 + v02 160 条清单）→ GPT-SoVITS .list 训练格式
+- ⬜ 6d 两阶段微调 CLI 化（SoVITS + GPT），GPU 任务守 Start-Process 脱钩 + Monitor 红线
+- ⬜ 6e 合成 + QC（ASR 回读 CER 自动淘汰 + 时长/能量 QC）→ A/B 试听页（对照 v0.2 e14 普通话域）
+- ⬜ 6f 粤语跨语言验证（'yue' 文本合成，产品能力验证而非她的档案需求）
+- 现场事实（2026-08-18 探查）：GPT-SoVITS 不在盘；wu-sft/v02_full/data 八件套在位；processed/wechat_voice 125 WAV 在位；GPU 5.9/24GB 空闲
+
 ## 决策记录
 - 2026-08-09 用户拍板 MVP 范围（本文件顶部指令）
 - 语音层不等校对：31 条先行 + 45 条满血两步走（校对是用户异步动作）
