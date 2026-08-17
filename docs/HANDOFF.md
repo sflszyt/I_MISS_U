@@ -1,9 +1,35 @@
 # 交接文档（HANDOFF）
 
-> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-08-16 晚，v0.2 定稿会话收尾、清理上下文前**。
+> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-08-18，TTS 研究收口 + GPT-SoVITS 泛化管道立项、清理上下文前**。
 > 读这份之前先读 `CLAUDE.md`（铁律），再读仓库根的 `task_plan.md` / `progress.md` / `findings.md`（MVP 计划与实时状态）。研究依据在 `docs/research/`。
 
-> **📘 技术管道全景已成文：`docs/PIPELINE.md`**（2026-08-17）——七 Stage 全配方 + 七闸门清单 + 工程铁律 + **skill 化蓝图与泛化缺口清单**。用户确认初心 = 整套管道产品化为 Claude Code skill（形态 C 构建端），推进顺序见该文档 12.4。
+> **📘 技术管道全景已成文：`docs/PIPELINE.md`**（2026-08-17）——七 Stage 全配方 + 七闸门清单 + 工程铁律 + **skill 化蓝图与泛化缺口清单**。用户确认初心 = 整套管道产品化为 Claude Code skill（形态 C 构建端），推进顺序见该文档 12.4。配套：`docs/GENERALIZATION.md`（五轴泛化 + 两纪元 sessions 架构）、`docs/research/messaging-channels.md`（TG/WA/微信通道研究）。
+
+## ⓪⁺⁺⁺⁺ 增补（2026-08-18：TTS 前沿研究收口 + GPT-SoVITS 泛化管道立项，最先看这段）
+
+1. **TTS 十维度研究已收口**（`docs/research/tts-frontier-2026.md`，commit e4d9e2f；12 研究代理 / 100+ 信息源，覆盖 VoxCPM2/IndexTTS2.5/GPT-SoVITS/dots.tts/Qwen3-TTS/Grok Voice + 沪语生态扫描）。**裁决：不换现役**——六候选全部不支持上海话克隆。要点速记：
+   - **VoxCPM2 = 唯一值得 A/B 的候选**：预训练含吴语大类（六者唯一）+ 编码器原生 16kHz 输入（微信窄带是其设计工况）+ 克隆 SIM 开源第一梯队；但全量 SFT 需 ~40GB（4090 只能 LoRA r=32 ~20GB）、长文本官方自认偶发不稳、上海话质量零口碑
+   - **Grok Voice 制度性排除**：活体同意验证（实时朗读校验短语 + 声纹比对）在产品设计上就拒绝逝者录音——反向印证本地开源权重是逝者档案唯一路径
+   - **三大人工闸门结论**（维度 9）：产出人耳筛选**无任何模型可消除**；只有 zero-shot 能省转写校对+checkpoint 挑选，但所有候选 zero-shot 都不识上海话——"省人工"与"最像"对立 → **App 应做两档**（⚡快速档 zero-shot 分钟级验货 + 💎精修档微调全闸门）。**校对页/试听页/盲听页是产品核心组件，不是没自动化完的脚手架**
+   - 沪语生态：SS 变体仍只有榜单数字无权重；Wu 系 checkpoint 自 2026-01 冻结（无升级目标也无威胁）；ASLP-lab 新出 **CN-MultiDialect-ASR**（2B 多方言 ASR）可作方言合成自动质检器候选；上海话转写校对负担是素材语言属性，换任何模型都省不掉
+   - **Qwen3-TTS = 头号观察对象**：阿里 API 线有上海话预置音色（内部握有沪语数据），开源线无方言且云端复刻线不支持方言；若方言下放开源权重即成第一替代候选——每季度看一眼 QwenLM/Qwen3-TTS
+2. **分语域选型定案（08-18 与用户对齐）**：上海话=现役 Wu-SFT（无竞争）；**沪普=现役 v0.2 e14 裸文本域已覆盖，不需要新模型**（双语域一次训练两语域正是其价值）；普通话泛化=**GPT-SoVITS v2Pro 微调主选**（6-8GB 显存门槛→产品化不绑 4090 / 工具链最成熟 / 官方明示 v2Pro 对平庸音质宽容而 v3/v4 不行），VoxCPM2 LoRA 为高配替代；粤语=**GPT-SoVITS 唯一音系级支持**（'yue' 语言代码、粤语音素 Y 前缀）。Fun-CosyVoice3 留位：唯一宣称单底座覆盖沪+粤+口音普通话（instruct 路线，克隆×方言兼容未证，A/B 时当第三组）
+3. **★ 用户拍板（08-18）：下一会话开工任务 = 用 GPT-SoVITS 做一套泛化的普通话+粤语管道，以妈妈声音为首个验证对象**（任务 #14）。开工前设计要点：
+   - 管道 **person-generic**（people/<slug>/ 布局 + voice_profile 参数化，对齐 GENERALIZATION 轴 3 选型矩阵）
+   - 部署形态倾向 repo+CLI 而非 WebUI（tools/asr/funasr_asr.py、两阶段训练脚本均可命令行调用，利于管道化；整合包 GPT-SoVITS-v2pro-20250604 可作环境底座）
+   - **首个待决问题=转写策略**：她 160 条语料的转写是上海话本字，GPT-SoVITS 无吴语 G2P——普通话域训练用"普通话近似转写"（报告口径：模型自学说话人发音习惯，口音自然带出）还是筛选她偏普通话的条目子集，需小实验定夺
+   - 粤语域=验证管道的跨语言能力（微调她音色后合成 'yue' 文本），她本人无粤语素材，属产品能力验证而非她的档案需求
+   - 铁律不变：管道代码 DeepSeek 写 + Codex 审；产出 A/B 对照现役 e14 普通话域（裸文本），盲听是唯一标准
+   - 现成资产复用：processed/wechat_voice 125 条 WAV、99 条 corrected 转写、prep_v02 的 160 条清单（wu-sft/v02_full/data）；GPU 任务守 Start-Process 脱钩+Monitor 红线
+4. 抽卡预警（研究实锤，开工时心里有数）：GPT-SoVITS 产出稳定性是其最大短板（"抽卡"是社区黑话），逐条筛选负担可能高于现役——管道里应内建 ASR 回读 CER 自动淘汰 + 人工尾筛，把抽卡降级为自动重试
+
+### 下回合建议顺序（08-18 刷新，覆盖下方各旧版）
+
+1. **GPT-SoVITS 泛化管道开工**（用户已拍板，上面第 3 点）
+2. 等家人盲听 v2 结果（物料在用户手机，时机用户定）
+3. VoxCPM2 A/B 盲听（zero-shot + LoRA 各出样，Fun-CosyVoice3 第三组，同题对照 v0.2 e14）——可与 1 并行或后置
+4. TG bot 通道网关（messaging-channels P1，兼轴五 sessions 基建）
+5. 零散：601 敏感疑似复核 / 说话帧 veto / 拟音词释义 / relative_to 小修（任务 #5）/ DeepSeek key 轮换（用户）
 
 ## ⓪⁺⁺⁺ 增补（2026-08-17 凌晨：对话页四连升级 + 远程访问，最先看这段）
 
@@ -94,7 +120,7 @@
 |---|---|
 | 多人架构 | 方案 A：单仓库多人，`people/<slug>/`，工具/prompts 通用 |
 | 产品形态 | **混合 C**（构建端 Claude skill + 消费端自包含静态 HTML + 可选 BYOK 对话页）✅ 用户已确认 |
-| 语音选型 | Fun-CosyVoice3 主选（含上海话）· VoxCPM2 备选 · GPT-SoVITS 普通话对照；M1 必做跨方言 A/B，**家人盲听是唯一标准**；跨方言掉音色就尊重素材语言 |
+| 语音选型（**2026-08-18 刷新**） | **现役：CosyVoice2-Wu-SFT 全量 SFT = v0.2 e14 双语域**（上海话 `<|wuyu|>` + 沪普裸文本）。十维度选型矩阵见 `docs/research/tts-frontier-2026.md`：普通话/粤语泛化=GPT-SoVITS v2Pro 主选（已拍板开工）· VoxCPM2=唯一沪语 A/B 候选 · Qwen3-TTS=方言开源化观察对象。**家人盲听是唯一标准**不变 |
 | 微信导出（**已定案 2026-08-04**） | 用户微信实测 **4.1.11.24**。chatlog/chatlog-new 不支持 4.1.x（出局）。**采用混合方案**：①文字+图片→ `chatlog-keeper`（MIT，已在 4.1.11 取到 key 并缓存，`wechat`+`images` 命令）；②视频→ **直接复制** `xwechat_files/<wxid>/msg/video/**/*.mp4`（4.1 视频是明文 mp4，实测 387 个）；③语音→ **自研提取器**（SILK blob 在加密消息库内，需先探测表/字段，DeepSeek 写 Codex 审，pilk/silk→wav）。详见 `docs/research/wechat-media-extraction.md`。备选交叉验证：`LifeArchiveProject/WeChatDataAnalysis`（无协议、DMCA靶心，用完即弃）。chatlog-keeper 源码在 `installers/chatlog-keeper-0.2.0/`，已建 .venv 装好依赖 |
 | 数据源架构 | 源适配器 → UIF 统一中间格式（`schema/uif.schema.json`）→ 下游只消费 UIF |
 | 三条自我保护约束 | 已入 CLAUDE.md 铁律（Tier 分级+人工闸门 / 保留完整性 / 沉浸度克制） |
