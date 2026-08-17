@@ -226,6 +226,9 @@
 - 臂 A s2 收官（~7min）→ s1 脱钩开训 + Monitor
 - **6c/6d 工具化开工（铁律路径）**：spec_gsv_pipeline.txt（scratchpad，五子命令 prepare/preprocess/train/synth/verify + voice_profile schema + 今日全部实证坑写入硬性要求）→ DeepSeek 一发 34.4KB/818 行 → 5 处 f-string 多行 dict（3.10 不支持）机械同型声明 hotfix → py_compile 过。**people/mama/voice/gsv_profile.json 落位（voice_profile 参数化首实例）**。冒烟：prepare 两臂与探针产物**字节级 fc /b 零差异**（行为等价实证）；负路径三发现（未知 arm 裸 KeyError / prepare 与 verify sha 算法疑不一致 / verify bert 校验系统 python 无 torch 刷屏）→ 全部写入 Codex 审核 prompt（后台审核中）。工具已拷 tools/gsv_pipeline.py（工作树未提交，ACCEPT 后 commit）
 - **Codex R1 REJECT（6 条全实锤，其实读产物+实跑复现）**：2 BLOCKER=guard 先写后检+users.pth/.gsv_list_sha256/NamedTemporaryFile 未过 guard；bert==phones 把 4 列 TSV 按 2 列解析（split("\t",1) 后两列混入 phones 计数，校验永不可靠）。3 MAJOR=unknown arm 裸 KeyError 且四子命令不校验/bert 装载失败 161 条刷屏（裁决：改 runtime python 子进程）/synth QC 重抽 status 取首轮+infer_s 硬编码 0.0+占位代码。1 MINOR=sha 双算法。→ 六项转精确修复要求（含行号）回炉 DeepSeek → **v2 一发 957 行 py_compile 过**。冒烟全绿：prepare 字节级回归零差异+sha 统一文件字节哈希；unknown arm 干净 exit 2 带可用列表；verify 161 刷屏→1 条（bert 子进程 160 全过；剩余 1 条=探针时代未写 sha 记录的预期失败）。Codex 复审后台中
+- **Codex R2 ACCEPT with fixes**（六项全确认修复+guard/require_arm/4列解析/子进程/QC 语义逐处行号复核；剩 2 MINOR：残留占位 qc() 哑函数、manifest 写失败裸 traceback）→ 声明 hotfix 两处 → 回归过 → **提交 3fd0e65（工具+配方文档+findings/planning）**
+- **臂 A s1 收官 → 正式工具 synth 首实战**：普 4（3 PASS+1 SUSPECT，重抽救回 2）+ 粤 4（3 PASS+1 SUSPECT，重抽救回 1）——QC 重抽机制实战验证；h02/y02 同句三批均难产（句式难度非模型差异）。6 条 PASS 转 MP3 回读抽查后发用户。**三方对照物料齐（zero-shot/臂C/臂A × 现役 v0.2 e14 同题）→ 等用户终局耳测三问定转写策略**
+- 会话收尾：task_plan Phase 6 状态刷新、HANDOFF ⓪⁺⁺⁺⁺⁺ 增补、memory 项目状态+索引更新、收尾提交推送
 
 ## Session 2026-08-17/18（战略文档三连 + TTS 前沿研究收口 + GPT-SoVITS 泛化管道立项）
 - **战略文档三连提交**：docs/PIPELINE.md（0e783dc，七 Stage 全配方+七闸门+skill 化蓝图）、docs/GENERALIZATION.md（43c76ce，五轴泛化+两纪元 sessions 永不合流架构）、docs/research/messaging-channels.md（bbbf8e7，TG 周末级/WA 周级/微信需主体资质三档；通道网关兼轴五 sessions 采集器，P1=TG bot）。另答用户两问（商业化路径 / Windows App 化）——均为对话裁决未立项

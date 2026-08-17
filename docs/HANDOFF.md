@@ -5,6 +5,21 @@
 
 > **📘 技术管道全景已成文：`docs/PIPELINE.md`**（2026-08-17）——七 Stage 全配方 + 七闸门清单 + 工程铁律 + **skill 化蓝图与泛化缺口清单**。用户确认初心 = 整套管道产品化为 Claude Code skill（形态 C 构建端），推进顺序见该文档 12.4。配套：`docs/GENERALIZATION.md`（五轴泛化 + 两纪元 sessions 架构）、`docs/research/messaging-channels.md`（TG/WA/微信通道研究）。
 
+## ⓪⁺⁺⁺⁺⁺ 增补（2026-08-18 深夜：Phase 6 一日打穿——GPT-SoVITS 管道从零到工具入库，最先看这段）
+
+1. **任务 #14 当日闭环到"等耳测"**：整合包 7.6GB 落地（~/gpt-sovits/GPT-SoVITS-v2pro-20250604，v2Pro 底模全在）→ api_v2 服务 :9880（workdir/tts_infer_v2pro.yaml，常驻）→ zero-shot 冒烟 16 条 → **两臂微调全链跑通**（臂 C=沪语本字直喂 mama_c_raw / 臂 A=全量普译 mama_a_man，各 s2 e8+s1 e15，~25 分钟/臂）→ 同题合成三批已发用户（zero-shot 8 / 臂 C 7 / 臂 A 6，与现役 v0.2 e14 同题 h01-h04 四方可比）。**等用户终局耳测三问：普通话哪批最像 / 粤语音色保持 / 臂C vs 臂A——直接定管道默认转写策略**
+2. **tools/gsv_pipeline.py 闭环入库（3fd0e65）**：person-generic 五子命令 prepare/preprocess/train/synth/verify；**voice_profile 参数化首实例 people/mama/voice/gsv_profile.json**（含 g2p_char_map/arms/train/qc；gitignore 内，重建方法见 progress 08-18）。审核实录：DeepSeek 一发 → Codex REJECT 6 实锤（guard 先写后检/bert 对账 4 列按 2 列解析等）→ 回炉 → ACCEPT with fixes → 两 MINOR 声明 hotfix。CLI 配方 docs/research/gpt-sovits-cli-recipe.md（三大坑+全环境变量表，Explore 代理逐行核对）
+3. **工程实锤三连（findings 详录）**：①G2P 破坏面——「覅」崩整条（13/160 静默丢）、「㑚/嗯」静默删字 → g2p_char_map 拟音替换（覅→表/㑚→拿/嗯→恩）；②1a bert 按文件名缓存不失效——文本变更须清 3-bert（工具已内建）；③抽卡实证——16 条冒烟 1 截断 + synth 实战 8 条重抽救回 3 条（时长/字数比 QC 有效；**ASR CER 回读还没做**，整合包 funasr 支持 -l zh/yue 可作质检器）
+4. **语域标注资产**：workdir/register_annotation.jsonl（160 条 wu 90/mixed 57/mandarin 13 + 普译文本含记音字还原；子代理产出）。**记音字发现**：校对转写大量同音记音（雪小辈=血小板/带生=戴森/人名"亦添"多变体）——档案层潜在改进项，动校对稿需用户闸门，未立项
+5. 环境注意：GPT-SoVITS runtime 是 embeddable python（_pth 隔离），users.pth 已重写为本机路径；api_v2 的 tts_infer yaml 会被服务回写（有状态）；tts_server(:8022 CosyVoice)/api_v2(:9880 GSV) 并存显存 ~8GB 常驻
+
+### 下回合建议顺序（08-18 深夜刷新）
+
+1. **等用户终局耳测**（三批样本在手机）→ 定默认转写策略 → 更新 gsv_profile arms 默认
+2. ASR CER 回读 QC（gsv_pipeline synth 增强，funasr -l zh/yue）——抽卡自动淘汰闭环最后一块
+3. 家人盲听 v2（旧待办，物料在手机）；粤语域若耳测过关可做正式验证批
+4. 其余照旧：TG bot 通道网关 / VoxCPM2 A/B / 601 敏感疑似复核 / relative_to 小修
+
 ## ⓪⁺⁺⁺⁺ 增补（2026-08-18：TTS 前沿研究收口 + GPT-SoVITS 泛化管道立项，最先看这段）
 
 1. **TTS 十维度研究已收口**（`docs/research/tts-frontier-2026.md`，commit e4d9e2f；12 研究代理 / 100+ 信息源，覆盖 VoxCPM2/IndexTTS2.5/GPT-SoVITS/dots.tts/Qwen3-TTS/Grok Voice + 沪语生态扫描）。**裁决：不换现役**——六候选全部不支持上海话克隆。要点速记：
