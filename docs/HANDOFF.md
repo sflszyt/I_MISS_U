@@ -10,12 +10,12 @@
 1. **用户终局耳测三判落定（对照页 gsv_review.html，走 Tailscale 审核）**：①**普通话=臂C**（沪语本字直喂微调，g2p_char_map 拟音替换）②**粤语=零样本**（两臂微调与 zero-shot 听感无差"都差不多"，取零成本路径——泛化红利：粤语域无需任何训练）③**参考=refA 确认**（近普转写 20211229_115226_s03，音色最像；6a 遗留问题一并收口）。裁决已写入 `people/mama/voice/gsv_profile.json`（新增 defaults + decision_log 块；default_ref 维持不变）
 2. **审核物料工艺**：复用已审 make_listen_page.py + Claude 直写 manifest（纯数据已声明，存 workdir/gsv_review_manifest.json 可重生成）→ archive_out/gsv_review.html（9 组 32 条 2.82MB，四方对照+QC 疑似红标+附加参考对照）；8020 服务器 Start-Process 脱钩重启（重启后曾掉线）；真浏览器验收仅 favicon 404（豁免同前例）
 3. 6b/6f 关闭，Phase 6 剩 **6e ASR CER 回读 QC**（funasr 整合包内置，-l zh/yue）——抽卡自动淘汰闭环最后一块
+4. **家人盲听 v2 已移除（2026-08-21 用户裁决）**：M1 以用户本人盲听 v2（8 条骗过 7，08-16）为最终依据关闭；blind_v2 物料不删但不再列待办、不再催办
 
 ### 下回合建议顺序（08-21 刷新，覆盖下方各旧版）
 
 1. **6e ASR CER 回读 QC**（gsv_pipeline synth 增强，DeepSeek 写 + Codex 审）→ Phase 6 收官
-2. 家人盲听 v2（旧待办，物料在手机+站点）；粤语正式验证批可并入
-3. 其余照旧：TG bot 通道网关 / VoxCPM2 A/B / 601 敏感疑似复核 / relative_to 小修 / 记音字还原（未立项待用户表态）
+2. 其余照旧：TG bot 通道网关 / VoxCPM2 A/B / 601 敏感疑似复核 / relative_to 小修 / 记音字还原（未立项待用户表态）
 
 ## ⓪⁺⁺⁺⁺⁺ 增补（2026-08-18 深夜：Phase 6 一日打穿——GPT-SoVITS 管道从零到工具入库，最先看这段）
 
@@ -207,9 +207,9 @@
 - **控制台中文乱码**是 GBK 代码页显示问题，文件都是 UTF-8，勿在脚本里强改 stdout 编码（Codex 建议保持现状）
 - 审核循环战绩参考：Codex 第一轮抓过 3 个 blocker（--person 路径注入写 raw/），修复模式是 slug 正则 + resolve() 锚定校验——新工具写 spec 时直接把这两条要求写进去
 
-## 六、用户待办（2026-08-16 刷新）
+## 六、用户待办（2026-08-21 刷新）
 
-- [ ] **安排家人盲听**（blind_v2.html 已在手机；M1 唯一有效标准）
+- ~~安排家人盲听~~ **已移除（2026-08-21 用户裁决）**——M1 以本人盲听 v2 关闭
 - [ ] 说话帧确认（avatar_open.png，"还没看"，可否决重抽）
 - [ ] DeepSeek API key 轮换（历史遗留，key 曾在对话明文出现）
 - [ ] 4 个拟音词释义（皮雪雪/交难受/铿钱/老麻球）随手补

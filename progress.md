@@ -244,4 +244,5 @@
 - **耳测站上线（用户指令"网站形式走 Tailscale 审核"）**：复用已审 make_listen_page.py + Claude 直写 manifest（纯数据声明，存 workdir/gsv_review_manifest.json）→ archive_out/gsv_review.html——9 组 32 条 2.82MB：普 4 句四方对照（现役 v0.2 e14/zero-shot/臂C/臂A）+ 粤 4 句三方 + 附加参考 B/C 对照；QC 疑似三条红标补全（此前手机批剔除件）；index.html 加 🎧 入口（直写声明）
 - 部署细节：8020 服务器重启后掉线 → Start-Process 脱钩重启（PID 11464）；Tailscale PC 端在线 100.116.45.2，iPhone 需用户开 App 上线；真浏览器验收仅 favicon 404（豁免同 Phase 5 前例）
 - **★ 用户终局耳测三判（Phase 6 关键裁决）**：①普通话=臂C（沪语本字直喂）②粤语=零样本（"都差不多"→取零成本路径，粤语域免训练）③参考=refA 音色最像（6a 遗留问题收口）→ gsv_profile.json 写入 defaults{mandarin:finetune/c_raw, yue:zero_shot} + decision_log（json.load 验证过；gsv_pipeline 按键取值容忍新增字段已核）
-- 6b/6f 关闭；Phase 6 剩 6e ASR CER 回读 QC（funasr -l zh/yue）——下一工程项（DeepSeek 写 + Codex 审） origin
+- 6b/6f 关闭；Phase 6 剩 6e ASR CER 回读 QC（funasr -l zh/yue）——下一工程项（DeepSeek 写 + Codex 审）
+- **家人盲听 v2 移除（用户裁决"移除这项"）**：M1 以用户本人盲听 v2（8 条骗过 7，08-16）为最终依据关闭；blind_v2 物料保留、待办清单与催办全部撤下（HANDOFF/task_plan/memory 同步） origin
