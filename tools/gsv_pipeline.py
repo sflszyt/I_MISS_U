@@ -173,6 +173,90 @@ def require_arm(prof, arm):
         sys.exit(2)
 
 
+def norm_text_for_cer(s):
+    return "".join(ch.lower() for ch in s if ch.isalnum())
+
+
+def levenshtein_distance(a, b):
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cost = 0 if ca == cb else 1
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost))
+        prev = cur
+    return prev[-1]
+
+
+def compute_cer(ref, hyp):
+    norm_ref = norm_text_for_cer(ref)
+    norm_hyp = norm_text_for_cer(hyp)
+    if not norm_ref:
+        if not norm_hyp:
+            return 0.0
+        return 1.0
+    return levenshtein_distance(norm_ref, norm_hyp) / len(norm_ref)
+
+
+def cmd_asr(args):
+    if not args.jobs or not args.out:
+        print("[ERR] _asr requires --jobs and --out", file=sys.stderr)
+        sys.exit(1)
+
+    out_resolved = pathlib.Path(args.out).resolve()
+    people_dir_resolved = PEOPLE_DIR.resolve()
+    if str(out_resolved).startswith(str(people_dir_resolved) + os.sep) or out_resolved == people_dir_resolved:
+        print(f"[ERR] _asr out path inside PEOPLE_DIR: {args.out}", file=sys.stderr)
+        sys.exit(2)
+    out_parent = out_resolved.parent
+    if not out_parent.is_dir():
+        print(f"[ERR] _asr out parent dir missing: {out_parent}", file=sys.stderr)
+        sys.exit(2)
+
+    try:
+        with open(args.jobs, "r", encoding="utf-8") as f:
+            jobs = json.load(f)
+        if not isinstance(jobs, list):
+            raise ValueError("jobs not a list")
+    except Exception as e:
+        print(f"[ERR] cannot read jobs file: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    from funasr import AutoModel
+
+    model = AutoModel(model=args.model, disable_update=True, device="cpu")
+
+    results = []
+    for job in jobs:
+        jid = job.get("id")
+        wav_path = job.get("wav")
+        lang = job.get("lang", "zh")
+        text = job.get("text", "")
+        if not wav_path or not pathlib.Path(wav_path).is_file():
+            results.append({"id": jid, "error": "wav not found"})
+            continue
+        try:
+            res = model.generate(input=wav_path, language=lang, use_itn=False)
+            raw = res[0]["text"]
+            clean = re.sub(r"<\|[^|]*\|>", "", raw).strip()
+            cer = compute_cer(text, clean)
+            results.append({"id": jid, "asr_text": clean, "cer": round(cer, 4)})
+        except Exception as e:
+            results.append({"id": jid, "error": str(e)})
+
+    with open(args.out, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(results, f, ensure_ascii=False)
+
+    ok = sum(1 for r in results if "error" not in r)
+    err = len(results) - ok
+    print(f"ASR_HELPER_DONE ok={ok} err={err}")
+    sys.exit(0)
+
+
 def cmd_prepare(args):
     if not SLUG_RE.match(args.person):
         print("[ERR] invalid slug", file=sys.stderr)
@@ -831,7 +915,34 @@ def cmd_synth(args):
             infer_s = time.time() - t0
             return None, infer_s, str(e)
 
+    # ASR QC config
+    asr_qc_block = prof.get("asr_qc")
+    asr_enabled = False
+    asr_qc_status = "off"
+    asr_python = None
+    asr_model = "iic/SenseVoiceSmall"
+    cer_max = 0.30
+    if asr_qc_block is not None and isinstance(asr_qc_block, dict):
+        if asr_qc_block.get("enabled", True) and not getattr(args, "no_asr_qc", False):
+            p = asr_qc_block.get("python", "")
+            if p:
+                asr_python = p
+                if pathlib.Path(p).is_file():
+                    asr_enabled = True
+                    asr_qc_status = "on"
+                    asr_model = asr_qc_block.get("model", "iic/SenseVoiceSmall")
+                    cer_max = float(getattr(args, "cer_max", None) if getattr(args, "cer_max", None) is not None else asr_qc_block.get("cer_max", 0.30))
+                else:
+                    print("[WARN] asr_qc python not found, skip ASR QC")
+                    asr_qc_status = "skipped_python_missing"
+    if not asr_enabled:
+        cer_max = float(getattr(args, "cer_max", None) if getattr(args, "cer_max", None) is not None else 0.30)
+
+    lang_map = {"all_zh": "zh", "zh": "zh", "all_yue": "yue", "yue": "yue"}
+    asr_lang = lang_map.get(args.lang, "en")
+
     results = []
+    in_mem = []
     for rec in entries:
         utt = rec["utt"]
         text = rec["text"]
@@ -929,6 +1040,17 @@ def cmd_synth(args):
             "wav": final_wav
         }
         results.append(report)
+        in_mem.append({
+            "id": utt,
+            "text": text,
+            "lang": asr_lang,
+            "report_idx": len(results) - 1,
+            "wav": final_wav,
+            "final_status": final_status,
+            "final_dur": final_dur,
+            "final_ratio": final_ratio,
+            "final_infer": final_infer
+        })
         with open(report_path, "a", encoding="utf-8", newline="\n") as rf:
             rf.write(json.dumps(report, ensure_ascii=False) + "\n")
 
@@ -938,10 +1060,253 @@ def cmd_synth(args):
     fail_cnt = sum(1 for r in results if r["status"] == "FAIL")
     retried_cnt = sum(1 for r in results if r["retried"])
 
+    asr_pass = 0
+    cer_suspect = 0
+    asr_error = 0
+    cer_retried_cnt = 0
+    final_ok_cnt = 0
+
+    if asr_enabled:
+        # round 1
+        round1_jobs = []
+        for item in in_mem:
+            if item["wav"]:
+                round1_jobs.append({"id": item["id"], "wav": item["wav"], "lang": item["lang"], "text": item["text"]})
+
+        asr_jobs1 = out_dir / "asr_jobs_1.json"
+        asr_out1 = out_dir / "asr_out_1.json"
+        guard_out_path(asr_jobs1)
+        with open(asr_jobs1, "w", encoding="utf-8", newline="\n") as f:
+            json.dump(round1_jobs, f, ensure_ascii=False)
+        guard_out_path(asr_out1)
+
+        round1_ok = False
+        try:
+            proc = subprocess.run(
+                [asr_python, str(pathlib.Path(__file__).resolve()), "_asr", "--jobs", str(asr_jobs1), "--out", str(asr_out1), "--model", asr_model],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=900
+            )
+            if proc.returncode == 0 and asr_out1.is_file():
+                round1_ok = True
+            else:
+                asr_qc_status = "error"
+                stderr_lines = (proc.stderr or "").strip().splitlines()
+                for line in stderr_lines[-5:]:
+                    print(line, file=sys.stderr)
+        except Exception as e:
+            print(f"[WARN] ASR round1 failed: {e}", file=sys.stderr)
+            asr_qc_status = "error"
+
+        asr_map = {}
+        if round1_ok:
+            try:
+                with open(asr_out1, "r", encoding="utf-8") as f:
+                    asr_list = json.load(f)
+                for item in asr_list:
+                    asr_map[item["id"]] = item
+            except Exception as e:
+                print(f"[WARN] ASR round1 output parse failed: {e}", file=sys.stderr)
+                round1_ok = False
+                asr_qc_status = "error"
+
+        for item in in_mem:
+            r = results[item["report_idx"]]
+            if item["wav"] is None:
+                continue
+            if not round1_ok:
+                r["asr_status"] = "ASR_ERROR"
+                r["cer"] = None
+                r["asr_text"] = None
+            else:
+                aitem = asr_map.get(item["id"])
+                if aitem is None or "error" in aitem:
+                    r["asr_status"] = "ASR_ERROR"
+                    r["cer"] = None
+                    r["asr_text"] = None
+                else:
+                    cer = aitem.get("cer")
+                    r["cer"] = cer
+                    r["asr_text"] = aitem.get("asr_text")
+                    if cer is not None and cer <= cer_max:
+                        r["asr_status"] = "PASS"
+                    else:
+                        r["asr_status"] = "CER_SUSPECT"
+
+        # round 2
+        if round1_ok:
+            round2_candidates = []
+            for item in in_mem:
+                r = results[item["report_idx"]]
+                if r["status"] == "PASS" and r["asr_status"] == "CER_SUSPECT":
+                    round2_candidates.append((item, r))
+
+            if round2_candidates:
+                round2_jobs = []
+                r2_wavs = {}
+                for item, r in round2_candidates:
+                    utt = item["id"]
+                    text = item["text"]
+                    audio2, infer_s2, err2 = do_tts(text, args.seed + 2000)
+                    if err2:
+                        continue
+                    wpath2 = out_dir / f"{utt}_r2.wav"
+                    guard_out_path(wpath2)
+                    with open(wpath2, "wb") as wf:
+                        wf.write(audio2)
+                    try:
+                        with wave.open(str(wpath2), "rb") as wf:
+                            dur2 = wf.getnframes() / wf.getframerate()
+                    except Exception:
+                        dur2 = 0.0
+                    ratio2 = dur2 / r["chars"] if r["chars"] > 0 else 0
+                    qc_min = prof["qc"]["sec_per_char_min"]
+                    qc_max = prof["qc"]["sec_per_char_max"]
+                    status2 = "PASS" if qc_min <= ratio2 <= qc_max else "SUSPECT"
+                    r2_wavs[utt] = {
+                        "wav": str(wpath2),
+                        "status": status2,
+                        "dur": dur2,
+                        "ratio": ratio2,
+                        "infer": infer_s2
+                    }
+                    if status2 == "PASS":
+                        round2_jobs.append({"id": utt, "wav": str(wpath2), "lang": item["lang"], "text": text})
+
+                round2_ok = False
+                asr_map2 = {}
+                if round2_jobs:
+                    asr_jobs2 = out_dir / "asr_jobs_2.json"
+                    asr_out2 = out_dir / "asr_out_2.json"
+                    guard_out_path(asr_jobs2)
+                    with open(asr_jobs2, "w", encoding="utf-8", newline="\n") as f:
+                        json.dump(round2_jobs, f, ensure_ascii=False)
+                    guard_out_path(asr_out2)
+                    try:
+                        proc2 = subprocess.run(
+                            [asr_python, str(pathlib.Path(__file__).resolve()), "_asr", "--jobs", str(asr_jobs2), "--out", str(asr_out2), "--model", asr_model],
+                            capture_output=True, text=True, encoding="utf-8", errors="replace",
+                            timeout=900
+                        )
+                        if proc2.returncode == 0 and asr_out2.is_file():
+                            round2_ok = True
+                            with open(asr_out2, "r", encoding="utf-8") as f:
+                                asr_list2 = json.load(f)
+                            for aitem in asr_list2:
+                                asr_map2[aitem["id"]] = aitem
+                        else:
+                            asr_qc_status = "error"
+                            stderr_lines = (proc2.stderr or "").strip().splitlines()
+                            for line in stderr_lines[-5:]:
+                                print(line, file=sys.stderr)
+                    except Exception as e:
+                        print(f"[WARN] ASR round2 failed: {e}", file=sys.stderr)
+                        asr_qc_status = "error"
+
+                for item, r in round2_candidates:
+                    utt = item["id"]
+                    r["cer_retried"] = True
+                    r2info = r2_wavs.get(utt)
+                    if not r2info or r2info["status"] != "PASS":
+                        r["cer_retry_cer"] = None
+                        continue
+                    aitem2 = asr_map2.get(utt)
+                    if aitem2 is None or "error" in aitem2 or not round2_ok:
+                        r["cer_retry_cer"] = None
+                        continue
+                    cer2 = aitem2.get("cer")
+                    if cer2 is None:
+                        r["cer_retry_cer"] = None
+                        continue
+                    r["cer_retry_cer"] = cer2
+                    orig_cer = r["cer"] if r["cer"] is not None else 1.0
+                    if cer2 < orig_cer:
+                        r["status"] = "PASS"
+                        r["dur_s"] = round(r2info["dur"], 3)
+                        r["ratio"] = round(r2info["ratio"], 3)
+                        r["infer_s"] = round(r2info["infer"], 3)
+                        r["wav"] = r2info["wav"]
+                        r["cer"] = cer2
+                        r["asr_text"] = aitem2.get("asr_text")
+                        if cer2 <= cer_max:
+                            r["asr_status"] = "PASS"
+                        else:
+                            r["asr_status"] = "CER_SUSPECT"
+
+        # final_ok + recount
+        for r in results:
+            fok = r["status"] == "PASS" and r.get("asr_status") == "PASS"
+            r["final_ok"] = fok
+            if fok:
+                final_ok_cnt += 1
+        asr_pass = sum(1 for r in results if r.get("asr_status") == "PASS")
+        cer_suspect = sum(1 for r in results if r.get("asr_status") == "CER_SUSPECT")
+        asr_error = sum(1 for r in results if r.get("asr_status") == "ASR_ERROR")
+        cer_retried_cnt = sum(1 for r in results if r.get("cer_retried") is True)
+
+        # rewrite report
+        new_lines = []
+        for r in results:
+            nrec = dict(r)
+            nrec.setdefault("asr_status", None)
+            nrec.setdefault("cer", None)
+            nrec.setdefault("asr_text", None)
+            nrec.setdefault("cer_retried", False)
+            nrec.setdefault("cer_retry_cer", None)
+            nrec.setdefault("final_ok", False)
+            new_lines.append(json.dumps(nrec, ensure_ascii=False))
+
+        tmp_path = pathlib.Path(str(report_path) + ".tmp")
+        guard_out_path(tmp_path)
+        with open(tmp_path, "w", encoding="utf-8", newline="\n") as f:
+            for line in new_lines:
+                f.write(line + "\n")
+        guard_out_path(report_path)
+        os.replace(str(tmp_path), str(report_path))
+
+        _summary = {
+            'cmd': 'synth', 'exp': exp, 'total': total, 'pass': pass_cnt,
+            'suspect': suspect_cnt, 'fail': fail_cnt, 'retried': retried_cnt,
+            'out_dir': str(out_dir),
+            'asr_qc': asr_qc_status,
+            'asr_pass': asr_pass,
+            'cer_suspect': cer_suspect,
+            'asr_error': asr_error,
+            'cer_retried_cnt': cer_retried_cnt,
+            'final_ok': final_ok_cnt
+        }
+        print("SUMMARY: " + json.dumps(_summary, ensure_ascii=False))
+        return
+
+    # ASR disabled: legacy behavior + new null fields
+    for r in results:
+        r["asr_status"] = None
+        r["cer"] = None
+        r["asr_text"] = None
+        r["cer_retried"] = False
+        r["cer_retry_cer"] = None
+        r["final_ok"] = r["status"] == "PASS"
+        if r["final_ok"]:
+            final_ok_cnt += 1
+
+    tmp_path = pathlib.Path(str(report_path) + ".tmp")
+    guard_out_path(tmp_path)
+    with open(tmp_path, "w", encoding="utf-8", newline="\n") as f:
+        for r in results:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    guard_out_path(report_path)
+    os.replace(str(tmp_path), str(report_path))
+
     _summary = {
         'cmd': 'synth', 'exp': exp, 'total': total, 'pass': pass_cnt,
         'suspect': suspect_cnt, 'fail': fail_cnt, 'retried': retried_cnt,
-        'out_dir': str(out_dir)
+        'out_dir': str(out_dir),
+        'asr_qc': asr_qc_status,
+        'asr_pass': 0,
+        'cer_suspect': 0,
+        'asr_error': 0,
+        'cer_retried_cnt': 0,
+        'final_ok': final_ok_cnt
     }
     print("SUMMARY: " + json.dumps(_summary, ensure_ascii=False))
 
@@ -1082,7 +1447,15 @@ def main():
     p_sy.add_argument("--profile", default=None)
     p_sy.add_argument("--sovits-weight", default=None)
     p_sy.add_argument("--gpt-weight", default=None)
+    p_sy.add_argument("--no-asr-qc", dest="no_asr_qc", action="store_true")
+    p_sy.add_argument("--cer-max", type=float, default=None)
     p_sy.set_defaults(func=cmd_synth)
+
+    p_asr = subparsers.add_parser("_asr", help="internal ASR helper")
+    p_asr.add_argument("--jobs", required=True)
+    p_asr.add_argument("--out", required=True)
+    p_asr.add_argument("--model", default="iic/SenseVoiceSmall")
+    p_asr.set_defaults(func=cmd_asr)
 
     p_v = subparsers.add_parser("verify", help="verify pipeline")
     p_v.add_argument("--person", required=True)

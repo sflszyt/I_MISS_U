@@ -245,4 +245,9 @@
 - 部署细节：8020 服务器重启后掉线 → Start-Process 脱钩重启（PID 11464）；Tailscale PC 端在线 100.116.45.2，iPhone 需用户开 App 上线；真浏览器验收仅 favicon 404（豁免同 Phase 5 前例）
 - **★ 用户终局耳测三判（Phase 6 关键裁决）**：①普通话=臂C（沪语本字直喂）②粤语=零样本（"都差不多"→取零成本路径，粤语域免训练）③参考=refA 音色最像（6a 遗留问题收口）→ gsv_profile.json 写入 defaults{mandarin:finetune/c_raw, yue:zero_shot} + decision_log（json.load 验证过；gsv_pipeline 按键取值容忍新增字段已核）
 - 6b/6f 关闭；Phase 6 剩 6e ASR CER 回读 QC（funasr -l zh/yue）——下一工程项（DeepSeek 写 + Codex 审）
-- **家人盲听 v2 移除（用户裁决"移除这项"）**：M1 以用户本人盲听 v2（8 条骗过 7，08-16）为最终依据关闭；blind_v2 物料保留、待办清单与催办全部撤下（HANDOFF/task_plan/memory 同步） origin
+- **家人盲听 v2 移除（用户裁决"移除这项"）**：M1 以用户本人盲听 v2（8 条骗过 7，08-16）为最终依据关闭；blind_v2 物料保留、待办清单与催办全部撤下（HANDOFF/task_plan/memory 同步）
+- **6e ASR CER 回读 QC 开工即收官（用户令"开工先"）→ Phase 6 全部完成**：
+  - 引擎选型：整合包 funasr 的 yue 走 UniASR TF1 旧模型且未下载（风险）→ 改用已有 venvs/asr + **SenseVoiceSmall**（单模型 zh/yue）；探针五连实证（Claude 直写已声明，scratchpad/probe_sensevoice_qc.py）：zh cer 0/0.071、yue cer 0/0（粤语识别惊艳）、错配 1.0、CPU 0.1-0.4s/条、模型 ~900MB 入 modelscope 缓存
+  - DeepSeek v1（46KB spec 含全源码，一发 1294 行剥围栏 py_compile 过；diff +371/-2 全部落许可区域）→ 我方自查 3 项（err2 双计数/FAIL 条目误标 ASR_ERROR/死代码）→ 冒烟四套全绿（helper 六格、全链 on、--no-asr-qc 回归、--cer-max 0.01 逼出 round2——r2 实抽 cer 0.5385 更差被正确拒收=门控实战）→ Codex R1 **ACCEPT with fixes**（3 MAJOR：round2 采纳后 SUMMARY 不回算+确认双计数+异常不置 asr_qc:"error"；2 MINOR 均确认我方自查）→ 修复 spec 回炉 DeepSeek v2（+17/-13 五项精确落位）→ 三套回归全绿 → Codex 同线程复核 **ACCEPT**
+  - 落位：tools/gsv_pipeline.py（synth 批后两轮 + `_asr` 内部子命令跨 venv 子进程 + PEOPLE_DIR 守卫）；gsv_profile.json 增 asr_qc 块（python/model/cer_max 0.30/enabled，gitignore 内需知）；报告新增 asr_status/cer/asr_text/cer_retried/cer_retry_cer/final_ok，SUMMARY 终态重算
+  - 环境：api_v2 :9880 重启常驻（Start-Process+日志直写，v2Pro yaml 有状态恢复了 a_man 权重，synth 热切换自理）；粤语零样本批 QC 可单独调 `_asr` origin

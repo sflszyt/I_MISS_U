@@ -9,13 +9,14 @@
 
 1. **用户终局耳测三判落定（对照页 gsv_review.html，走 Tailscale 审核）**：①**普通话=臂C**（沪语本字直喂微调，g2p_char_map 拟音替换）②**粤语=零样本**（两臂微调与 zero-shot 听感无差"都差不多"，取零成本路径——泛化红利：粤语域无需任何训练）③**参考=refA 确认**（近普转写 20211229_115226_s03，音色最像；6a 遗留问题一并收口）。裁决已写入 `people/mama/voice/gsv_profile.json`（新增 defaults + decision_log 块；default_ref 维持不变）
 2. **审核物料工艺**：复用已审 make_listen_page.py + Claude 直写 manifest（纯数据已声明，存 workdir/gsv_review_manifest.json 可重生成）→ archive_out/gsv_review.html（9 组 32 条 2.82MB，四方对照+QC 疑似红标+附加参考对照）；8020 服务器 Start-Process 脱钩重启（重启后曾掉线）；真浏览器验收仅 favicon 404（豁免同前例）
-3. 6b/6f 关闭，Phase 6 剩 **6e ASR CER 回读 QC**（funasr 整合包内置，-l zh/yue）——抽卡自动淘汰闭环最后一块
-4. **家人盲听 v2 已移除（2026-08-21 用户裁决）**：M1 以用户本人盲听 v2（8 条骗过 7，08-16）为最终依据关闭；blind_v2 物料不删但不再列待办、不再催办
+3. **6e ASR CER 回读 QC 当日收官 → Phase 6 全部完成**（DeepSeek×2 + Codex ACCEPT with fixes[3 MAJOR 2 MINOR 全实锤，含我方自查 3 项]→复核 ACCEPT）：引擎定 **SenseVoiceSmall（C:/Users/justin/venvs/asr，单模型 zh/yue，弃整合包 UniASR 粤语旧模型）**，模型已入 modelscope 缓存；gsv_pipeline synth 批后两轮回读（round1 全量 CER 判级 → round2 仅救"时长 PASS 且 CER 超标"者 seed+2000，采纳=更低 cer）+ 内部 `_asr` 子命令（跨 venv 子进程，PEOPLE_DIR 守卫 exit 2）；profile 新增 asr_qc 块（mama 已配）。冒烟名场面：r2 重抽 cer 0.5385 反而更差被正确拒收。**粤语零样本批的 QC 可直接单独调 `_asr` 子命令**（zero-shot 不走 synth；如需 zero-shot 子命令另立项）
+4. **家人盲听 v2 已移除(2026-08-21 用户裁决）**：M1 以用户本人盲听 v2（8 条骗过 7，08-16）为最终依据关闭；blind_v2 物料不删但不再列待办、不再催办
+5. 环境现场：api_v2 :9880 已重启常驻（PID 见 workdir/logs/api_v2_20260821.log）；8020 档案站 Start-Process 常驻；两者重启机器后都需手动再拉
 
 ### 下回合建议顺序（08-21 刷新，覆盖下方各旧版）
 
-1. **6e ASR CER 回读 QC**（gsv_pipeline synth 增强，DeepSeek 写 + Codex 审）→ Phase 6 收官
-2. 其余照旧：TG bot 通道网关 / VoxCPM2 A/B / 601 敏感疑似复核 / relative_to 小修 / 记音字还原（未立项待用户表态）
+1. TG bot 通道网关（messaging-channels P1）或 VoxCPM2 A/B——按用户意愿
+2. 零散：601 敏感疑似复核 / relative_to 小修 / 记音字还原（未立项待用户表态）/ 说话帧确认 / archive_dist 真机验收+分发备份
 
 ## ⓪⁺⁺⁺⁺⁺ 增补（2026-08-18 深夜：Phase 6 一日打穿——GPT-SoVITS 管道从零到工具入库，最先看这段）
 
