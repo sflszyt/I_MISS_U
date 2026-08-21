@@ -237,4 +237,11 @@
 - **维度 9 产品级发现**：三大人工闸门（转写校对/checkpoint 挑选/产出筛选）中产出人耳筛选无任何模型可消除；仅 zero-shot 能省前两个但全不识上海话——"省人工"与"最像"对立 → App 两档设计（⚡快速档 zero-shot 分钟级验货 + 💎精修档微调全闸门）；**校对页/试听页/盲听页是产品核心组件而非脚手架**。沪语生态：SS 变体仍无权重、Wu 系 2026-01 冻结、CN-MultiDialect-ASR 可作方言合成质检器候选
 - **分语域选型定案（08-18 与用户对齐）**：上海话=现役无竞争；沪普=现役裸文本域已覆盖不需新模型；普通话泛化=GPT-SoVITS v2Pro 主选（6-8GB 门槛/工具链/v2Pro 官方明示对平庸音质宽容）；粤语=GPT-SoVITS 唯一音系级（'yue'）支持；Fun-CosyVoice3 留位单底座候选（A/B 第三组）
 - **★ 用户拍板（08-18）："根据妈妈声音做一套泛化的普通话和粤语管道，用 GPT-SoVITS"** → 任务 #14 立项，下一会话开工。要点入 HANDOFF ⓪⁺⁺⁺⁺：person-generic+voice_profile 参数化；首个待决=转写策略（沪语本字 vs 普通话近似）；粤语=跨语言能力验证；抽卡短板内建 ASR 回读 CER 自动淘汰；DeepSeek 写+Codex 审铁律不变
-- 会话收尾：HANDOFF ⓪⁺⁺⁺⁺ 增补+语音选型决策行刷新、memory（项目状态+索引）更新、本记录，随收尾提交推送 origin
+- 会话收尾：HANDOFF ⓪⁺⁺⁺⁺ 增补+语音选型决策行刷新、memory（项目状态+索引）更新、本记录，随收尾提交推送
+
+## Session 2026-08-21（VS Code 迁移首会话：耳测站上线 + 转写策略终局定案）
+- 环境迁移体检（CLI→VS Code 扩展）：DeepSeek API（key+两模型列表）/ Codex MCP（实测 ping 通）/ GitHub（gh 登录+ls-remote 与本地一致）三链路全绿
+- **耳测站上线（用户指令"网站形式走 Tailscale 审核"）**：复用已审 make_listen_page.py + Claude 直写 manifest（纯数据声明，存 workdir/gsv_review_manifest.json）→ archive_out/gsv_review.html——9 组 32 条 2.82MB：普 4 句四方对照（现役 v0.2 e14/zero-shot/臂C/臂A）+ 粤 4 句三方 + 附加参考 B/C 对照；QC 疑似三条红标补全（此前手机批剔除件）；index.html 加 🎧 入口（直写声明）
+- 部署细节：8020 服务器重启后掉线 → Start-Process 脱钩重启（PID 11464）；Tailscale PC 端在线 100.116.45.2，iPhone 需用户开 App 上线；真浏览器验收仅 favicon 404（豁免同 Phase 5 前例）
+- **★ 用户终局耳测三判（Phase 6 关键裁决）**：①普通话=臂C（沪语本字直喂）②粤语=零样本（"都差不多"→取零成本路径，粤语域免训练）③参考=refA 音色最像（6a 遗留问题收口）→ gsv_profile.json 写入 defaults{mandarin:finetune/c_raw, yue:zero_shot} + decision_log（json.load 验证过；gsv_pipeline 按键取值容忍新增字段已核）
+- 6b/6f 关闭；Phase 6 剩 6e ASR CER 回读 QC（funasr -l zh/yue）——下一工程项（DeepSeek 写 + Codex 审） origin

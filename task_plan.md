@@ -88,10 +88,10 @@
 - 原则：person-generic（people/<slug>/ + voice_profile 参数化）；repo+CLI 不走 WebUI；抽卡对策=ASR 回读 CER 自动淘汰+人工尾筛；管道代码 DeepSeek 写 + Codex 审；A/B 对照现役 v0.2 e14 沪普域（裸文本），盲听唯一标准
 - ✅ 6a 环境底座完成（2026-08-18）：整合包 7.6GB 魔搭直链下载解压至 ~/gpt-sovits/GPT-SoVITS-v2pro-20250604（v2Pro/ProPlus 底模+sv 模型全在）；api_v2 服务 :9880 脱钩常驻（workdir/tts_infer_v2pro.yaml，cuda+half）；**zero-shot 冒烟 16/16 全出**（3 参考×4 句普通话 all_zh + 4 句粤语 all_yue，~2s/条，seed 42）；**抽卡当场实锤**（refB_h01 14 字仅 0.7s 截断）→ QC 必要性验证；8 条代表样本 MP3 已发用户手机（三参考同题对照 + 长句 + 粤语三条）→ **等用户耳测三判：音色像否/哪个参考最像/粤语音色保持否**
   - 参考候选（从 v02 数据挑，5-10s 带校对转写）：refA=20211229_115226_s03（7.4s 转写近纯普通话）/ refB=20220204_154243（8.3s 健康期沪语密）/ refC=20211221_173049（7.3s 中密度）；语言代码 all_zh/all_yue；输出 32kHz
-- 🔶 6b 转写策略实验（两臂训完，**等用户终局耳测定夺**）：语域标注 160 条（子代理：wu 90/mixed 57/mandarin 13→筛子集臂数据不足否决）；**臂 C=沪语本字直喂（g2p_char_map 拟音替换）** 与 **臂 A=全量普译（register_annotation.jsonl mandarin_text，含记音字还原）** 均完成 s2+s1 微调并同题合成；三方对照物料已全部发用户（zero-shot 8 条 / 臂 C 7 条 / 臂 A 6 条，均与现役 v0.2 e14 同题 h01-h04）→ 耳测三问：普通话哪批最像/粤语音色保持/臂C vs 臂A——结论定管道默认转写策略
+- ✅ 6b 转写策略实验定案（2026-08-21 用户终局耳测，四方对照页 gsv_review.html 走 Tailscale）：**普通话=臂C（沪语本字直喂+g2p_char_map）**；臂 A 落选；**参考确认 refA（近普转写，音色最像）**。裁决已写入 gsv_profile.json defaults/decision_log。过程：语域标注 160 条（wu 90/mixed 57/mandarin 13→筛子集臂数据不足否决）；两臂各 s2+s1 微调+同题合成；四方对照（现役 v0.2 e14 / zero-shot / 臂C / 臂A）
 - ✅ 6c+6d 工具化闭环入库（3fd0e65，DeepSeek×2 + Codex REJECT→ACCEPT with fixes + 声明 hotfix×7）：**tools/gsv_pipeline.py** 五子命令（prepare/preprocess/train/synth/verify）person-generic；voice_profile 参数化首实例 people/mama/voice/gsv_profile.json（gitignore 内）；raw guard 全覆盖/bert 缓存失效规则/4 列 TSV 对账/runtime 子进程 bert 校验/QC 重抽。冒烟：prepare 与探针产物字节级零差异；synth 实战 8 条重抽救回 3 条
 - 🔶 6e 合成+QC：时长/字数比 QC + 重抽已入工具并实战；**ASR 回读 CER 自动淘汰未做**（下一步：funasr 整合包内置 -l zh/yue 可用作质检器）；A/B 试听页未做（耳测先走逐条 MP3 直发）
-- 🔶 6f 粤语跨语言验证：zero-shot 与两臂微调均已出粤语样，等耳测；观察=y02 同句在三批中均 QC 难产（句式难度非模型差异）
+- ✅ 6f 粤语跨语言验证定案（2026-08-21 用户耳测）：**粤语=零样本默认**——两臂微调与 zero-shot 听感无差（"都差不多"），取零成本路径；音色跨语言保持可用。观察=y02 同句在三批中均 QC 难产（句式难度非模型差异）
 - 记音字发现（子代理）：校对转写含大量同音记音字（雪小辈=血小板/带生=戴森/亦添人名多变体）——档案转写层潜在改进项，动校对稿需用户闸门，未立项
 - 现场事实（2026-08-18 探查）：GPT-SoVITS 不在盘；wu-sft/v02_full/data 八件套在位；processed/wechat_voice 125 WAV 在位；GPU 5.9/24GB 空闲
 

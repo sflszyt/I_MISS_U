@@ -1,9 +1,21 @@
 # 交接文档（HANDOFF）
 
-> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-08-18，TTS 研究收口 + GPT-SoVITS 泛化管道立项、清理上下文前**。
+> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-08-21，Phase 6 转写策略终局定案（臂C/零样本粤语/refA）**。
 > 读这份之前先读 `CLAUDE.md`（铁律），再读仓库根的 `task_plan.md` / `progress.md` / `findings.md`（MVP 计划与实时状态）。研究依据在 `docs/research/`。
 
 > **📘 技术管道全景已成文：`docs/PIPELINE.md`**（2026-08-17）——七 Stage 全配方 + 七闸门清单 + 工程铁律 + **skill 化蓝图与泛化缺口清单**。用户确认初心 = 整套管道产品化为 Claude Code skill（形态 C 构建端），推进顺序见该文档 12.4。配套：`docs/GENERALIZATION.md`（五轴泛化 + 两纪元 sessions 架构）、`docs/research/messaging-channels.md`（TG/WA/微信通道研究）。
+
+## ⓪⁶ 增补（2026-08-21：Phase 6 终局耳测定案，最先看这段）
+
+1. **用户终局耳测三判落定（对照页 gsv_review.html，走 Tailscale 审核）**：①**普通话=臂C**（沪语本字直喂微调，g2p_char_map 拟音替换）②**粤语=零样本**（两臂微调与 zero-shot 听感无差"都差不多"，取零成本路径——泛化红利：粤语域无需任何训练）③**参考=refA 确认**（近普转写 20211229_115226_s03，音色最像；6a 遗留问题一并收口）。裁决已写入 `people/mama/voice/gsv_profile.json`（新增 defaults + decision_log 块；default_ref 维持不变）
+2. **审核物料工艺**：复用已审 make_listen_page.py + Claude 直写 manifest（纯数据已声明，存 workdir/gsv_review_manifest.json 可重生成）→ archive_out/gsv_review.html（9 组 32 条 2.82MB，四方对照+QC 疑似红标+附加参考对照）；8020 服务器 Start-Process 脱钩重启（重启后曾掉线）；真浏览器验收仅 favicon 404（豁免同前例）
+3. 6b/6f 关闭，Phase 6 剩 **6e ASR CER 回读 QC**（funasr 整合包内置，-l zh/yue）——抽卡自动淘汰闭环最后一块
+
+### 下回合建议顺序（08-21 刷新，覆盖下方各旧版）
+
+1. **6e ASR CER 回读 QC**（gsv_pipeline synth 增强，DeepSeek 写 + Codex 审）→ Phase 6 收官
+2. 家人盲听 v2（旧待办，物料在手机+站点）；粤语正式验证批可并入
+3. 其余照旧：TG bot 通道网关 / VoxCPM2 A/B / 601 敏感疑似复核 / relative_to 小修 / 记音字还原（未立项待用户表态）
 
 ## ⓪⁺⁺⁺⁺⁺ 增补（2026-08-18 深夜：Phase 6 一日打穿——GPT-SoVITS 管道从零到工具入库，最先看这段）
 
