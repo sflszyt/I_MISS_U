@@ -435,6 +435,16 @@ audio.addEventListener('play', function () {
     }
 });
 
+// ---------- try real mode on play ----------
+function tryRealMode() {
+    if (analyser && srcMode === 'fake') {
+        srcMode = 'real';
+        zeroStart = null;
+        console.info('Retrying real audio level mode');
+    }
+}
+audio.addEventListener('play', tryRealMode);
+
 // ---------- blink animation (SVG mode only) ----------
 function blink() {
     if (!eyeL || !eyeR) return;
@@ -511,9 +521,14 @@ function updateMouth() {
             rms = Math.sqrt(sum / buf.length);
             level = rms;
             targetRy = 2 + Math.min(12, rms * 30);
+            var playing = audio && audio.src && !audio.paused && !audio.ended;
             if (rms < 0.0001) {
-                if (zeroStart === null) zeroStart = Date.now();
-                else if (Date.now() - zeroStart > 600) setFakeMode();
+                if (playing) {
+                    if (zeroStart === null) zeroStart = Date.now();
+                    else if (Date.now() - zeroStart > 600) setFakeMode();
+                } else {
+                    zeroStart = null;
+                }
             } else {
                 zeroStart = null;
             }
