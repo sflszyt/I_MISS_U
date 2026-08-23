@@ -245,6 +245,17 @@
 - 部署细节：8020 服务器重启后掉线 → Start-Process 脱钩重启（PID 11464）；Tailscale PC 端在线 100.116.45.2，iPhone 需用户开 App 上线；真浏览器验收仅 favicon 404（豁免同 Phase 5 前例）
 - **★ 用户终局耳测三判（Phase 6 关键裁决）**：①普通话=臂C（沪语本字直喂）②粤语=零样本（"都差不多"→取零成本路径，粤语域免训练）③参考=refA 音色最像（6a 遗留问题收口）→ gsv_profile.json 写入 defaults{mandarin:finetune/c_raw, yue:zero_shot} + decision_log（json.load 验证过；gsv_pipeline 按键取值容忍新增字段已核）
 - 6b/6f 关闭；Phase 6 剩 6e ASR CER 回读 QC（funasr -l zh/yue）——下一工程项（DeepSeek 写 + Codex 审）
+
+## Session 2026-08-22/23（纸片人审核 → 口型 bug 双根因修复 + 帧素材重做）
+- 用户审核纸片人实报："卡通一闪一闪，没有大小嘴切换" → systematic-debugging 全流程
+- **根因一（代码，自 08-12 潜伏）**：静音看门狗（rms<0.0001 持续 600ms → setFakeMode 永久切伪驱动）在 rAF 里无条件跑——页面打开 600ms（无播放）即永久退化 240ms 机械交替；真音量驱动任何真实使用中从未生效。实锤链：Playwright 采样切换间隔精确 240ms 等距（真驱动应随语音不规则）→ 空闲 1.5s 零交互 console 已打 Fallback。历次 harness 验收模拟了 play 流但没模拟"打开先闲着"的真实时间轴
+- **根因二（素材）**：旧说话帧（O嘴 seed1002）整脸变表情（瞪眼+挑眉）且静息帧本身是张嘴大笑——无闭↔开信号，交替=两张脸轮播。当年"仅嘴变O型"判定系静态并排看走眼，从未按动画连播验收；当年 prompt 前提即错（"把她闭着的嘴改为张开"——原图嘴本来就张着）
+- **修复一（DeepSeek + Codex ACCEPT 零发现，cacaf23）**：看门狗仅播放中计时 + play 事件 tryRealMode 复活（iOS 等 analyser 真失效场景兜底语义保留）。修后实测：空闲不退化，播放中切换 160-880ms 不规则随语音
+- **修复二（素材重做，探针声明复用已审 build_graph）**：ComfyUI+Qwen-Image-Edit 从定稿头像生成闭嘴微笑候选×4（seeds 3001-3004）→ 用户选 s3002（灰眼保持）→ **新帧映射：静息=s3002 闭嘴微笑 / 说话=原定稿张嘴笑（04 s1001）**，旧 O 嘴帧退役备份 versions/avatar_frames_20260823/；avatar_choice.json 增 frame_remap_20260823 溯源块
+- **根因三（部署，截图抓出）**：img URL 无缓存穿透——浏览器按 08-12 Last-Modified 启发式缓存死粘旧帧（换了图用户也看不到）。声明 hotfix：build_avatar_page img src 加 ?v=<内容哈希8位>
+- 终验：静息截图=闭嘴微笑 ✓ 播放中 35/60 张嘴帧、起始静音垫闭嘴正确 ✓；archive_dist 增量重建 copied=4 checks=ok
+- 环境：ComfyUI 起停一轮（生成用），api_v2 :9880 已复原常驻（PID 见 workdir/logs/api_v2_20260823.log）
+- 用户待办"说话帧确认"就此闭环（旧帧被否决重做，新帧对用户选定）
 - **家人盲听 v2 移除（用户裁决"移除这项"）**：M1 以用户本人盲听 v2（8 条骗过 7，08-16）为最终依据关闭；blind_v2 物料保留、待办清单与催办全部撤下（HANDOFF/task_plan/memory 同步）
 - **6e ASR CER 回读 QC 开工即收官（用户令"开工先"）→ Phase 6 全部完成**：
   - 引擎选型：整合包 funasr 的 yue 走 UniASR TF1 旧模型且未下载（风险）→ 改用已有 venvs/asr + **SenseVoiceSmall**（单模型 zh/yue）；探针五连实证（Claude 直写已声明，scratchpad/probe_sensevoice_qc.py）：zh cer 0/0.071、yue cer 0/0（粤语识别惊艳）、错配 1.0、CPU 0.1-0.4s/条、模型 ~900MB 入 modelscope 缓存

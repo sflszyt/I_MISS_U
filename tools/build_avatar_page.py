@@ -620,13 +620,23 @@ SVG_AVATAR_BLOCK = r"""        <div class="avatar" id="avatar">
         </div>"""
 
 
-def image_avatar_block(has_open: bool) -> str:
+def _file_version_tag(path) -> str:
+    """Short content hash used as a cache-busting query param (?v=...)."""
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()[:8]
+
+
+def image_avatar_block(has_open: bool, closed_v: str = "", open_v: str = "") -> str:
     """Generate the image-avatar HTML block."""
     open_img = ""
     if has_open:
         open_img = (
             '                <img id="avatar-frame-open" class="frame-open" '
-            'src="data/avatar/avatar_open.png" alt="" aria-hidden="true" '
+            'src="data/avatar/avatar_open.png' + open_v + '" alt="" aria-hidden="true" '
             'style="display:none">\n'
         )
     return (
@@ -634,7 +644,7 @@ def image_avatar_block(has_open: bool) -> str:
         '            <div class="avatar-inner avatar-image" id="avatar-image" '
         'role="img" aria-label="卡通语音形象">\n'
         '                <img id="avatar-frame-closed" '
-        'src="data/avatar/avatar.png" alt="">\n'
+        'src="data/avatar/avatar.png' + closed_v + '" alt="">\n'
         + open_img +
         '            </div>\n'
         '        </div>'
@@ -1078,7 +1088,11 @@ def main():
             avatar_mode_label = "image+open"
         if avatar_choice_json.exists():
             copy_binary(avatar_choice_json, avatar_dst_dir / "avatar_choice.json")
-        avatar_block = image_avatar_block(has_open_frame)
+        closed_v = "?v=" + _file_version_tag(avatar_dst_dir / "avatar.png")
+        open_v = ""
+        if has_open_frame:
+            open_v = "?v=" + _file_version_tag(avatar_dst_dir / "avatar_open.png")
+        avatar_block = image_avatar_block(has_open_frame, closed_v, open_v)
     else:
         avatar_block = SVG_AVATAR_BLOCK
         avatar_mode_label = "svg"
