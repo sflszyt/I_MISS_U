@@ -19,6 +19,8 @@ FOOTER_NOTE = (
     "卡通形象为示意，非真人形象。"
 )
 
+BUILD_TAG = time.strftime('%Y%m%d-%H%M%S')
+
 HTML_TEMPLATE = r"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -255,6 +257,16 @@ __PLAYLIST__
 (function () {
 'use strict';
 
+// ---------- global error capture ----------
+var jsErrors = [];
+var BUILD_TAG = '__BUILD_TAG__';
+window.onerror = function (message, source, lineno) {
+    var errMsg = String(message) + ' @' + String(source) + ':' + String(lineno);
+    jsErrors.push(errMsg);
+    if (jsErrors.length > 10) jsErrors.shift();
+    return false;
+};
+
 // ---------- parsing playlist ----------
 var rawEl = document.getElementById('playlist-data');
 var items = [];
@@ -282,6 +294,26 @@ var mouthOpen = document.getElementById('mouth-open');
 var hasImageMode = document.getElementById('avatar-frame-closed') !== null;
 var hasOpenFrame = hasImageMode && document.getElementById('avatar-frame-open') !== null;
 var hasPatchMode = document.getElementById('mouth-half') !== null && document.getElementById('mouth-open') !== null;
+
+// patch-mode error listeners
+if (hasPatchMode) {
+    if (mouthHalf) {
+        mouthHalf.addEventListener('error', function () {
+            mouthHalf._hudError = true;
+            var msg = 'mouth_half.png load error';
+            jsErrors.push(msg);
+            if (jsErrors.length > 10) jsErrors.shift();
+        });
+    }
+    if (mouthOpen) {
+        mouthOpen.addEventListener('error', function () {
+            mouthOpen._hudError = true;
+            var msg = 'mouth_open.png load error';
+            jsErrors.push(msg);
+            if (jsErrors.length > 10) jsErrors.shift();
+        });
+    }
+}
 
 var cur = -1;
 var srcMode = 'real';
@@ -534,12 +566,51 @@ function setFakeMode() {
 // ---------- mouth state for frame hold ----------
 var mouthState = { current: null, lastSwitchMs: 0 };
 
+// ---------- debug HUD ----------
+var hudEl = null;
+var hudLastUpdate = 0;
+var debugMode = false;
+try {
+    var hudQs = String(window.location.search || '').replace(/^\?/, '');
+    if (('&' + hudQs + '&').indexOf('&debug=1&') !== -1) {
+        debugMode = true;
+    }
+} catch (e) {
+    debugMode = false;
+}
+if (debugMode) {
+    hudEl = document.createElement('div');
+    hudEl.id = 'hud-debug';
+    hudEl.style.cssText = 'position:fixed; top:8px; left:8px; z-index:9999; background:rgba(0,0,0,0.75); color:#8f8; font:11px/1.5 monospace; padding:6px 9px; border-radius:6px; pointer-events:none; white-space:pre; text-align:left; max-width:92vw; overflow:hidden;';
+    document.body.appendChild(hudEl);
+}
+
+function imgStatus(img, prefix) {
+    if (!img) return prefix + '=none';
+    var w = img.naturalWidth;
+    if (w > 0) {
+        return prefix + '=' + String(img.naturalWidth) + 'x' + String(img.naturalHeight);
+    }
+    if (img._hudError) {
+        return prefix + '=ERR';
+    }
+    return prefix + '=pending';
+}
+
+function patchHalfStatus() {
+    return imgStatus(mouthHalf, 'half');
+}
+function patchOpenStatus() {
+    return imgStatus(mouthOpen, 'open');
+}
+
 // ---------- rAF loop ----------
 function updateMouth() {
     var targetRy;
     var level = 0;
     var speaking = avatar.classList.contains('speaking');
     var now = Date.now();
+    var hudFrame = '-';
 
     if (srcMode === 'real') {
         if (!analyser) {
@@ -581,6 +652,7 @@ function updateMouth() {
     if (hasPatchMode) {
         // Patch mode: apply frames and scale to all imgs via container
         var patchFrame = mouthFrameFor(level, speaking, now, mouthState);
+        hudFrame = patchFrame;
         if (mouthHalf) mouthHalf.style.display = (patchFrame === 'half') ? '' : 'none';
         if (mouthOpen) mouthOpen.style.display = (patchFrame === 'open') ? '' : 'none';
         if (speaking) {
@@ -594,6 +666,7 @@ function updateMouth() {
     } else if (hasImageMode) {
         // Image mode: frame swapping and scale effect
         var frame = mouthFrameFor(level, speaking, now, mouthState);
+        hudFrame = frame;
         if (hasOpenFrame) {
             if (frame === 'open') {
                 if (frameClosed) frameClosed.style.display = 'none';
@@ -623,6 +696,50 @@ function updateMouth() {
         newRy = Math.min(14, Math.max(2, newRy));
         mouthSpeak.setAttribute('ry', String(newRy));
     }
+
+    // ---------- HUD refresh (~200ms) ----------
+    if (debugMode && hudEl && (now - hudLastUpdate >= 200)) {
+        hudLastUpdate = now;
+        var mode = 'svg';
+        if (hasPatchMode) {
+            mode = 'patch';
+        } else if (hasImageMode) {
+            mode = 'image';
+        }
+        var srcStr = srcMode;
+        var ctxState = 'none';
+        if (audioCtx) ctxState = audioCtx.state || 'unknown';
+        var levelStr = level.toFixed(3);
+        var spkStr = speaking ? 'true' : 'false';
+        var audioPaused = audio ? audio.paused : true;
+        var audioEnded = audio ? audio.ended : true;
+        var curTime = audio ? (audio.currentTime || 0) : 0;
+        var readyState = audio ? audio.readyState : -1;
+        var netState = audio ? audio.networkState : -1;
+        var imgLine = 'IMG -';
+        if (hasPatchMode) {
+            imgLine = 'IMG ' + patchHalfStatus() + ' ' + patchOpenStatus();
+        }
+        var lines = [
+            'BUILD ' + BUILD_TAG,
+            'MODE ' + mode,
+            'SRC ' + srcStr + '  CTX ' + ctxState,
+            'SPK ' + spkStr + '  LV ' + levelStr + '  FRM ' + hudFrame,
+            'AUD paused=' + String(audioPaused) + ' ended=' + String(audioEnded) +
+                ' t=' + curTime.toFixed(1) + ' rs=' + String(readyState) + ' ns=' + String(netState),
+            imgLine
+        ];
+        lines.push('ERR ' + String(jsErrors.length));
+        var startIdx = jsErrors.length - 3;
+        if (startIdx < 0) startIdx = 0;
+        for (var ei = startIdx; ei < jsErrors.length; ei++) {
+            var eMsg = jsErrors[ei];
+            if (eMsg.length > 80) eMsg = eMsg.substring(0, 80);
+            lines.push(eMsg);
+        }
+        hudEl.textContent = lines.join('\n');
+    }
+
     requestAnimationFrame(updateMouth);
 }
 
@@ -1080,6 +1197,7 @@ def generate_html(playlist: list, footer: str, avatar_block: str) -> str:
     html = HTML_TEMPLATE.replace("__PLAYLIST__", playlist_json)
     html = html.replace("__FOOTER__", html_escape(footer))
     html = html.replace("__AVATAR_BLOCK__", avatar_block)
+    html = html.replace("__BUILD_TAG__", BUILD_TAG)
     return html
 
 
