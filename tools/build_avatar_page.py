@@ -114,9 +114,6 @@ main {
     display: none;
     pointer-events: none;
 }
-.avatar-image.patch-scale {
-    transition: transform 0.1s ease;
-}
 .now-playing {
     text-align: center;
     margin-bottom: 16px;
@@ -291,12 +288,21 @@ var frameClosed = document.getElementById('avatar-frame-closed');
 var frameOpen = document.getElementById('avatar-frame-open');
 var mouthHalf = document.getElementById('mouth-half');
 var mouthOpen = document.getElementById('mouth-open');
+var avatarBase = document.getElementById('avatar-base');
 var hasImageMode = document.getElementById('avatar-frame-closed') !== null;
 var hasOpenFrame = hasImageMode && document.getElementById('avatar-frame-open') !== null;
 var hasPatchMode = document.getElementById('mouth-half') !== null && document.getElementById('mouth-open') !== null;
 
 // patch-mode error listeners
 if (hasPatchMode) {
+    if (avatarBase) {
+        avatarBase.addEventListener('error', function () {
+            avatarBase._hudError = true;
+            var msg = 'avatar.png load error';
+            jsErrors.push(msg);
+            if (jsErrors.length > 10) jsErrors.shift();
+        });
+    }
     if (mouthHalf) {
         mouthHalf.addEventListener('error', function () {
             mouthHalf._hudError = true;
@@ -467,11 +473,14 @@ audio.addEventListener('pause', function () {
     if (hasPatchMode) {
         if (mouthHalf) mouthHalf.style.display = 'none';
         if (mouthOpen) mouthOpen.style.display = 'none';
+        if (avatarBase) avatarBase.style.transform = '';
+        if (mouthHalf) mouthHalf.style.transform = '';
+        if (mouthOpen) mouthOpen.style.transform = '';
         if (avatarImage) {
             avatarImage.classList.remove('patch-scale');
         }
     } else if (hasImageMode) {
-        if (frameClosed) frameClosed.style.display = '';
+        if (frameClosed) frameClosed.style.display = 'block';
         if (frameOpen) frameOpen.style.display = 'none';
         if (avatarImage) {
             avatarImage.classList.remove('speaking-scale');
@@ -479,7 +488,7 @@ audio.addEventListener('pause', function () {
         if (frameClosed) frameClosed.style.transform = '';
         if (frameOpen) frameOpen.style.transform = '';
     } else {
-        if (mouthStatic) mouthStatic.style.display = '';
+        if (mouthStatic) mouthStatic.style.display = 'block';
         if (mouthSpeak) mouthSpeak.style.display = 'none';
     }
 });
@@ -487,10 +496,9 @@ audio.addEventListener('play', function () {
     document.getElementById('btn-toggle').innerHTML = '\u23F8';
     avatar.classList.add('speaking');
     if (hasPatchMode) {
-        if (avatarImage) {
-            avatarImage.classList.add('patch-scale');
-            avatarImage.style.transition = 'transform 0.08s ease';
-        }
+        if (avatarBase) avatarBase.style.transition = 'transform 0.08s ease';
+        if (mouthHalf) mouthHalf.style.transition = 'transform 0.08s ease';
+        if (mouthOpen) mouthOpen.style.transition = 'transform 0.08s ease';
     } else if (hasImageMode) {
         if (avatarImage) {
             avatarImage.classList.add('speaking-scale');
@@ -498,7 +506,7 @@ audio.addEventListener('play', function () {
         }
     } else {
         if (mouthStatic) mouthStatic.style.display = 'none';
-        if (mouthSpeak) mouthSpeak.style.display = '';
+        if (mouthSpeak) mouthSpeak.style.display = 'block';
     }
 });
 
@@ -597,6 +605,9 @@ function imgStatus(img, prefix) {
     return prefix + '=pending';
 }
 
+function patchBaseStatus() {
+    return imgStatus(avatarBase, 'base');
+}
 function patchHalfStatus() {
     return imgStatus(mouthHalf, 'half');
 }
@@ -653,15 +664,20 @@ function updateMouth() {
         // Patch mode: apply frames and scale to all imgs via container
         var patchFrame = mouthFrameFor(level, speaking, now, mouthState);
         hudFrame = patchFrame;
-        if (mouthHalf) mouthHalf.style.display = (patchFrame === 'half') ? '' : 'none';
-        if (mouthOpen) mouthOpen.style.display = (patchFrame === 'open') ? '' : 'none';
+        if (mouthHalf) mouthHalf.style.display = (patchFrame === 'half') ? 'block' : 'none';
+        if (mouthOpen) mouthOpen.style.display = (patchFrame === 'open') ? 'block' : 'none';
+        // Subtle scale effect while speaking — apply to IMG elements to avoid
+        // clobbering the bob animation's transform on the .avatar-inner container
         if (speaking) {
             var patchScale = 1 + Math.min(rms || level, 1) * 0.02;
-            if (avatarImage) {
-                avatarImage.style.transform = 'scale(' + patchScale.toFixed(4) + ')';
-            }
+            var patchScaleStr = 'scale(' + patchScale.toFixed(4) + ')';
+            if (avatarBase) avatarBase.style.transform = patchScaleStr;
+            if (mouthHalf) mouthHalf.style.transform = patchScaleStr;
+            if (mouthOpen) mouthOpen.style.transform = patchScaleStr;
         } else {
-            if (avatarImage) avatarImage.style.transform = '';
+            if (avatarBase) avatarBase.style.transform = '';
+            if (mouthHalf) mouthHalf.style.transform = '';
+            if (mouthOpen) mouthOpen.style.transform = '';
         }
     } else if (hasImageMode) {
         // Image mode: frame swapping and scale effect
@@ -670,9 +686,9 @@ function updateMouth() {
         if (hasOpenFrame) {
             if (frame === 'open') {
                 if (frameClosed) frameClosed.style.display = 'none';
-                if (frameOpen) frameOpen.style.display = '';
+                if (frameOpen) frameOpen.style.display = 'block';
             } else {
-                if (frameClosed) frameClosed.style.display = '';
+                if (frameClosed) frameClosed.style.display = 'block';
                 if (frameOpen) frameOpen.style.display = 'none';
             }
         }
@@ -718,7 +734,7 @@ function updateMouth() {
         var netState = audio ? audio.networkState : -1;
         var imgLine = 'IMG -';
         if (hasPatchMode) {
-            imgLine = 'IMG ' + patchHalfStatus() + ' ' + patchOpenStatus();
+            imgLine = 'IMG ' + patchBaseStatus() + ' ' + patchHalfStatus() + ' ' + patchOpenStatus();
         }
         var lines = [
             'BUILD ' + BUILD_TAG,
