@@ -256,6 +256,16 @@
 - 终验：静息截图=闭嘴微笑 ✓ 播放中 35/60 张嘴帧、起始静音垫闭嘴正确 ✓；archive_dist 增量重建 copied=4 checks=ok
 - 环境：ComfyUI 起停一轮（生成用），api_v2 :9880 已复原常驻（PID 见 workdir/logs/api_v2_20260823.log）
 - 用户待办"说话帧确认"就此闭环（旧帧被否决重做，新帧对用户选定）
+
+## Session 2026-08-23/25（用户判死双帧架构 → 渲染研究 → Phase 0 嘴部贴片落地）
+- 用户复审仍报"疯狂闪烁"并裁决"这个技术有问题"→ **双帧整图轮播架构性判死**（两张独立 AI 图像素级全图偏移，任何节奏都是闪不是动嘴）→ 立项任务 #17
+- **渲染技术研究收口（workflow 4+1 代理/90 检索 → docs/research/digital-human-rendering.md，4f4849d）**：主线=viseme 嘴部贴片+预计算时间轴（五约束唯一全绿，路线3独立收敛同构=双重验证）；talking-head 四强（InfiniteTalk/EchoMimicV3/FantasyTalking/Sonic）降为精品条目增强+第一备选；Live2D 闭源 core 违 20 年红线不投入
+- **Phase 0 执行（用户令"开工"）**：
+  - 贴片素材：嘴部矩形标定 (480,460,700,640)+羽化14 → Qwen-Image-Edit 从底图（s3002）生成说话嘴型——首轮"半开"全出大嘴（prompt 无视"小缝"）→ 迭代 prompt 二轮命中；程序化羽化合成（矩形外像素=底图，架构保证）→ 连播 GIF 验收（血泪教训执行：素材必按动画验收）→ **SendUserFile 本会话已禁用发现**（此前"成功"未真送达）→ 改走 8020 站点 mouth_preview.html → **用户定稿 A 温和版**（half=s4101 唇缝微分/open=s4101 温和张嘴）
+  - 资产：全尺寸 RGBA 透明叠层（羽化烘进 alpha；矩形外 RGB 清零 1.17MB→54/61KB）+ persona/mouth_patches.json（rect/image_size/states/provenance）
+  - 工具：build_avatar_page.py 增 patch 模式（DeepSeek×3 轮 + Codex REJECT×2→ACCEPT + 声明 hotfix 两行）。审核实录：R1 我方抓 BLOCKER=.format() 撞 CSS 花括号（"%撞CSS"老坑 format 变体）+ 架构陷阱=容器百分比定位 vs object-fit:cover 裁切错位→贴片改全尺寸透明叠层（HTML 零坐标）；R2 Codex 抓 High=json 根类型非 dict 崩+Medium=fake 模式三态退化两态（level 0/1 改连续包络 0-0.08）+Medium=hasImageMode 与 patch 不互斥（改按模式特有元素判定）；R3 Codex 复审抓 states 非 dict 残余崩溃口→声明 hotfix 两行→**终裁 ACCEPT**
+  - 验收：三态实测 C23/H9/O28 随语音、坏 JSON/无 JSON 降级回归 T2-T5 全过、整页截图贴片无缝、archive_dist 同步（162 文件 copied=5 deleted=2 checks=ok）
+- 环境：api_v2 :9880 复原常驻；ComfyUI 已停；8020 站点常驻。**Phase 1（Rhubarb viseme 时间轴+6 态扩容）待排期**
 - **家人盲听 v2 移除（用户裁决"移除这项"）**：M1 以用户本人盲听 v2（8 条骗过 7，08-16）为最终依据关闭；blind_v2 物料保留、待办清单与催办全部撤下（HANDOFF/task_plan/memory 同步）
 - **6e ASR CER 回读 QC 开工即收官（用户令"开工先"）→ Phase 6 全部完成**：
   - 引擎选型：整合包 funasr 的 yue 走 UniASR TF1 旧模型且未下载（风险）→ 改用已有 venvs/asr + **SenseVoiceSmall**（单模型 zh/yue）；探针五连实证（Claude 直写已声明，scratchpad/probe_sensevoice_qc.py）：zh cer 0/0.071、yue cer 0/0（粤语识别惊艳）、错配 1.0、CPU 0.1-0.4s/条、模型 ~900MB 入 modelscope 缓存

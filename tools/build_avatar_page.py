@@ -102,6 +102,19 @@ main {
 .avatar-image.speaking-scale {
     transition: transform 0.1s ease;
 }
+/* Patch-avatar styles */
+.avatar-image .mouth-patch {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: none;
+    pointer-events: none;
+}
+.avatar-image.patch-scale {
+    transition: transform 0.1s ease;
+}
 .now-playing {
     text-align: center;
     margin-bottom: 16px;
@@ -264,8 +277,11 @@ var eyeR = document.getElementById('eye-r');
 var avatarImage = document.getElementById('avatar-image');
 var frameClosed = document.getElementById('avatar-frame-closed');
 var frameOpen = document.getElementById('avatar-frame-open');
-var hasImageMode = document.getElementById('avatar-image') !== null;
+var mouthHalf = document.getElementById('mouth-half');
+var mouthOpen = document.getElementById('mouth-open');
+var hasImageMode = document.getElementById('avatar-frame-closed') !== null;
 var hasOpenFrame = hasImageMode && document.getElementById('avatar-frame-open') !== null;
+var hasPatchMode = document.getElementById('mouth-half') !== null && document.getElementById('mouth-open') !== null;
 
 var cur = -1;
 var srcMode = 'real';
@@ -276,6 +292,7 @@ var zeroStart = null;
 
 // ---------- mouth frame pure function ----------
 var OPEN_THRESHOLD = 0.04;
+var HALF_THRESHOLD = 0.02;
 var FRAME_HOLD_MS = 90;
 function mouthFrameFor(level, speaking, nowMs, state) {
     if (!speaking) {
@@ -283,7 +300,14 @@ function mouthFrameFor(level, speaking, nowMs, state) {
         state.lastSwitchMs = nowMs;
         return 'closed';
     }
-    var frame = (level > OPEN_THRESHOLD) ? 'open' : 'closed';
+    var frame;
+    if (level > OPEN_THRESHOLD) {
+        frame = 'open';
+    } else if (level > HALF_THRESHOLD) {
+        frame = 'half';
+    } else {
+        frame = 'closed';
+    }
     if (state.current === frame) {
         return frame;
     }
@@ -408,7 +432,13 @@ audio.addEventListener('ended', function () {
 audio.addEventListener('pause', function () {
     document.getElementById('btn-toggle').innerHTML = '\u25B6';
     avatar.classList.remove('speaking');
-    if (hasImageMode) {
+    if (hasPatchMode) {
+        if (mouthHalf) mouthHalf.style.display = 'none';
+        if (mouthOpen) mouthOpen.style.display = 'none';
+        if (avatarImage) {
+            avatarImage.classList.remove('patch-scale');
+        }
+    } else if (hasImageMode) {
         if (frameClosed) frameClosed.style.display = '';
         if (frameOpen) frameOpen.style.display = 'none';
         if (avatarImage) {
@@ -424,7 +454,12 @@ audio.addEventListener('pause', function () {
 audio.addEventListener('play', function () {
     document.getElementById('btn-toggle').innerHTML = '\u23F8';
     avatar.classList.add('speaking');
-    if (hasImageMode) {
+    if (hasPatchMode) {
+        if (avatarImage) {
+            avatarImage.classList.add('patch-scale');
+            avatarImage.style.transition = 'transform 0.08s ease';
+        }
+    } else if (hasImageMode) {
         if (avatarImage) {
             avatarImage.classList.add('speaking-scale');
             avatarImage.style.transition = 'transform 0.08s ease';
@@ -539,12 +574,25 @@ function updateMouth() {
         var jitter = Math.random() * 0.4;
         targetRy = 4 + osc * 8 + jitter * 4;
         targetRy = Math.min(14, Math.max(2, targetRy));
-        // Synthesize level for frame logic: alternate between open/closed via sine
-        level = Math.sin(fakePhase * 2.0) > 0 ? 1 : 0;
+        // Synthesize level for frame logic: continuous envelope through both thresholds
+        level = (Math.sin(fakePhase * 2.0) * 0.5 + 0.5) * 0.08;
     }
 
-    // Image mode: frame swapping and scale effect
-    if (hasImageMode) {
+    if (hasPatchMode) {
+        // Patch mode: apply frames and scale to all imgs via container
+        var patchFrame = mouthFrameFor(level, speaking, now, mouthState);
+        if (mouthHalf) mouthHalf.style.display = (patchFrame === 'half') ? '' : 'none';
+        if (mouthOpen) mouthOpen.style.display = (patchFrame === 'open') ? '' : 'none';
+        if (speaking) {
+            var patchScale = 1 + Math.min(rms || level, 1) * 0.02;
+            if (avatarImage) {
+                avatarImage.style.transform = 'scale(' + patchScale.toFixed(4) + ')';
+            }
+        } else {
+            if (avatarImage) avatarImage.style.transform = '';
+        }
+    } else if (hasImageMode) {
+        // Image mode: frame swapping and scale effect
         var frame = mouthFrameFor(level, speaking, now, mouthState);
         if (hasOpenFrame) {
             if (frame === 'open') {
@@ -620,7 +668,7 @@ SVG_AVATAR_BLOCK = r"""        <div class="avatar" id="avatar">
         </div>"""
 
 
-def _file_version_tag(path) -> str:
+def _file_version_tag(path: str) -> str:
     """Short content hash used as a cache-busting query param (?v=...)."""
     import hashlib
     h = hashlib.sha256()
@@ -646,6 +694,20 @@ def image_avatar_block(has_open: bool, closed_v: str = "", open_v: str = "") -> 
         '                <img id="avatar-frame-closed" '
         'src="data/avatar/avatar.png' + closed_v + '" alt="">\n'
         + open_img +
+        '            </div>\n'
+        '        </div>'
+    )
+
+
+def patch_avatar_block(closed_v, half_v, open_v) -> str:
+    """Generate the patch-avatar HTML block."""
+    return (
+        '        <div class="avatar" id="avatar">\n'
+        '            <div class="avatar-inner avatar-image" id="avatar-image" '
+        'role="img" aria-label="卡通语音形象">\n'
+        '                <img id="avatar-base" src="data/avatar/avatar.png' + closed_v + '" alt="">\n'
+        '                <img id="mouth-half" class="mouth-patch" src="data/avatar/mouth_half.png' + half_v + '" alt="" aria-hidden="true" style="display:none">\n'
+        '                <img id="mouth-open" class="mouth-patch" src="data/avatar/mouth_open.png' + open_v + '" alt="" aria-hidden="true" style="display:none">\n'
         '            </div>\n'
         '        </div>'
     )
@@ -975,15 +1037,16 @@ def copy_binary(src: Path, dst: Path):
             f_out.write(f_in.read())
 
 
-def reconcile_avatar_dir(archive_dir: Path, use_image_mode: bool, has_open_frame: bool, has_choice_json: bool):
+def reconcile_avatar_dir(archive_dir: Path, use_image_mode: bool, has_open_frame: bool, has_choice_json: bool, use_patch_mode: bool = False):
     """Reconcile archive_out/data/avatar against the desired asset set.
     
     image mode active: desired = avatar.png (+ avatar_open.png if has_open_frame)
     (+ avatar_choice.json if has_choice_json). Delete anything else.
+    patch mode active: desired = avatar.png + mouth_half.png + mouth_open.png + mouth_patches.json.
     image mode inactive: delete the whole dir if it exists.
     """
     avatar_dir = archive_dir / "data" / "avatar"
-    if not use_image_mode:
+    if not use_image_mode and not use_patch_mode:
         if avatar_dir.exists():
             for f in avatar_dir.iterdir():
                 if f.is_file():
@@ -995,13 +1058,16 @@ def reconcile_avatar_dir(archive_dir: Path, use_image_mode: bool, has_open_frame
                 pass
         return
 
-    # image mode active
+    # mode active
     avatar_dir.mkdir(parents=True, exist_ok=True)
-    desired = {"avatar.png"}
-    if has_open_frame:
-        desired.add("avatar_open.png")
-    if has_choice_json:
-        desired.add("avatar_choice.json")
+    if use_patch_mode:
+        desired = {"avatar.png", "mouth_half.png", "mouth_open.png", "mouth_patches.json"}
+    else:
+        desired = {"avatar.png"}
+        if has_open_frame:
+            desired.add("avatar_open.png")
+        if has_choice_json:
+            desired.add("avatar_choice.json")
 
     for f in avatar_dir.iterdir():
         if f.is_file() and f.name not in desired:
@@ -1065,19 +1131,61 @@ def main():
 
     playlist = build_playlist(media_index)
 
-    # Determine image-avatar mode
+    # Determine avatar mode: patch > image > svg
     persona_dir = (person_dir / "persona").resolve()
     avatar_png = persona_dir / "avatar.png"
     avatar_open_png = persona_dir / "avatar_open.png"
     avatar_choice_json = persona_dir / "avatar_choice.json"
+    mouth_patches_json = persona_dir / "mouth_patches.json"
+
+    use_patch_mode = False
+    patch_config = None
+    if not args.no_avatar_image and mouth_patches_json.exists():
+        try:
+            with open(mouth_patches_json, "r", encoding="utf-8") as f:
+                patch_config = json.load(f)
+            if not isinstance(patch_config, dict):
+                raise ValueError("root not object")
+            rect = patch_config.get("rect")
+            img_size = patch_config.get("image_size")
+            states = patch_config.get("states")
+            if not isinstance(states, dict):
+                raise ValueError("states not object")
+            if (isinstance(rect, list) and len(rect) == 4 and
+                isinstance(img_size, list) and len(img_size) == 2 and
+                isinstance(states.get("half"), str) and isinstance(states.get("open"), str)):
+                half_png = persona_dir / states["half"]
+                open_png = persona_dir / states["open"]
+                if avatar_png.exists() and half_png.exists() and open_png.exists():
+                    use_patch_mode = True
+        except (json.JSONDecodeError, ValueError, TypeError):
+            pass
+    if not use_patch_mode and mouth_patches_json.exists():
+        print("[WARN] mouth_patches invalid, fallback to image mode", file=sys.stderr)
 
     use_image_mode = False
     has_open_frame = False
-    if not args.no_avatar_image and avatar_png.exists():
+    if not use_patch_mode and not args.no_avatar_image and avatar_png.exists():
         use_image_mode = True
         has_open_frame = avatar_open_png.exists()
 
-    if use_image_mode:
+    if use_patch_mode:
+        # Copy patch-mode assets into bundle
+        avatar_dst_dir = archive_dir / "data" / "avatar"
+        avatar_dst_dir.mkdir(parents=True, exist_ok=True)
+        copy_binary(avatar_png, avatar_dst_dir / "avatar.png")
+        states = patch_config["states"]
+        half_png = persona_dir / states["half"]
+        open_png = persona_dir / states["open"]
+        copy_binary(half_png, avatar_dst_dir / "mouth_half.png")
+        copy_binary(open_png, avatar_dst_dir / "mouth_open.png")
+        copy_binary(mouth_patches_json, avatar_dst_dir / "mouth_patches.json")
+        closed_v = "?v=" + _file_version_tag(avatar_dst_dir / "avatar.png")
+        half_v = "?v=" + _file_version_tag(avatar_dst_dir / "mouth_half.png")
+        open_v = "?v=" + _file_version_tag(avatar_dst_dir / "mouth_open.png")
+        avatar_block = patch_avatar_block(closed_v, half_v, open_v)
+        avatar_mode_label = "patch3"
+    elif use_image_mode:
         # Copy assets into bundle
         avatar_dst_dir = archive_dir / "data" / "avatar"
         avatar_dst_dir.mkdir(parents=True, exist_ok=True)
@@ -1103,6 +1211,7 @@ def main():
         use_image_mode,
         has_open_frame,
         avatar_choice_json.exists(),
+        use_patch_mode,
     )
 
     html = generate_html(playlist, FOOTER_NOTE, avatar_block)
@@ -1151,7 +1260,7 @@ def main():
         
         # Determine preview avatar block
         preview_avatar_block = avatar_block
-        preview_used_image = use_image_mode
+        preview_used_image = use_image_mode or use_patch_mode
         if use_image_mode:
             try:
                 closed_uri = downsample_image_for_preview(avatar_png, 480)
@@ -1194,6 +1303,27 @@ def main():
                     ).format(closed_uri)
                     if has_open_frame:
                         print("note: open frame unavailable in preview, using single image")
+        elif use_patch_mode:
+            try:
+                closed_uri = downsample_image_for_preview(avatar_png, 480)
+            except ImportError:
+                print("note: Pillow unavailable, preview uses svg face")
+                preview_avatar_block = SVG_AVATAR_BLOCK
+                preview_used_image = False
+            except Exception as e:
+                print("note: failed to process avatar image ({}), preview uses svg face".format(e))
+                preview_avatar_block = SVG_AVATAR_BLOCK
+                preview_used_image = False
+            else:
+                # Patch mode preview: use base image only
+                preview_avatar_block = (
+                    '        <div class="avatar" id="avatar">\n'
+                    '            <div class="avatar-inner avatar-image" id="avatar-image" '
+                    'role="img" aria-label="卡通语音形象">\n'
+                    '                <img id="avatar-frame-closed" src="{}" alt="">\n'
+                    '            </div>\n'
+                    '        </div>'
+                ).format(closed_uri)
         
         preview_html = generate_html(preview_playlist, footer_note, preview_avatar_block)
         preview_path = archive_dir / "avatar_preview.html"
