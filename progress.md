@@ -272,3 +272,12 @@
   - DeepSeek v1（46KB spec 含全源码，一发 1294 行剥围栏 py_compile 过；diff +371/-2 全部落许可区域）→ 我方自查 3 项（err2 双计数/FAIL 条目误标 ASR_ERROR/死代码）→ 冒烟四套全绿（helper 六格、全链 on、--no-asr-qc 回归、--cer-max 0.01 逼出 round2——r2 实抽 cer 0.5385 更差被正确拒收=门控实战）→ Codex R1 **ACCEPT with fixes**（3 MAJOR：round2 采纳后 SUMMARY 不回算+确认双计数+异常不置 asr_qc:"error"；2 MINOR 均确认我方自查）→ 修复 spec 回炉 DeepSeek v2（+17/-13 五项精确落位）→ 三套回归全绿 → Codex 同线程复核 **ACCEPT**
   - 落位：tools/gsv_pipeline.py（synth 批后两轮 + `_asr` 内部子命令跨 venv 子进程 + PEOPLE_DIR 守卫）；gsv_profile.json 增 asr_qc 块（python/model/cer_max 0.30/enabled，gitignore 内需知）；报告新增 asr_status/cer/asr_text/cer_retried/cer_retry_cer/final_ok，SUMMARY 终态重算
   - 环境：api_v2 :9880 重启常驻（Start-Process+日志直写，v2Pro yaml 有状态恢复了 a_man 权重，synth 热切换自理）；粤语零样本批 QC 可单独调 `_asr` origin
+
+## Session 2026-08-25 晚（用户复审"按播放后没变化"→ 真根因落网：贴片从未渲染过）
+- 用户手机复审 Phase 0 报"按播放后卡通人没有变化"→ 系统化排障：服务端全排除（8020 存活、资产齐、同服务器桌面 Chromium"正常"）→ 判定设备侧断层
+- **诊断 HUD 入库（1ea03a3）**：?debug=1 显示 BUILD/MODE/SRC/CTX/SPK/LV/FRM/AUD/IMG/ERR，HUD 缺席本身=旧缓存判据；DeepSeek×1 + Codex REJECT（子串匹配误触发+_hudError 死代码）→ 声明 hotfix → ACCEPT；window.onerror 常驻捕获
+- **workflow 三视角审计（4 代理）交回代码级实锤，颠覆"设备侧"判定**：`style.display=''` 被 CSS 类规则 `.mouth-patch{display:none}` 回落吃掉——**贴片自上线起在任何浏览器都从未渲染过一个像素**；Phase 0 的"三态实测 C23/H9/O28"采的是 inline style 遥测=假阳性，"整页截图无缝"=贴片根本没画所以"无缝"。开发机"正常"与手机"不动"同因
+- **修复（DeepSeek×1 + 声明 hotfix + Codex ACCEPT，41e9dc3）**：全部显示分支显式化 display='block'（patch/image/svg 三模式统一消灭 ''回落地雷）；patch scale 从容器（transform 被 bob 动画每帧覆盖=第二个哑通道）改三张 img 同步缩放；HUD IMG 行补 base；hotfix=DeepSeek 把 pause 的 frameClosed 写成 'none'（暂停藏整头像回归）改回 'block'
+- **像素级验收（新铁律首执）**：getComputedStyle open 帧 block 37/65 采样；暂停基线 vs 播放中截图 diff 10.9/px、肉眼实锤真张嘴（露齿）且脸/眼镜/发不变；暂停回闭嘴路径干净；archive_dist 同步（162 文件 checks=ok）
+- **教训入 memory（verify-rendered-pixels.md）**：视觉/动画验收必须 computed style+截图 diff，inline/内部状态遥测不算验证；显示一律显式 'block'；transform 效果须打在无 animation 的子元素
+- 待用户：手机重开 avatar.html 复核（?debug=1 可看 BUILD≥20260825-194708 自证新版）
