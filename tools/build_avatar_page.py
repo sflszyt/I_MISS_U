@@ -21,6 +21,126 @@ FOOTER_NOTE = (
 
 BUILD_TAG = time.strftime('%Y%m%d-%H%M%S')
 
+# Default viseme map (Rhubarb phoneme shapes -> mouth patch state names)
+DEFAULT_VISEME_MAP = {
+    "X": "closed",
+    "A": "closed",
+    "B": "half",
+    "C": "open",
+    "D": "wide",
+    "E": "round",
+    "F": "round",
+    "G": "half",
+    "H": "half",
+}
+# Fallback chain for missing state names
+STATE_FALLBACK = {"wide": "open", "round": "half", "pucker": "round"}
+FINAL_FALLBACK = ["open", "half", "closed"]
+
+
+def resolve_viseme_map(viseme_map, states):
+    """Resolve viseme map values to valid state names or 'closed'.
+    
+    Returns (resolved_map, warn_count) where resolved_map is a dict of
+    shape -> state_name (or "closed"), and warn_count is the number of
+    fallback warnings emitted.
+    """
+    if not isinstance(viseme_map, dict):
+        viseme_map = dict(DEFAULT_VISEME_MAP)
+    
+    resolved = {}
+    warn_count = 0
+    
+    for shape, state in viseme_map.items():
+        if not isinstance(state, str):
+            resolved[shape] = "closed"
+            continue
+        if state == "closed" or state in states:
+            resolved[shape] = state
+            continue
+        # Try fallback chain
+        fallback_used = None
+        for _ in range(3):
+            if state in STATE_FALLBACK:
+                state = STATE_FALLBACK[state]
+                if state == "closed" or state in states:
+                    resolved[shape] = state
+                    break
+            else:
+                break
+        else:
+            state = None
+        
+        if state is None or (state != "closed" and state not in states):
+            # Final fallback
+            for candidate in FINAL_FALLBACK:
+                if candidate in states:
+                    resolved[shape] = candidate
+                    break
+            else:
+                resolved[shape] = "closed"
+            warn_count += 1
+            if state is None:
+                final_state = resolved[shape]
+            else:
+                final_state = resolved[shape]
+            print("[WARN] viseme state '{}' missing, fallback to '{}'".format(
+                viseme_map.get(shape, "?"), final_state
+            ))
+        else:
+            resolved[shape] = state
+    
+    return resolved, warn_count
+
+
+def resolve_rms_states(rms_states, states):
+    """Resolve rms_states to valid state names or 'closed'.
+    
+    Returns list of two valid state names (or "closed" placeholders).
+    """
+    if not isinstance(rms_states, list) or len(rms_states) < 2:
+        defaults = ["half", "open"]
+        rms_states = [s if s in states else (s if s == "closed" else defaults[i]) 
+                      for i, s in enumerate(defaults)]
+    
+    resolved = []
+    for state in rms_states[:2]:
+        if not isinstance(state, str):
+            resolved.append("closed")
+            continue
+        if state == "closed" or state in states:
+            resolved.append(state)
+            continue
+        # Try fallback chain
+        orig = state
+        fallback_used = None
+        for _ in range(3):
+            if state in STATE_FALLBACK:
+                state = STATE_FALLBACK[state]
+                if state == "closed" or state in states:
+                    break
+            else:
+                break
+        else:
+            state = None
+        
+        if state is None or (state != "closed" and state not in states):
+            for candidate in FINAL_FALLBACK:
+                if candidate in states:
+                    state = candidate
+                    break
+            else:
+                state = "closed"
+            print("[WARN] rms state '{}' missing, fallback to '{}'".format(orig, state))
+        resolved.append(state)
+    
+    # Ensure exactly 2 entries
+    while len(resolved) < 2:
+        resolved.append("closed")
+    
+    return resolved
+
+
 HTML_TEMPLATE = r"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -64,6 +184,12 @@ main {
     width: 280px;
     height: 280px;
     position: relative;
+    animation: ambient 7s ease-in-out infinite;
+    transform-origin: 50% 85%;
+}
+@keyframes ambient {
+    0%, 100% { transform: rotate(-0.35deg) translateY(0); }
+    50% { transform: rotate(0.35deg) translateY(-1.5px); }
 }
 @keyframes bob {
     0% { transform: translateY(0); }
@@ -250,6 +376,8 @@ footer {
 __PLAYLIST__
 </script>
 
+__VISEME_SCRIPT__
+
 <script>
 (function () {
 'use strict';
@@ -276,6 +404,31 @@ try {
 var countEl = document.getElementById('total-count');
 if (countEl) countEl.textContent = items.length;
 
+// ---------- parse avatar config (patch mode config) ----------
+var avatarConfig = null;
+var visemeData = null;
+var configEl = document.getElementById('avatar-config');
+if (configEl) {
+    try {
+        avatarConfig = JSON.parse(configEl.textContent);
+        if (!avatarConfig || typeof avatarConfig !== 'object' ||
+            !avatarConfig.states || typeof avatarConfig.states !== 'object' ||
+            Object.keys(avatarConfig.states).length === 0) {
+            avatarConfig = null;
+        }
+    } catch (e) {
+        avatarConfig = null;
+    }
+}
+var visemeDataEl = document.getElementById('viseme-data');
+if (visemeDataEl) {
+    try {
+        visemeData = JSON.parse(visemeDataEl.textContent);
+    } catch (e) {
+        visemeData = null;
+    }
+}
+
 var listEl = document.getElementById('playlist-ul');
 var audio = document.getElementById('player');
 var avatar = document.getElementById('avatar');
@@ -291,7 +444,47 @@ var mouthOpen = document.getElementById('mouth-open');
 var avatarBase = document.getElementById('avatar-base');
 var hasImageMode = document.getElementById('avatar-frame-closed') !== null;
 var hasOpenFrame = hasImageMode && document.getElementById('avatar-frame-open') !== null;
-var hasPatchMode = document.getElementById('mouth-half') !== null && document.getElementById('mouth-open') !== null;
+var hasPatchMode = avatarConfig !== null;
+
+// patch-mode state images
+var stateImgs = {};
+var stateNames = [];
+if (hasPatchMode) {
+    stateNames = Object.keys(avatarConfig.states);
+    for (var si = 0; si < stateNames.length; si++) {
+        var sname = stateNames[si];
+        var simg = document.getElementById('mouth-state-' + sname);
+        if (simg) {
+            stateImgs[sname] = simg;
+        }
+    }
+}
+
+// patch-mode config
+var visemeMap = null;
+var rmsStates = ['half', 'open'];
+var blinkConfig = null;
+if (hasPatchMode) {
+    visemeMap = avatarConfig.visemeMap || {};
+    if (avatarConfig.rmsStates && avatarConfig.rmsStates.length >= 2) {
+        rmsStates = [avatarConfig.rmsStates[0], avatarConfig.rmsStates[1]];
+    }
+    blinkConfig = avatarConfig.blink || null;
+}
+
+// blink image
+var blinkImg = null;
+if (hasPatchMode && blinkConfig && blinkConfig.file) {
+    blinkImg = document.getElementById('eyes-blink');
+    if (blinkImg) {
+        blinkImg._blinkActive = true;
+    }
+}
+
+// current viseme timeline key
+var currentVisemeKey = null;
+var cueIdx = 0;
+var hasTimeline = false;
 
 // patch-mode error listeners
 if (hasPatchMode) {
@@ -303,21 +496,113 @@ if (hasPatchMode) {
             if (jsErrors.length > 10) jsErrors.shift();
         });
     }
-    if (mouthHalf) {
-        mouthHalf.addEventListener('error', function () {
-            mouthHalf._hudError = true;
-            var msg = 'mouth_half.png load error';
+    for (var si2 = 0; si2 < stateNames.length; si2++) {
+        var sname2 = stateNames[si2];
+        var simg2 = stateImgs[sname2];
+        if (simg2) {
+            simg2.addEventListener('error', (function (name, img) {
+                return function () {
+                    img._hudError = true;
+                    var msg = name + ' load error';
+                    jsErrors.push(msg);
+                    if (jsErrors.length > 10) jsErrors.shift();
+                };
+            })(sname2, simg2));
+        }
+    }
+    if (blinkImg) {
+        blinkImg.addEventListener('error', function () {
+            blinkImg._hudError = true;
+            var msg = 'blink load error';
             jsErrors.push(msg);
             if (jsErrors.length > 10) jsErrors.shift();
         });
     }
-    if (mouthOpen) {
-        mouthOpen.addEventListener('error', function () {
-            mouthOpen._hudError = true;
-            var msg = 'mouth_open.png load error';
-            jsErrors.push(msg);
-            if (jsErrors.length > 10) jsErrors.shift();
-        });
+} else if (hasImageMode) {
+    // Legacy image-mode DOM detection
+} else {
+    // DOM scan recovery: attempt to recover patch states directly from the DOM
+    // (handles both current and legacy markup when avatar-config is missing/invalid)
+    var patchImgs = document.querySelectorAll('img.mouth-patch');
+    var recovered = 0;
+    for (var pi = 0; pi < patchImgs.length; pi++) {
+        var pImg = patchImgs[pi];
+        var pId = pImg.getAttribute('id') || '';
+        var pName = null;
+        if (pId.indexOf('mouth-state-') === 0) {
+            pName = pId.substring('mouth-state-'.length);
+        } else if (pId === 'mouth-half') {
+            pName = 'half';
+        } else if (pId === 'mouth-open') {
+            pName = 'open';
+        } else if (pId === 'eyes-blink') {
+            continue; // skip blink overlay
+        }
+        if (pName && !stateImgs[pName]) {
+            stateImgs[pName] = pImg;
+            stateNames.push(pName);
+            recovered++;
+        }
+    }
+    if (recovered > 0) {
+        hasPatchMode = true;
+        console.info('avatar-config missing/invalid, recovered ' + String(recovered) + ' patch states from DOM');
+        // Resolve RMS states: prefer ['half','open'] if both exist
+        if (stateImgs['half'] && stateImgs['open']) {
+            rmsStates = ['half', 'open'];
+        } else if (stateNames.length >= 2) {
+            rmsStates = [stateNames[0], stateNames[1]];
+        } else if (stateNames.length === 1) {
+            rmsStates = [stateNames[0], stateNames[0]];
+        }
+        // visemeMap stays null -> timeline branch won't activate, RMS fallback only (expected)
+    }
+    // Blink recovery: take over eyes-blink if present with default params
+    if (hasPatchMode && !blinkImg) {
+        var candidateBlink = document.getElementById('eyes-blink');
+        if (candidateBlink) {
+            blinkImg = candidateBlink;
+            blinkImg._blinkActive = true;
+            blinkConfig = {
+                file: null,
+                min_gap_ms: 2500,
+                max_gap_ms: 5500,
+                duration_ms: 130
+            };
+        }
+    }
+    // Attach error listeners for recovered states
+    if (hasPatchMode) {
+        if (avatarBase) {
+            avatarBase.addEventListener('error', function () {
+                avatarBase._hudError = true;
+                var msg = 'avatar.png load error';
+                jsErrors.push(msg);
+                if (jsErrors.length > 10) jsErrors.shift();
+            });
+        }
+        for (var ri = 0; ri < stateNames.length; ri++) {
+            var rname = stateNames[ri];
+            var rimg = stateImgs[rname];
+            if (rimg) {
+                rimg.addEventListener('error', (function (name, img) {
+                    return function () {
+                        img._hudError = true;
+                        var msg = name + ' load error';
+                        jsErrors.push(msg);
+                        if (jsErrors.length > 10) jsErrors.shift();
+                    };
+                })(rname, rimg));
+            }
+        }
+        if (blinkImg) {
+            blinkImg.addEventListener('error', function () {
+                blinkImg._hudError = true;
+                var msg = 'blink load error';
+                jsErrors.push(msg);
+                if (jsErrors.length > 10) jsErrors.shift();
+            });
+        }
     }
 }
 
@@ -400,6 +685,18 @@ function setCurrent(i) {
     cur = i;
 }
 
+function visemeKeyFromSrc(src) {
+    if (!src) return null;
+    var parts = String(src).split('/');
+    var last = parts[parts.length - 1] || '';
+    try {
+        last = decodeURIComponent(last);
+    } catch (e) {
+        // keep as-is
+    }
+    return last;
+}
+
 function playAt(i) {
     if (i < 0 || i >= items.length) return;
     var item = items[i];
@@ -426,6 +723,11 @@ function playAt(i) {
         });
         setCurrent(i);
         updateInfo(i);
+        // Update viseme timeline key
+        currentVisemeKey = visemeKeyFromSrc(item.src);
+        var vd = (visemeData && currentVisemeKey) ? visemeData[currentVisemeKey] : null;
+        hasTimeline = !!(vd && vd.cues && vd.cues.length > 0);
+        cueIdx = 0;
     }
 }
 
@@ -471,11 +773,17 @@ audio.addEventListener('pause', function () {
     document.getElementById('btn-toggle').innerHTML = '\u25B6';
     avatar.classList.remove('speaking');
     if (hasPatchMode) {
-        if (mouthHalf) mouthHalf.style.display = 'none';
-        if (mouthOpen) mouthOpen.style.display = 'none';
+        for (var pn = 0; pn < stateNames.length; pn++) {
+            var pimg = stateImgs[stateNames[pn]];
+            if (pimg) pimg.style.display = 'none';
+        }
+        if (blinkImg && !blinkImg._blinkVisible) blinkImg.style.display = 'none';
         if (avatarBase) avatarBase.style.transform = '';
-        if (mouthHalf) mouthHalf.style.transform = '';
-        if (mouthOpen) mouthOpen.style.transform = '';
+        for (var pn2 = 0; pn2 < stateNames.length; pn2++) {
+            var pimg2 = stateImgs[stateNames[pn2]];
+            if (pimg2) pimg2.style.transform = '';
+        }
+        if (blinkImg) blinkImg.style.transform = '';
         if (avatarImage) {
             avatarImage.classList.remove('patch-scale');
         }
@@ -497,8 +805,11 @@ audio.addEventListener('play', function () {
     avatar.classList.add('speaking');
     if (hasPatchMode) {
         if (avatarBase) avatarBase.style.transition = 'transform 0.08s ease';
-        if (mouthHalf) mouthHalf.style.transition = 'transform 0.08s ease';
-        if (mouthOpen) mouthOpen.style.transition = 'transform 0.08s ease';
+        for (var pn3 = 0; pn3 < stateNames.length; pn3++) {
+            var pimg3 = stateImgs[stateNames[pn3]];
+            if (pimg3) pimg3.style.transition = 'transform 0.08s ease';
+        }
+        if (blinkImg) blinkImg.style.transition = 'transform 0.08s ease';
     } else if (hasImageMode) {
         if (avatarImage) {
             avatarImage.classList.add('speaking-scale');
@@ -538,6 +849,28 @@ function blink() {
     setTimeout(blink, next);
 }
 setTimeout(blink, 3500);
+
+// ---------- patch-mode blink scheduler ----------
+function schedulePatchBlink() {
+    if (!blinkConfig || !blinkImg) return;
+    var gap = blinkConfig.min_gap_ms + Math.random() * (blinkConfig.max_gap_ms - blinkConfig.min_gap_ms);
+    setTimeout(function () {
+        if (blinkImg) {
+            blinkImg.style.display = 'block';
+            blinkImg._blinkVisible = true;
+        }
+        setTimeout(function () {
+            if (blinkImg) {
+                blinkImg.style.display = 'none';
+                blinkImg._blinkVisible = false;
+            }
+            schedulePatchBlink();
+        }, blinkConfig.duration_ms);
+    }, gap);
+}
+if (hasPatchMode && blinkImg) {
+    schedulePatchBlink();
+}
 
 // ---------- audio analyser ----------
 var AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -608,6 +941,12 @@ function imgStatus(img, prefix) {
 function patchBaseStatus() {
     return imgStatus(avatarBase, 'base');
 }
+function patchStateStatus(name) {
+    return imgStatus(stateImgs[name], name);
+}
+function patchBlinkStatus() {
+    return imgStatus(blinkImg, 'blink');
+}
 function patchHalfStatus() {
     return imgStatus(mouthHalf, 'half');
 }
@@ -622,6 +961,7 @@ function updateMouth() {
     var speaking = avatar.classList.contains('speaking');
     var now = Date.now();
     var hudFrame = '-';
+    var driveSource = '';
 
     if (srcMode === 'real') {
         if (!analyser) {
@@ -662,27 +1002,76 @@ function updateMouth() {
 
     if (hasPatchMode) {
         // Patch mode: apply frames and scale to all imgs via container
-        var patchFrame = mouthFrameFor(level, speaking, now, mouthState);
-        hudFrame = patchFrame;
-        if (mouthHalf) mouthHalf.style.display = (patchFrame === 'half') ? 'block' : 'none';
-        if (mouthOpen) mouthOpen.style.display = (patchFrame === 'open') ? 'block' : 'none';
+        var patchState = 'closed';
+        var useTimeline = false;
+        if (speaking && hasTimeline && visemeMap && currentVisemeKey && visemeData && visemeData[currentVisemeKey]) {
+            var vd = visemeData[currentVisemeKey];
+            var cues = vd.cues;
+            var t = audio.currentTime || 0;
+            if (t < cues[0][0] || (cueIdx > 0 && t < cues[cueIdx][1])) {
+                cueIdx = 0;
+            }
+            while (cueIdx < cues.length && t >= cues[cueIdx][1]) {
+                cueIdx++;
+            }
+            if (cueIdx < cues.length) {
+                var shape = cues[cueIdx][2];
+                var mapped = visemeMap[shape];
+                patchState = mapped || 'closed';
+                useTimeline = true;
+            } else {
+                patchState = 'closed';
+                useTimeline = true;
+            }
+        } else if (speaking) {
+            // Volume fallback
+            var rmsFrame = mouthFrameFor(level, speaking, now, mouthState);
+            if (rmsFrame === 'open') {
+                patchState = rmsStates[1] || 'closed';
+            } else if (rmsFrame === 'half') {
+                patchState = rmsStates[0] || 'closed';
+            } else {
+                patchState = 'closed';
+            }
+            useTimeline = false;
+        } else {
+            patchState = 'closed';
+            mouthState.current = 'closed';
+            mouthState.lastSwitchMs = now;
+        }
+        hudFrame = patchState;
+        driveSource = useTimeline ? 'TL' : 'RMS';
+        
+        for (var pn4 = 0; pn4 < stateNames.length; pn4++) {
+            var pimg4 = stateImgs[stateNames[pn4]];
+            if (pimg4) {
+                pimg4.style.display = (stateNames[pn4] === patchState) ? 'block' : 'none';
+            }
+        }
         // Subtle scale effect while speaking — apply to IMG elements to avoid
         // clobbering the bob animation's transform on the .avatar-inner container
         if (speaking) {
             var patchScale = 1 + Math.min(rms || level, 1) * 0.02;
             var patchScaleStr = 'scale(' + patchScale.toFixed(4) + ')';
             if (avatarBase) avatarBase.style.transform = patchScaleStr;
-            if (mouthHalf) mouthHalf.style.transform = patchScaleStr;
-            if (mouthOpen) mouthOpen.style.transform = patchScaleStr;
+            for (var pn5 = 0; pn5 < stateNames.length; pn5++) {
+                var pimg5 = stateImgs[stateNames[pn5]];
+                if (pimg5) pimg5.style.transform = patchScaleStr;
+            }
+            if (blinkImg && blinkImg._blinkVisible) blinkImg.style.transform = patchScaleStr;
         } else {
             if (avatarBase) avatarBase.style.transform = '';
-            if (mouthHalf) mouthHalf.style.transform = '';
-            if (mouthOpen) mouthOpen.style.transform = '';
+            for (var pn6 = 0; pn6 < stateNames.length; pn6++) {
+                var pimg6 = stateImgs[stateNames[pn6]];
+                if (pimg6) pimg6.style.transform = '';
+            }
+            if (blinkImg) blinkImg.style.transform = '';
         }
     } else if (hasImageMode) {
         // Image mode: frame swapping and scale effect
         var frame = mouthFrameFor(level, speaking, now, mouthState);
         hudFrame = frame;
+        driveSource = 'RMS';
         if (hasOpenFrame) {
             if (frame === 'open') {
                 if (frameClosed) frameClosed.style.display = 'none';
@@ -734,13 +1123,38 @@ function updateMouth() {
         var netState = audio ? audio.networkState : -1;
         var imgLine = 'IMG -';
         if (hasPatchMode) {
-            imgLine = 'IMG ' + patchBaseStatus() + ' ' + patchHalfStatus() + ' ' + patchOpenStatus();
+            var parts = [];
+            for (var psi = 0; psi < stateNames.length; psi++) {
+                var ps = stateNames[psi];
+                var pst = imgStatus(stateImgs[ps], ps);
+                var pv = pst.split('=')[1] || '';
+                parts.push(ps + '=' + pv);
+            }
+            var baseStatus = imgStatus(avatarBase, 'base');
+            var baseVal = baseStatus.split('=')[1] || '';
+            parts.unshift('base=' + baseVal);
+            if (blinkImg) {
+                var blinkStatus = patchBlinkStatus();
+                var blinkVal = blinkStatus.split('=')[1] || '';
+                parts.push('blink=' + blinkVal);
+            }
+            imgLine = 'IMG ' + parts.join(' ');
+        }
+        var visemesTotal = visemeData ? Object.keys(visemeData).length : 0;
+        var tlFlag = hasTimeline ? '1' : '0';
+        var modeLine = 'MODE ' + mode;
+        if (hasPatchMode) {
+            modeLine += ' TL=' + tlFlag + '/' + String(visemesTotal);
+        }
+        var frameLine = 'FRM ' + hudFrame;
+        if (hasPatchMode) {
+            frameLine += ' ' + driveSource;
         }
         var lines = [
             'BUILD ' + BUILD_TAG,
-            'MODE ' + mode,
+            modeLine,
             'SRC ' + srcStr + '  CTX ' + ctxState,
-            'SPK ' + spkStr + '  LV ' + levelStr + '  FRM ' + hudFrame,
+            'SPK ' + spkStr + '  LV ' + levelStr + '  ' + frameLine,
             'AUD paused=' + String(audioPaused) + ' ended=' + String(audioEnded) +
                 ' t=' + curTime.toFixed(1) + ' rs=' + String(readyState) + ' ns=' + String(netState),
             imgLine
@@ -832,18 +1246,31 @@ def image_avatar_block(has_open: bool, closed_v: str = "", open_v: str = "") -> 
     )
 
 
-def patch_avatar_block(closed_v, half_v, open_v) -> str:
-    """Generate the patch-avatar HTML block."""
-    return (
-        '        <div class="avatar" id="avatar">\n'
-        '            <div class="avatar-inner avatar-image" id="avatar-image" '
-        'role="img" aria-label="卡通语音形象">\n'
-        '                <img id="avatar-base" src="data/avatar/avatar.png' + closed_v + '" alt="">\n'
-        '                <img id="mouth-half" class="mouth-patch" src="data/avatar/mouth_half.png' + half_v + '" alt="" aria-hidden="true" style="display:none">\n'
-        '                <img id="mouth-open" class="mouth-patch" src="data/avatar/mouth_open.png' + open_v + '" alt="" aria-hidden="true" style="display:none">\n'
-        '            </div>\n'
-        '        </div>'
-    )
+def patch_avatar_block(states, version_tags, blink_file=None, blink_version="", base_version="") -> str:
+    """Generate the patch-avatar HTML block.
+    
+    states: dict of state_name -> filename
+    version_tags: dict of state_name -> version query string
+    blink_file: optional blink image filename
+    blink_version: version query for blink image
+    """
+    lines = []
+    lines.append('        <div class="avatar" id="avatar">')
+    lines.append('            <div class="avatar-inner avatar-image" id="avatar-image" ')
+    lines.append('role="img" aria-label="卡通语音形象">')
+    lines.append('                <img id="avatar-base" src="data/avatar/avatar.png' + base_version + '" alt="">')
+    for sname in states:
+        version = version_tags.get(sname, "")
+        lines.append('                <img id="mouth-state-' + sname + '" class="mouth-patch" '
+                     'src="data/avatar/' + states[sname] + version + '" alt="" aria-hidden="true" '
+                     'style="display:none">')
+    if blink_file:
+        lines.append('                <img id="eyes-blink" class="mouth-patch" '
+                     'src="data/avatar/' + blink_file + blink_version + '" alt="" aria-hidden="true" '
+                     'style="display:none">')
+    lines.append('            </div>')
+    lines.append('        </div>')
+    return '\n'.join(lines)
 
 
 def html_escape(s: str) -> str:
@@ -1170,12 +1597,13 @@ def copy_binary(src: Path, dst: Path):
             f_out.write(f_in.read())
 
 
-def reconcile_avatar_dir(archive_dir: Path, use_image_mode: bool, has_open_frame: bool, has_choice_json: bool, use_patch_mode: bool = False):
+def reconcile_avatar_dir(archive_dir: Path, use_image_mode: bool, has_open_frame: bool, has_choice_json: bool, use_patch_mode: bool = False, patch_extra_files=None):
     """Reconcile archive_out/data/avatar against the desired asset set.
     
     image mode active: desired = avatar.png (+ avatar_open.png if has_open_frame)
     (+ avatar_choice.json if has_choice_json). Delete anything else.
-    patch mode active: desired = avatar.png + mouth_half.png + mouth_open.png + mouth_patches.json.
+    patch mode active: desired = avatar.png + mouth_half.png + mouth_open.png + mouth_patches.json
+    + any extra patch files (blink etc).
     image mode inactive: delete the whole dir if it exists.
     """
     avatar_dir = archive_dir / "data" / "avatar"
@@ -1195,6 +1623,11 @@ def reconcile_avatar_dir(archive_dir: Path, use_image_mode: bool, has_open_frame
     avatar_dir.mkdir(parents=True, exist_ok=True)
     if use_patch_mode:
         desired = {"avatar.png", "mouth_half.png", "mouth_open.png", "mouth_patches.json"}
+        if patch_extra_files:
+            for f in patch_extra_files:
+                desired.add(f)
+        # visemes.json is not managed by reconcile - whitelist it
+        desired.add("visemes.json")
     else:
         desired = {"avatar.png"}
         if has_open_frame:
@@ -1207,14 +1640,38 @@ def reconcile_avatar_dir(archive_dir: Path, use_image_mode: bool, has_open_frame
             f.unlink()
 
 
-def generate_html(playlist: list, footer: str, avatar_block: str) -> str:
+def generate_html(playlist: list, footer: str, avatar_block: str, viseme_script: str = "") -> str:
     playlist_json = json.dumps(playlist, ensure_ascii=False)
     playlist_json = playlist_json.replace("</", "<\\/")
     html = HTML_TEMPLATE.replace("__PLAYLIST__", playlist_json)
     html = html.replace("__FOOTER__", html_escape(footer))
     html = html.replace("__AVATAR_BLOCK__", avatar_block)
+    html = html.replace("__VISEME_SCRIPT__", viseme_script)
     html = html.replace("__BUILD_TAG__", BUILD_TAG)
     return html
+
+
+def load_visemes(archive_dir: Path) -> str:
+    """Load visemes.json from archive_out/data/avatar and return script block."""
+    visemes_path = archive_dir / "data" / "avatar" / "visemes.json"
+    if not visemes_path.exists():
+        return ""
+    try:
+        with open(visemes_path, "r", encoding="utf-8") as f:
+            visemes = json.load(f)
+        if not isinstance(visemes, dict):
+            print("[WARN] visemes.json root not object, ignoring")
+            return ""
+        visemes_json = json.dumps(visemes, ensure_ascii=False, separators=(',', ':'))
+        visemes_json = visemes_json.replace("</", "<\\/")
+        return (
+            '<script type="application/json" id="viseme-data">\n'
+            + visemes_json +
+            '\n</script>\n'
+        )
+    except (json.JSONDecodeError, OSError) as e:
+        print("[WARN] Failed to load visemes.json: {}".format(e))
+        return ""
 
 
 def main():
@@ -1285,13 +1742,24 @@ def main():
             states = patch_config.get("states")
             if not isinstance(states, dict):
                 raise ValueError("states not object")
+            if len(states) == 0:
+                raise ValueError("states empty")
             if (isinstance(rect, list) and len(rect) == 4 and
-                isinstance(img_size, list) and len(img_size) == 2 and
-                isinstance(states.get("half"), str) and isinstance(states.get("open"), str)):
-                half_png = persona_dir / states["half"]
-                open_png = persona_dir / states["open"]
-                if avatar_png.exists() and half_png.exists() and open_png.exists():
+                isinstance(img_size, list) and len(img_size) == 2):
+                # Validate all state files exist
+                all_ok = True
+                for sname, fname in states.items():
+                    if not isinstance(fname, str):
+                        all_ok = False
+                        break
+                    fpath = persona_dir / fname
+                    if not fpath.exists():
+                        all_ok = False
+                        break
+                if all_ok and avatar_png.exists():
                     use_patch_mode = True
+                else:
+                    print("[WARN] mouth_patches states validation failed")
         except (json.JSONDecodeError, ValueError, TypeError):
             pass
     if not use_patch_mode and mouth_patches_json.exists():
@@ -1303,21 +1771,86 @@ def main():
         use_image_mode = True
         has_open_frame = avatar_open_png.exists()
 
+    viseme_script = load_visemes(archive_dir)
+
     if use_patch_mode:
+        # Resolve viseme map and rms states
+        states = patch_config["states"]
+        
+        # Resolve viseme map
+        viseme_map_raw = patch_config.get("viseme_map")
+        viseme_map, warn_count = resolve_viseme_map(viseme_map_raw, states)
+        if warn_count > 0:
+            print("[WARN] {} viseme states required fallback resolution".format(warn_count))
+        
+        # Resolve rms states
+        rms_states_raw = patch_config.get("rms_states")
+        rms_states = resolve_rms_states(rms_states_raw, states)
+        
+        # Resolve blink config
+        blink_config = None
+        blink_file = None
+        blink_raw = patch_config.get("blink")
+        if isinstance(blink_raw, dict) and isinstance(blink_raw.get("file"), str):
+            blink_path = persona_dir / blink_raw["file"]
+            if blink_path.exists():
+                blink_config = {
+                    "file": blink_raw["file"],
+                    "min_gap_ms": int(blink_raw.get("min_gap_ms", 2500)),
+                    "max_gap_ms": int(blink_raw.get("max_gap_ms", 5500)),
+                    "duration_ms": int(blink_raw.get("duration_ms", 130)),
+                }
+                blink_file = blink_raw["file"]
+            else:
+                print("[WARN] blink file '{}' not found in persona dir, ignoring blink".format(blink_raw["file"]))
+        
+        # Build avatar config JSON
+        config_payload = {
+            "states": dict(states),
+            "visemeMap": viseme_map,
+            "rmsStates": rms_states,
+            "blink": blink_config,
+        }
+        config_json = json.dumps(config_payload, ensure_ascii=False, separators=(',', ':'))
+        
         # Copy patch-mode assets into bundle
         avatar_dst_dir = archive_dir / "data" / "avatar"
         avatar_dst_dir.mkdir(parents=True, exist_ok=True)
         copy_binary(avatar_png, avatar_dst_dir / "avatar.png")
-        states = patch_config["states"]
-        half_png = persona_dir / states["half"]
-        open_png = persona_dir / states["open"]
-        copy_binary(half_png, avatar_dst_dir / "mouth_half.png")
-        copy_binary(open_png, avatar_dst_dir / "mouth_open.png")
+        
+        # Copy state files (use original filenames)
+        state_files = {}
+        version_tags = {}
+        for sname, fname in states.items():
+            fpath = persona_dir / fname
+            copy_binary(fpath, avatar_dst_dir / fname)
+            state_files[sname] = fname
+            version_tags[sname] = "?v=" + _file_version_tag(avatar_dst_dir / fname)
+        
+        # Copy blink file if present
+        blink_version = ""
+        if blink_file:
+            blink_path = persona_dir / blink_file
+            copy_binary(blink_path, avatar_dst_dir / blink_file)
+            blink_version = "?v=" + _file_version_tag(avatar_dst_dir / blink_file)
+        
         copy_binary(mouth_patches_json, avatar_dst_dir / "mouth_patches.json")
-        closed_v = "?v=" + _file_version_tag(avatar_dst_dir / "avatar.png")
-        half_v = "?v=" + _file_version_tag(avatar_dst_dir / "mouth_half.png")
-        open_v = "?v=" + _file_version_tag(avatar_dst_dir / "mouth_open.png")
-        avatar_block = patch_avatar_block(closed_v, half_v, open_v)
+        
+        # Build avatar block with all state imgs + blink
+        base_v = "?v=" + _file_version_tag(avatar_dst_dir / "avatar.png")
+        avatar_block = patch_avatar_block(state_files, version_tags, blink_file, blink_version, base_v)
+        
+        # Build avatar-config script block
+        avatar_config_script = (
+            '<script type="application/json" id="avatar-config">\n'
+            + config_json +
+            '\n</script>\n'
+        )
+        # Insert avatar-config after playlist-data script
+        # Since HTML_TEMPLATE has __VISEME_SCRIPT__ placeholder before main script,
+        # we combine avatar-config + viseme-data there
+        viseme_script = avatar_config_script + viseme_script
+        
         avatar_mode_label = "patch3"
     elif use_image_mode:
         # Copy assets into bundle
@@ -1340,15 +1873,24 @@ def main():
         avatar_mode_label = "svg"
 
     # Reconcile stale assets in archive_out/data/avatar
+    patch_extra = []
+    if use_patch_mode:
+        patch_extra.append("visemes.json")  # whitelist
+        if blink_file:
+            patch_extra.append(blink_file)
+        for sname, fname in state_files.items():
+            patch_extra.append(fname)
+    
     reconcile_avatar_dir(
         archive_dir,
         use_image_mode,
         has_open_frame,
         avatar_choice_json.exists(),
         use_patch_mode,
+        patch_extra,
     )
 
-    html = generate_html(playlist, FOOTER_NOTE, avatar_block)
+    html = generate_html(playlist, FOOTER_NOTE, avatar_block, viseme_script)
     html_path = archive_dir / "avatar.html"
     write_atomic(html_path, html)
 
