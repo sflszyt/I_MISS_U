@@ -56,7 +56,7 @@
 - ✅ 3d 闸门页+apply 双工具闭环入库（2026-08-12，Codex 三轮 REJECT→REJECT→**ACCEPT 零发现**）：tools/make_gate_page.py（150 卡 192KB 自包含移动页，敏感可见文本预标记 6 条默认剔除，localStorage 草稿，回贴码 delta 契约）+ tools/apply_gate_decisions.py（多文件 later-wins 合并、```json 围栏容忍、action confirm/reject/pending 三态、敏感复检 confirmed_flagged、幂等重生成 memories.md Tier-1）。**审核升级：Codex 与 Claude 双方均用 Node stub-DOM 实际执行页面 JS 验证契约七场景矩阵**（工具 harness 存 scratchpad/gate_harness.js，抓到 v2 的"未动卡片全量导出"High 实锤）→ **gate_page.html 已发用户手机，等回贴码** → apply 后产 memories/memories.md（Tier-1）
 - 完成标准：persona/ 与 memories/ 目录齐备，Tier 标注完整，闸门页可用（✅ 工具链全备；剩余为用户动作：persona Q1-Q13 确认 + 闸门页回贴码 → apply 出 memories.md）
 
-### Phase 4：卡通人（消费端）— status: 4e-集成 complete（2026-08-12），剩 4c（等盲听）/4d
+### Phase 4：卡通人（消费端）— status: complete（口型架构后续被 Phase 7 全面取代，见下）
 - ✅ **4e-集成完成（2026-08-12，DeepSeek×2 + Codex REJECT→ACCEPT 零发现 + 两处声明 hotfix）**：build_avatar_page.py 图片头像模式——`persona/avatar.png`（静息帧=定稿笑容）+ `persona/avatar_open.png`（说话帧，Qwen-Image-Edit seed1002 生成，1001 背景跑偏/1003 眼翻白已淘汰，溯源入 avatar_choice.json open_frame 块）按音量双帧切换（纯函数 mouthFrameFor：0.04 阈值经 Codex 用 125 条真实语音 RMS 分布验证 + 90ms 帧保持 + 假驱动交替）+ bob 弹动；资产 reconcile 进 archive_out/data/avatar/（陈旧自动清理）；无头像人物回退 SVG（person-generic 保持）；预览页 Pillow 降采样内嵌 0.26MB
   - 审核实录：Codex R1 REJECT 抓 #avatar 契约破坏（图片模式 TypeError，我方 harness stub 过宽漏过）+ 陈旧资产不清理；R2 双方各自用"忠实 stub"（缺失 id 返回 null + rAF/play/pause 派发）执行双页全脚本干净 → ACCEPT。hotfix×2（声明）：JS 常量未定义补两行、Python 层死常量三行删除
   - 验证方式：LAN http://192.168.3.69:8020/avatar.html（8020 服务在跑）；两帧图已发用户手机（用户可否决说话帧，重抽即换）
@@ -95,9 +95,18 @@
 - 记音字发现（子代理）：校对转写含大量同音记音字（雪小辈=血小板/带生=戴森/亦添人名多变体）——档案转写层潜在改进项，动校对稿需用户闸门，未立项
 - 现场事实（2026-08-18 探查）：GPT-SoVITS 不在盘；wu-sft/v02_full/data 八件套在位；processed/wechat_voice 125 WAV 在位；GPU 5.9/24GB 空闲
 
+### Phase 7：数字人渲染升级（任务 #17，2026-08-23 用户立项）— status: **Phase 0+1 complete（2026-08-27 收官）**
+> 背景：Phase 4 双帧口型用户两报"疯狂闪烁"，三根因修复仍闪 → 架构判死（两张独立 AI 整图互换必然全图抖动）。研究收口 `docs/research/digital-human-rendering.md`：主线=viseme 嘴部贴片+预计算时间轴
+- ✅ **Phase 0 三态贴片（08-25）**：恒定底图（s3002 闭嘴）+ 全尺寸 RGBA 透明嘴贴片（half/open，用户定稿 A 温和版）；build_avatar_page.py patch 模式（三层回退 patch>image>SVG）。**上线次日用户报"没变化"→ 真根因=`style.display=''` 被 CSS 类规则回落吃掉，贴片从未渲染**（此前验证采 inline 遥测=假阳性）→ 修复=显示全显式 'block'+scale 改打 img；诊断 HUD 常驻（?debug=1）；**像素级验收铁律固化**（computed style+截图 diff，memory: verify-rendered-pixels）
+- ✅ **Phase 1 viseme 时间轴（08-26/27，用户定稿"先按照这些定稿"）**：Rhubarb 1.14.0 phonetic 批跑 125 条=18516 cues → `tools/build_visemes.py`（增量）；运行时数据驱动 N 态（mouth_patches.json v2：viseme_map/rms_states/blink + fallback resolve），时间轴驱动优先/RMS 回退（BYOK 动态分支）；资产定稿 W1 大张/R1 圆唇/嘟唇并入/B1 眨眼（双镜片内区替换镜框恒底图）；眨眼调度器+ambient 微摆=整脸微活。审核链：DeepSeek×4 轮 + Codex REJECT（3 实锤）→ ACCEPT + 声明 hotfix×5。验收：六通道 8s 采样全动（TL 178/178）+ 慢放/克隆节点像素实拍
+- ⬜ **可选增强（待用户点头）**：talking-head 预渲染 MP4"特别版"（3-5 条珍贵语音，InfiniteTalk/EchoMimicV3/LivePortrait+JoyVASA 候选，逐帧人工验收）
+
 ## 决策记录
 - 2026-08-09 用户拍板 MVP 范围（本文件顶部指令）
 - 语音层不等校对：31 条先行 + 45 条满血两步走（校对是用户异步动作）
+- 2026-08-21 用户裁决：家人盲听 v2 移除，M1 以本人盲听关闭
+- 2026-08-23 用户判死双帧口型架构（"这个技术有问题"）→ 立项 #17 渲染研究
+- 2026-08-27 用户定稿 Phase 1 贴片（"先按照这些定稿"：W1/R1/嘟唇并入/B1）
 
 ## Errors Encountered
 | Error | Attempt | Resolution |

@@ -1,7 +1,26 @@
 # 交接文档（HANDOFF）
 
-> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-08-21，Phase 6 转写策略终局定案（臂C/零样本粤语/refA）**。
+> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-08-27，纸片人 Phase 1 收官（viseme 时间轴 + 四态嘴 + 眨眼 + 微摆整脸微活）**。
 > 读这份之前先读 `CLAUDE.md`（铁律），再读仓库根的 `task_plan.md` / `progress.md` / `findings.md`（MVP 计划与实时状态）。研究依据在 `docs/research/`。
+
+## ⓪⁷ 增补（2026-08-22→08-27：纸片人从"疯狂闪烁"到整脸微活全弧线，最先看这段）
+
+1. **双帧架构判死 → 贴片主线定案（08-23 任务 #17）**：用户对双帧口型两报"疯狂闪烁"，三根因修复（看门狗/帧素材/缓存）后仍闪 → 架构性死因=两张独立 AI 整图互换必然全图抖动。渲染研究收口 `docs/research/digital-human-rendering.md`（4f4849d）：**主线=viseme 嘴部贴片+预计算时间轴**（五约束唯一全绿）；talking-head 预渲染 MP4 降为"特别版"增强+第一备选；Live2D 闭源 core 违 20 年红线不投入
+2. **Phase 0 三态贴片（08-25）+ 假阳性事故与根治**：恒定底图+全尺寸 RGBA 透明嘴贴片（用户定稿 A 温和版）上线后用户报"按播放后没变化"——**真根因：`style.display=''` 被 CSS 类规则回落吃掉，贴片从未渲染过一个像素；我方此前"三态验证"采的是 inline style 遥测=假阳性**（workflow 三视角审计代码级实锤）。修复=显示分支全显式 `display='block'`+scale 改打 img（容器 transform 被 bob 动画覆盖）；**新铁律入 memory（verify-rendered-pixels）：视觉验收必须 computed style+截图 diff**。诊断 HUD 常驻（`avatar.html?debug=1`：BUILD/MODE/SRC/SPK/LV/FRM/AUD/IMG/ERR，HUD 缺席=旧缓存判据）
+3. **Phase 1 收官（08-26/27，用户定稿"先按照这些定稿"）**：
+   - **时间轴管线**：Rhubarb 1.14.0（`~/tools/Rhubarb-Lip-Sync-1.14.0-Windows`）`-r phonetic` 批跑 125 条上海话全过（18516 cues）→ `tools/build_visemes.py`（增量模式；坑：`--machineReadable`+stdout 拿不到 JSON 必须 `-o` 文件；hotfix=mkstemp fd 双重 close 竞态 + 失败条目退缓存）→ `archive_out/data/avatar/visemes.json`（326KB，构建时内联进页面）
+   - **运行时**：build_avatar_page.py patch 模式数据驱动 N 态——mouth_patches.json v2（states/viseme_map/rms_states/blink，Python 端 fallback resolve：wide→open/round→half/pucker→round）；驱动优先级=时间轴（currentTime 查 cue）>RMS 回退（BYOK 动态 TTS 分支）>closed；眨眼调度器待机也眨；`.avatar` ambient 常驻微摆。审核链：DeepSeek×2 + Codex REJECT（增量吞失败/config 损坏回退死路→DOM 扫描恢复/空 states 建运矛盾）→ ACCEPT + 声明 hotfix×4（含 DeepSeek 丢 avatar-base img 的 BLOCKER）
+   - **资产定稿**：W1=wide2_s4211（温和大张）/ R1=round_s4203（圆唇）/ 嘟唇并入圆唇 / B1=blink_s4201（眨眼=双镜片内区替换，镜框恒用底图像素）；烘焙全尺寸 RGBA（RGB 取 raw 非 comp——叠加数学要求，自验 diff=0）。工艺：嘴型 prompt 首轮必夸张需温和化迭代；round 二轮精修反而更厚（模型爱给她涂厚唇），回用首轮
+   - **像素级验收**：8 秒采样六通道全动（closed/half/open/wide/round+眨眼，TL 驱动 178/178）；慢放 0.25× 抓 wide 实拍、克隆节点抓眨眼实拍（**截图验收防 rAF/调度器覆写竞态**——两次假阴性被识别绕过）
+4. **微信 UI 自动化研究（任务 #16，08-22 立项完成研究）**：`docs/research/wechat-ui-automation.md`（2f37ed4）——可行但有闸门；微信 4.x Qt Quick 自绘 UI"按需暴露无障碍树"；wxauto 家族对 4.1.x 已死；**下一步=30 分钟 go/no-go 探针（uiautomation attach + inspect.exe，需用户备一次性小号）**；回退=DB 轮询读 + UIA/剪贴板发
+5. **环境现场（08-27 收尾时）**：api_v2 :9880 已恢复常驻（**真实路径=`~/gpt-sovits/GPT-SoVITS-v2pro-20250604/runtime/python.exe` + workdir/tts_infer_v2pro.yaml**，勿再用 `~/gpt-sovits/runtime` 旧记法）；8020 档案站常驻（archive_out）；ComfyUI 已停；archive_dist 已同步（166 文件 checks=ok）；Rhubarb 在 ~/tools。机器重启后 8020/9880/Tailscale 均需手动拉起
+6. **审核物料红线（08-25 固化）**：SendUserFile 在部分会话被禁用且曾报成功未送达——**音频/图片/GIF 审核物料一律走 8020 站点页面**（先例：mouth_preview.html / phase1_preview.html / gsv_review.html）
+
+### 下回合建议顺序（08-27 刷新，覆盖下方各旧版）
+
+1. **talking-head 特别版试片**（用户已知情待点头）：挑 3-5 条珍贵语音渲整脸表情 MP4（候选 InfiniteTalk 1.5 / EchoMimicV3 / FantasyTalking / Sonic / LivePortrait+JoyVASA），逐帧人工验收，合格以 `<video>` 并存入档
+2. 微信 UI 自动化 go/no-go 探针（需用户备小号）或 TG bot 通道网关（messaging-channels P1）——按用户意愿
+3. 零散：601 敏感疑似复核 / relative_to 小修 / 记音字还原（待用户表态）/ VoxCPM2 A/B / archive_dist 真机验收+分发备份 / DeepSeek key 轮换（用户）
 
 > **📘 技术管道全景已成文：`docs/PIPELINE.md`**（2026-08-17）——七 Stage 全配方 + 七闸门清单 + 工程铁律 + **skill 化蓝图与泛化缺口清单**。用户确认初心 = 整套管道产品化为 Claude Code skill（形态 C 构建端），推进顺序见该文档 12.4。配套：`docs/GENERALIZATION.md`（五轴泛化 + 两纪元 sessions 架构）、`docs/research/messaging-channels.md`（TG/WA/微信通道研究）。
 

@@ -46,7 +46,7 @@ Stage 1 素材获取          Stage 2 数据层             Stage 3 语音层
                         ┌───────────────┐  │      ┌──────────────────┐
                         │ rhythm/digest  │←─┤      │ 照片→卡通候选      │
                         │ persona 草稿    │  │      │ → 用户终选 🚪      │
-                        │ → Q1-13 确认🚪 │  │      │ → 双帧说话动画     │
+                        │ → Q1-13 确认🚪 │  │      │ → viseme贴片动画   │
                         │ 记忆候选→闸门🚪 │  │      └──────────────────┘
                         │ → Tier-1 记忆册 │  │
                         │ timeline/转写   │  │
@@ -194,8 +194,10 @@ python tools\collect_wechat_video.py --person mama --db-dir ~\ck-decrypted --vid
 
 1. **生成**：ComfyUI（`--disable-auto-launch`，127.0.0.1:8188）+ Qwen-Image-Edit-2509（官方模板从便携包 site-packages 解出，20 步/cfg 4/shift 3）。`tools/gen_avatar_candidates.py`（照片×风格×seed 矩阵，~70s/张，manifest 溯源）→ `tools/make_contact_sheet.py` 拼图直发用户
 2. **终选** 🚪：用户挑风格（warm 暖手绘）→ 挑单张（04 s1001）→ 固化 `persona/avatar.png` + `avatar_choice.json`（源照/seed/prompt 溯源）
-3. **说话帧**：同底图 Qwen 改口型（seed 实测挑一致性最好的），`avatar_open.png`；用户可否决重抽 🚪
-4. **页面**：`tools/build_avatar_page.py` → `avatar.html`——音量驱动双帧口型（AnalyserNode，`mouthFrameFor` 纯函数 0.04 阈值/90ms 帧保持，阈值经 125 条真实语音 RMS 分布验证）+ bob 弹动 + 125 条原声播放列表；无头像人物回退 SVG（person-generic）。显存管理：ComfyUI 吃紧时 `POST /free`
+3. **嘴型/眨眼贴片（2026-08-25/27 重写，取代旧双帧）**：恒定底图为公理——同底图 Qwen 掩码区改口型（嘴部矩形 480,460,700,640 羽化 14；眨眼=双镜片内区，镜框恒用底图像素），程序化合成后烘全尺寸 RGBA 透明叠层（**RGB 取 raw 变体非 comp**——叠加数学 base×(1-α)+raw×α）入 `persona/mouth_*.png / eyes_closed.png`；配置 `persona/mouth_patches.json` v2（states/viseme_map/rms_states/blink+provenance）。候选连播 GIF 审核页用户定稿 🚪。工艺：嘴型 prompt 首轮必夸张，需"温和克制"迭代
+4. **口型时间轴**：`tools/build_visemes.py`——Rhubarb Lip Sync `-r phonetic`（语言无关，上海话可用）批跑语音 → `archive_out/data/avatar/visemes.json`（增量模式；新增语音=一条命令）。坑：rhubarb 须 `-o` 文件输出（--machineReadable+stdout 拿不到 JSON）
+5. **页面**：`tools/build_avatar_page.py` → `avatar.html`——数据驱动 N 态贴片：**时间轴驱动优先**（audio.currentTime 查 cue，音素级口型）→ 无时间轴回退 RMS 音量驱动（BYOK 动态 TTS 分支）；眨眼调度器（待机也眨）+ ambient 头部微摆；三层模式回退 patch>image>SVG（person-generic）；诊断 HUD（`?debug=1`）。**验收铁律：computed style + 截图像素 diff，inline 遥测不算数**（display 一律显式 'block'，血案见 progress 08-25）。显存管理：ComfyUI 吃紧时 `POST /free`
+6. **可选增强（未启动）**：talking-head 预渲染 MP4"特别版"（研究依据 `docs/research/digital-human-rendering.md`）
 
 ---
 
