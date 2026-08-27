@@ -291,3 +291,10 @@
 - **像素级验收**：8 秒采样六通道全动（closed11/half95/open31/wide25/round16 + 眨眼3 + TL 驱动 178/178）；慢放 0.25× 抓 wide 实拍（温和张嘴露上齿）；克隆节点抓眨眼实拍（镜片后双眼轻阖）——中途两次"强制显示被 rAF/调度器覆写"的截图竞态被识别并绕过
 - archive_dist 同步（166 文件 checks=ok）；ComfyUI 停、api_v2 重启归位（真实路径=gpt-sovits/GPT-SoVITS-v2pro-20250604/runtime）
 - 提交：48fc2d8（代码层）；**Phase 1 完成**。下一步：talking-head 特别版试片（整脸表情 MP4）
+
+## Session 2026-08-27（任务 #18 立项：桌面陪伴型数字人可行性研究）
+- 用户立项：研究桌面陪伴数字人（打字/语音输入 → 语音/文本输出）是否可行
+- task_plan.md 注册 Phase 8；研究 workflow 启动（六维度多代理）→ 目标产物 docs/research/desktop-companion.md
+- workflow wf_c886ce8b-4b8 收官：14 代理（6 研究 + 8 校核）全成功，~89 万 tokens/285 工具调用/20 分钟；校核 6 confirmed 2 refuted（上海话 ASR Dolphin 翻案 / 本地 LLM 显存-幻觉推理链否决）
+- 报告成文 docs/research/desktop-companion.md：技术拼装级可行；伦理三档判定——常驻不应做、上限=打开才在的对话窗（条件 a-f）、不做是合理默认
+- findings.md 增补六条关键发现；task_plan Phase 8 → research complete 等用户裁决

@@ -101,6 +101,13 @@
 - ✅ **Phase 1 viseme 时间轴（08-26/27，用户定稿"先按照这些定稿"）**：Rhubarb 1.14.0 phonetic 批跑 125 条=18516 cues → `tools/build_visemes.py`（增量）；运行时数据驱动 N 态（mouth_patches.json v2：viseme_map/rms_states/blink + fallback resolve），时间轴驱动优先/RMS 回退（BYOK 动态分支）；资产定稿 W1 大张/R1 圆唇/嘟唇并入/B1 眨眼（双镜片内区替换镜框恒底图）；眨眼调度器+ambient 微摆=整脸微活。审核链：DeepSeek×4 轮 + Codex REJECT（3 实锤）→ ACCEPT + 声明 hotfix×5。验收：六通道 8s 采样全动（TL 178/178）+ 慢放/克隆节点像素实拍
 - ⬜ **可选增强（待用户点头）**：talking-head 预渲染 MP4"特别版"（3-5 条珍贵语音，InfiniteTalk/EchoMimicV3/LivePortrait+JoyVASA 候选，逐帧人工验收）
 
+### Phase 8：桌面陪伴型数字人可行性研究（任务 #18，2026-08-27 用户立项）— status: **research complete，等用户裁决 go/no-go**
+> 用户指令："研究是否可以构建桌面陪伴型数字人，用户利用打字或语音与他/她进行交互，她返回语音或文本"
+- ✅ 研究执行（workflow wf_c886ce8b-4b8：6 维并行 + 8 条载重论断对抗校核，6 confirmed/2 refuted，含 4 组本机实测探针——CosyVoice 流式首包 2.2-4.4s / GSV 流式 ~1.07s / SenseVoice 0.1-0.4s / Rhubarb 每句 +1.1s）
+- ✅ 报告成文 `docs/research/desktop-companion.md`：**技术=拼装级可行**（三积木全在库，缺口只是合流页+壳+语音输入；avatar RMS 分支与 chat TTS 语音条"各持一半"，blob 接 analyser 即通）；壳选型两轨（轨0 Edge --app 零代码 / 轨1 Tauri v2）；对话层 BYOK DeepSeek 主线（thinking:disabled 一行修正）；**伦理三档判定：常驻桌宠不应做 / 上限形态="打开才在的档案对话窗口"（条件 a-f：只应答/关窗道别/Tier 标签不减配/真实节律限速/使用统计自见+三月自查/预写告别协议）/ "维持现状不做"是合理默认**
+- 校核两翻案入 findings：上海话本地 ASR 存在（Dolphin zh-SHANGHAI，待实测）；"本地 LLM 只能 8-14B"推理链不成立
+- ⬜ **用户裁决**：go/no-go 三档（不做/上限形态/以后再说）+ 若 go 是否接受 a-f 全部条件 + Dolphin 探针是否立项
+
 ## 决策记录
 - 2026-08-09 用户拍板 MVP 范围（本文件顶部指令）
 - 语音层不等校对：31 条先行 + 45 条满血两步走（校对是用户异步动作）
