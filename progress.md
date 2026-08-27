@@ -281,3 +281,13 @@
 - **像素级验收（新铁律首执）**：getComputedStyle open 帧 block 37/65 采样；暂停基线 vs 播放中截图 diff 10.9/px、肉眼实锤真张嘴（露齿）且脸/眼镜/发不变；暂停回闭嘴路径干净；archive_dist 同步（162 文件 checks=ok）
 - **教训入 memory（verify-rendered-pixels.md）**：视觉/动画验收必须 computed style+截图 diff，inline/内部状态遥测不算验证；显示一律显式 'block'；transform 效果须打在无 animation 的子元素
 - 待用户：手机重开 avatar.html 复核（?debug=1 可看 BUILD≥20260825-194708 自证新版）
+
+## Session 2026-08-26/27（Phase 1 全落地：viseme 时间轴 + 六通道整脸微活）
+- 用户拍板"只有嘴型动感觉不够，安排 Phase 1，能否渲染整张脸"→ 答复分两档：本 Phase=眨眼+头部微动+音素口型（静态约束内），整脸表情走特别版预渲染 MP4（主线稳后试片）
+- **1a Rhubarb 管线**：v1.14.0 下载入位 ~/tools；批跑 125 条上海话全过（18516 cues；坑：--machineReadable+stdout 拿不到 JSON，必须 -o 文件）；生产工具 tools/build_visemes.py 入库（DeepSeek 写；hotfix=mkstemp fd 双重 close 竞态实测 Bad file descriptor 群发 + Codex 抓增量吞失败→失败条目退缓存）
+- **1b 贴片扩容**：ComfyUI 复用 Phase 0 管线出 wide/round/pucker/blink×3 种子；首轮嘴型普遍夸张（大张=喊叫、圆唇=香肠嘴）→ wide 温和化精修命中（s4211/s4213）、round 精修反而更厚弃用回首轮 s4203；眨眼一次命中（双镜片内区替换、镜框恒用底图像素，三种子全可用）；连播 GIF 审核页 phase1_preview.html（11 GIF）→ **用户 08-27"先按照这些定稿"→ W1(wide2_s4211)/R1(round_s4203)/嘟唇并入圆唇/B1(blink_s4201)**
+- **1c 运行时**：build_avatar_page.py 数据驱动 N 态（mouth_patches.json v2: states/viseme_map/rms_states/blink + Python 端 fallback resolve）；时间轴驱动优先（currentTime 查 cue）、RMS 回退（BYOK 动态分支保留）；眨眼调度器待机也眨；.avatar ambient 常驻微摆；HUD 扩展 TL 源。审核链：DeepSeek×2 + Codex REJECT（3 实锤：增量吞失败/config 损坏回退死路→DOM 扫描恢复/空 states 建运矛盾）→全修→**ACCEPT**+声明 hotfix×4（含 DeepSeek 丢 avatar-base img 的 BLOCKER）
+- **定稿装配**：烘焙全尺寸 RGBA 叠层（wide 60K/round 60K/eyes_closed 75K；RGB 取 raw 非 comp 的叠加数学自验 diff=0）；mouth_patches.json v2 写入 provenance；重建 376KB（时间轴内联）
+- **像素级验收**：8 秒采样六通道全动（closed11/half95/open31/wide25/round16 + 眨眼3 + TL 驱动 178/178）；慢放 0.25× 抓 wide 实拍（温和张嘴露上齿）；克隆节点抓眨眼实拍（镜片后双眼轻阖）——中途两次"强制显示被 rAF/调度器覆写"的截图竞态被识别并绕过
+- archive_dist 同步（166 文件 checks=ok）；ComfyUI 停、api_v2 重启归位（真实路径=gpt-sovits/GPT-SoVITS-v2pro-20250604/runtime）
+- 提交：48fc2d8（代码层）；**Phase 1 完成**。下一步：talking-head 特别版试片（整脸表情 MP4）
