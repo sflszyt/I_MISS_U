@@ -106,7 +106,15 @@
 - ✅ 研究执行（workflow wf_c886ce8b-4b8：6 维并行 + 8 条载重论断对抗校核，6 confirmed/2 refuted，含 4 组本机实测探针——CosyVoice 流式首包 2.2-4.4s / GSV 流式 ~1.07s / SenseVoice 0.1-0.4s / Rhubarb 每句 +1.1s）
 - ✅ 报告成文 `docs/research/desktop-companion.md`：**技术=拼装级可行**（三积木全在库，缺口只是合流页+壳+语音输入；avatar RMS 分支与 chat TTS 语音条"各持一半"，blob 接 analyser 即通）；壳选型两轨（轨0 Edge --app 零代码 / 轨1 Tauri v2）；对话层 BYOK DeepSeek 主线（thinking:disabled 一行修正）；**伦理三档判定：常驻桌宠不应做 / 上限形态="打开才在的档案对话窗口"（条件 a-f：只应答/关窗道别/Tier 标签不减配/真实节律限速/使用统计自见+三月自查/预写告别协议）/ "维持现状不做"是合理默认**
 - 校核两翻案入 findings：上海话本地 ASR 存在（Dolphin zh-SHANGHAI，待实测）；"本地 LLM 只能 8-14B"推理链不成立
-- ⬜ **用户裁决**：go/no-go 三档（不做/上限形态/以后再说）+ 若 go 是否接受 a-f 全部条件 + Dolphin 探针是否立项
+- ✅ **用户裁决（2026-08-28）："继续推进桌面陪伴"** → 按报告第七节 Phase A 开工，上限形态（打开才在的对话窗），条件 a-f 全部为硬规格；常驻/托盘/自启/主动搭话永久排除
+- **架构决策（2026-08-28）：iframe 组合，非大合并页**。companion.html `<iframe>` 内嵌现有 avatar.html（face-only），父页放对话 UI，TTS blob 喂给 iframe 的 audio#player（匹配不到时间轴→RMS 口型）。理由=避免重构 1941 行、避免触碰已像素验收上线的 avatar.html；avatar 仅两处追加式默认不变小改。同源 iframe 直接 contentWindow 存取
+- **Phase 8A 开工清单（2026-08-28）**：
+  - ✅ 8A-0 告别/降级协议 docs/companion-farewell-protocol.md（条件 f，Claude 起草用户可改；第五格留用户填）
+  - ⬜ 8A-1 build_avatar_page.py 两处追加式小改（DeepSeek+Codex）：①face-only 显示模式（?mode=face 隐藏播放列表 chrome 只留脸）②接收外部音频（postMessage/或父页直接设 audio#player.src 播 TTS blob 触发 RMS 口型）。**验收=无参数/无消息时 avatar.html 重建字节级一致 + 像素级口型复验**
+  - ⬜ 8A-2 tools/build_companion_page.py + companion.html（父页 iframe avatar.html?mode=face + 复用 chat 检索三源/SSE 双协议/buildMessages/TTS，把 blob 路由进 iframe audio；条件 a-e 行为：只应答/关窗道别语+空闲离场/Tier 与合成标签不减配/rhythm 节律限速/使用统计自见卡）；进 archive_out 不进 archive_dist
+  - ⬜ 8A-3 chat 构建器两处小修（payload 加 thinking:{type:disabled} 仅 endpoint 含 deepseek 时 + 占位符 deepseek-chat→deepseek-v4-flash；companion 与 chat.html 同源共享，一并修）
+  - ⬜ 8A-4 轴五 sessions 采集：tts_server.py 加 POST /session → people/<slug>/sessions/*.jsonl（第二纪元，数字人话语永久 Tier-3）
+  - ⬜ 8A-5 壳=Edge --app 快捷方式（刻意不自启不置顶）+ Playwright 真浏览器验收 + 像素级口型验收 + 用户真机验收
 
 ## 决策记录
 - 2026-08-09 用户拍板 MVP 范围（本文件顶部指令）

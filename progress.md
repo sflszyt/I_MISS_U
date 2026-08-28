@@ -305,3 +305,10 @@
 - **NO-GO 铁证**：控件树恒 3 节点空壳；五重触发全败（attach遍历/ElementFromPoint穿不透/SPI_SETSCREENREADER/真实Narrator运行/comtypes RawViewWalker）→ killer_risk 命中，4.1.12.26 关闭 Qt QAccessible→UIA bridge
 - 连带：UIA 读+发同时归零；读退路=DB轮询(4.1.12未复验)，发退路=坐标/OCR最脆层
 - 环境全清理（Narrator关/SPI复位/窗口未置顶）；结论入 docs/research/wechat-ui-automation.md 第六节 + findings；三选项交用户裁决
+
+## Session 2026-08-28（任务 #18 Phase 8A 开工：桌面陪伴上限形态）
+- 用户裁决'继续推进桌面陪伴'→ 按报告第七节 Phase A 开工，上限形态（打开才在的对话窗），条件 a-f 硬规格
+- 8A-0 告别/降级协议成文 docs/companion-farewell-protocol.md（条件 f 前置件，第五格留用户填）
+- 源文件接口摸清：avatar 单 audio#player+analyser（blob 无时间轴自动落 RMS 口型）；chat attachVoiceBar 用独立 Audio 不驱动嘴=各持一半；streamRequest openai payload 无 thinking 控制（DeepSeek 默认思考坑）；占位符 deepseek-chat 已退役
+- **架构决策：iframe 组合**（非大合并页）——companion 父页 iframe avatar.html?mode=face + TTS blob 路由进 iframe audio；避免重构/触碰已上线 avatar.html，改动面最小
+- 下一步：8A-1 avatar 两处追加式小改（DeepSeek+Codex，验收字节一致+像素复验）
