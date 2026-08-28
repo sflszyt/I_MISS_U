@@ -129,8 +129,22 @@
 ### Phase 8B-甲：情绪表情层 + 三平台兼容（2026-08-28 开工）— status: in_progress
 > 用户指令："方案甲先 确保所有平台（iphone/mac/pc）html可正常运行"
 - ✅ 8B-1+8B-2 **兼容加固与情绪层运行时完成**（2026-08-28，DeepSeek 全文回显+区域纪律模式 + Codex REJECT(2 Major+1 Medium 全实锤)→hotfix×4→ACCEPT）：①iOS 解锁 unlockAudio（send 手势内 SILENT_WAV 静音 play/pause + 合成 click 派发进 iframe 触发 avatar audioCtx.resume）②播放被拒→气泡 ▶"播放她的声音"按钮兜底（同步 throw/promise reject 双路径，按钮保留可重试）③CSS：viewport-fit=cover/100dvh/safe-area/16px 防缩放/tap-highlight ④情绪层：iframe 注入 emotion-overlay（显式 inline style 不挂 mouth-patch 类、插眨眼层之下）+ emotions.json 数据驱动（404 静默关）+ 关键词检测 + 同名防呆滞(刷新计时) + 回落。**工艺沉淀：DeepSeek"全文回显+区域纪律+diff 校验"11 块 146 行零漂移**（对照上次整函数重生成漂移事故）。验证：Playwright 桌面全绿 + emotion DOM 机制 computed style 实测(block/none/层序/全尺寸加载) + iPhone 390×844 视口布局全绿（无横滚/输入栏贴底/16px）
-- ⬜ 8B-3 **情绪贴片资产**（ComfyUI 复用 Phase 0/1 管线）：候选情绪集=默认微笑/开心/心疼-难过/嗔怪(她真实的凶)/思考，眉眼区域贴片（与嘴/眨眼层正交）；首轮必夸张预期+温和化迭代；**GIF 审核页→用户逐个定稿闸门**
+- **用户裁决（2026-08-29）：不全身化，维持半身框**——全身立绘方案（资产重做+一致性风险）被否，8B-3 按原计划在现有底图上做；全身化留作远期可选（蕾咪"全身动画"实为整图切换已拆穿，无骨骼动画）
+- 🔶 8B-3 **情绪贴片首轮候选完成，等用户定稿**（2026-08-29）：ComfyUI 复用 4e/Phase1 管线（Qwen-Image-Edit，gen_avatar_candidates.build_graph）生成 4 情绪×3 种子=12 张（happy 弯眼笑/sad 蹙眉心疼/stern 嗔怪抿嘴/think 侧看思考）；**意外之喜=首轮即温和不夸张、形象一致性全保持**（prompt 预置"嘴/镜框/发/脸锁死不变"+温和克制，无 Phase1 的夸张返工）。烘焙数学=双镜片内区(blink 同 rects,羽化8)+眉带(羽化10)，ImageChops.lighter 合并 mask，composite base×(1-α)+cand×α；抽验 sad 合成图无接缝无鬼影嘴不变。审核页 archive_out/emo_review.html（12 GIF 底图↔情绪 0.8s 交替，16MB）已上 8020 → **等用户每情绪选 1 或重做**。默认微笑=底图本身（第 5 态无需生成）
+- ⬜ 8B-3b 定稿后：烘焙全尺寸 RGBA 情绪贴片 + 写 emotions.json（emotion→file+keywords）→ 情绪层激活
 - ⬜ 8B-4 验收：Playwright 桌面 + iPhone 视口模拟；**真机验收=用户 iPhone/Mac 经 Tailscale**（家里侧无法替代）
+
+### Phase 10：dsh-im 平台接入研究（任务 #20，2026-08-29 用户立项）— status: in_progress
+> 用户指令："立项研究 https://github.com/xmanrui/dsh-im ——作为桌面陪伴以外的另一个副产品，把'调教好的'虚拟人物接入各平台（尤其微信）进行文字+语音聊天，卡通形象不需要"
+- 前置事实：任务 #16 已铁证微信 4.1.12.26 UIA 路线 NO-GO；messaging-channels.md 已否决 hook/协议伪造路线（封号率>80%）；TG bot=P1 干净通道
+- 研究问题：dsh-im 用什么机制接微信？是否绕开我们已 NO-GO 的路径？风险画像/许可/与网关架构（persona 引擎+TTS :8022）的契合度
+- ⬜ 仓库拆解 → ⬜ 机制判定与风险评估 → ⬜ 报告 + 用户裁决
+
+### Phase 10：dsh-im 研究——persona 接入各 IM 平台文字+语音（任务 #20，2026-08-29 用户立项）— status: research in_progress
+> 用户指令："研究 xmanrui/dsh-im，作为桌面陪伴外的另一个副产品，把'调教好的'虚拟人物接入各平台（尤其微信）文字+语音聊天，卡通形象不需要"
+> 关联既有结论必须核：messaging-channels.md（个人号协议伪造已否决 >80% 封号）+ 任务 #16 微信 UIA NO-GO（4.1.12.26 铁证）——本项目是第三种微信接入路径
+- ground truth：dsh-im=Cordis 框架通道网关，把 9 IM（飞书/微信/钉钉/企微/QQ/Slack/TG/Discord/WA）接入本机"DeepSeek Harness"；官方 SDK（企微 aibot/QQ 官方 bot/钉钉 stream）+ 微信个人号走 iLink 长轮询协议；MIT/948★；**README 未提语音**（用户要语音=空白）
+- ⬜ workflow 研究（架构拆解/微信 iLink 封号风险+官方企微替代路径/persona+语音接入设计/对抗校核）→ 报告 docs/research/dsh-im-analysis.md → 用户裁决
 
 ## 决策记录
 - 2026-08-09 用户拍板 MVP 范围（本文件顶部指令）

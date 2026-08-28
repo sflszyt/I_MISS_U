@@ -335,3 +335,11 @@
 - Codex R1 REJECT 全实锤：showEmotion 同名 return 跳过计时器刷新 / 兜底按钮同步 throw 自删重试入口+降级路径不补按钮 / detectEmotion null 条目崩 → 声明 hotfix×4 → R2 ACCEPT
 - 验证：py_compile/node --check/11 项 grep 全绿；Playwright：emotions.json 404 静默关 ✓、emotion overlay DOM 机制 computed style 实测（显式 block/none、绝对定位全尺寸 1104x944、层序 emotion<blink）✓、iPhone 390×844 视口（无横滚/脸+输入栏布局/16px 防缩放）✓
 - 测试用 emotions.json 已删（眨眼图替身不可留作真资产）；下一步 8B-3 ComfyUI 情绪贴片（默认微笑/开心/心疼/嗔怪/思考，用户定稿闸门）+ 8B-4 用户真机验收（iPhone/Mac 经 Tailscale）
+
+## Session 2026-08-29（8B-3 情绪贴片首轮 + 任务 #20 dsh-im 立项）
+- 用户否全身化（维持半身框）；开工 8B-3 情绪贴片
+- 服务腾挪：停 :8022 TTS/:9880 GSV 腾显存（8.8G→2.4G）→ ComfyUI 脱钩起服 4s 就绪 → 生成完恢复 :8022
+- 探针 gen_emotions_probe.py（声明；复用 gen_avatar_candidates.build_graph/poll_history/extract；坑：poll 返回 (status,entry) 元组、extract 返回 (fname,subf,type) 元组，非 dict）→ 4 情绪×3 种子 12 张，54-184s/张
+- **意外之喜**：首轮即温和不夸张、形象一致性全保（对照 Phase1 嘴型首轮必夸张返工）——归因=眉眼区域改动比嘴型温和 + prompt 预置"嘴/镜框/发/脸锁死"
+- 合成预览 compose_emo_preview.py：烘焙区=双镜片内区(blink rects 羽化8)+眉带(370,225,820,315 羽化10)，ImageChops.lighter 合 mask（numpy 不在系统 py），composite；抽验 sad 合成无接缝嘴不变；审核页 emo_review.html 12 GIF 上 8020 → 等用户定稿
+- **任务 #20 立项 dsh-im**：Cordis 通道网关接 9 IM→DeepSeek Harness；官方 SDK(企微/QQ/钉钉)+微信个人号 iLink 协议；MIT/948★/无语音。撞既有结论=messaging-channels 个人号协议否决(封号>80%)+任务#16 UIA NO-GO。workflow wf_26efff09-b58 后台研究中（4 维+校核）→ docs/research/dsh-im-analysis.md
