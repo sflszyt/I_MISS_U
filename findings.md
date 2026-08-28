@@ -45,6 +45,16 @@
 - **`style.display = ''` 不等于"显示"**：清空 inline 声明后计算样式回落 CSS 类规则——`.mouth-patch{display:none}` 把贴片吃掉，**贴片自上线起从未渲染过一个像素**，而 inline style 采样"验证"全绿（假阳性）。对策已固化（memory: verify-rendered-pixels）：①显示元素一律显式 `display='block'`；②断言用 `getComputedStyle()`；③终验做状态间**截图像素 diff**；④CSS animation 作用元素上的 inline transform 会被 animation 覆盖——transform 打到无 animation 的子元素
 - **截图验收的运行时竞态**（08-27 两次假阴性）：rAF 循环每帧重写贴片 display、眨眼调度器定时翻转——evaluate 强制显示后截图会被覆写。绕法：慢放 `playbackRate=0.25` 拉长 cue 窗口抓实拍；或 cloneNode 复制一个不受运行时管的验证节点
 
+## 任务 #21 OCR 控微信 / 微信第四路径关键发现（2026-08-29，workflow 11 代理）
+- **★新事实：微信 PC 4.1.9+（2026-04-22 发布，用户 4.1.12.26 已有）首次支持发原生语音条**，麦克风按钮"按住右Alt"录音、60s 上限、松手即发——**实质更新 dsh-im/messaging-channels"PC 只能把她声音当文件发"旧结论**。自动化=keyDown/keyUp('altright')+VB-Cable 虚拟声卡把 :8022 TTS 灌进微信麦克风→发出原生语音条（虚拟线顺带消噪）。唯一 iLink 给不了的能力；**风险=微信语音低码率+AGC/降噪可能劣化她克隆音色（M1 盲听关口保的东西），待活体 A/B**
+- **GitHub 有零件没成品**：真 OCR 读像素只散件——swigger/wechat-ocr(964★)只是 wxocr.dll 引擎、jxyk2007(91★)PaddleOCR 导航+发文字无语音、openclaw-agent(4.1.7.33)只读未读不回、EasyOCR 玩具(26/19★)。星最多的"视觉"框架(omni-bot 542★/ChisBread/weix)**实为解密 DB 读+OCR/YOLO 只定位点击发送**——实证 #16"DB 读可靠 OCR 只配脆弱发送层"
+- **你社媒看到的"skill"=UIA 路线，在你版本死**：LeoMusk/wechat-rpa-bot-skill(YoKo 83★，YoBot 开源壳+闭源 exe，4.1.7+/语音≥4.1.9)、Hello-Mr-Crab/pywechat(1874★，监听+发文字+send_audios_to_friend 发真语音条)——**都是 UIAutomation，非 OCR**；#16 已铁证 UIA 在 4.1.12.26 死（控件树空壳）；pywechat 194 open issues、4.1.x 多版报障、4.1.12.26 未证
+- **收沪语语音硬缺口**：微信自带转文字只认普/英/粤不认上海话；纯 OCR 读不懂沪语来话，须绕 DB/文件取音频喂本机 SenseVoice(吴语 CER~20%)
+- **校核 refuted 两强论断**：①"OCR 唯一绕开 UIA"——我们 #16 已列 DB 读为非 UIA 首选读侧，OCR 只是脆弱发送侧；②"OCR 独占家人可达格子"——iLink 扫码同样可达，被排除靠伦理非技术
+- **封号**：不注入不伪协议=客户端最低档，但风险搬到服务端行为模型(高频/秒回/24h/内容重复照旧)；本项目永不主动+被动+低频几乎清空触发器；残余=新号权重(养号)+违 ToS(可弃小号合同处置)。绝不用逝者原号
+- **伦理（比 iLink 更该保守）**：OCR 劫持"看着完全是真人在用"的号、**零 bot 标识、欺骗性最强**（iLink 天然 bot+扫码知情兜底）；能发冒真度最高语音条=技术加分即伦理加压。裁决=自用低风险 GO(但 TG/iLink 自用比脆 OCR 干净)/家人向默认 NO-GO 更甚。详见 docs/research/wechat-ocr-automation.md
+- **四路径全景定论**：①UIA #16 死 ②iLink #20 官方但家人向 NO-GO ③服务号/企微需主体 ④OCR 本路可行但最脆+欺骗性最强——**没有一条微信路径为家人向打开干净的门**
+
 ## 任务 #20 dsh-im / 微信 iLink 关键发现（2026-08-29，workflow 11 代理）
 - **微信 iLink/ClawBot = 腾讯 2026 官方个人号 Bot 协议**（GitHub Tencent verified + npm @tencent-weixin 签名 + 官方 ToS 深圳南山；端点 ilinkai.weixin.qq.com/协议 2.4.6/扫码 get_bot_qrcode/35s 长轮询/context_token≈24h）——**第三条微信路径，实质更新 messaging-channels.md + wechat-ui-automation.md 的"微信封死"结论**。绕开 UIA(#16 死于客户端无障碍关闭)与 hook 灰产(伪造注入)两死因；reply-only 硬性契合"永不主动"
 - **但"官方≠可给家人用"（校核 refuted 强论断）**：iLink 是"机主控自己 agent"设计、须用户先发触发；dsh-im 脱离官方 OpenClaw 直连=未授权客户端；家人入站与 bot 聊天拓扑无据；腾讯保留随时终止+裁定"可连哪些第三方 AI"（把 iLink 指向本地 persona 是否允许存疑）

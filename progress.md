@@ -351,3 +351,11 @@
 - 报告 docs/research/dsh-im-analysis.md 成文；裁决分层=自用低风险 GO / 家人向默认 NO-GO（第三方伦理+沉浸最大化，比桌面陪伴更保守）
 - 用户可自查：微信设置>插件看有无 ClawBot（秒级，判灰度，不用弃号）；iLink 能否发语音条动工前活体验证
 - findings/task_plan 更新；等用户裁决方向
+
+## Session 2026-08-29（续：任务 #21 OCR 控微信研究收口）
+- workflow wf_6b7db20f-956：11 代理/68 万 tokens/18 分钟；4 维（GitHub扫描/可行性/封号伦理/接入）+ 7 校核（3 confirmed/2 refuted/2 unclear）
+- 直接答"github有没有开源"：有零件没成品；社媒"skill"=YoKo(83★)/pywechat(1874★) 但都 UIA 非 OCR，在 4.1.12.26 已被 #16 判死
+- ★新事实：微信 PC 4.1.9+（用户 4.1.12.26 已有）支持发原生语音条(按住右Alt)，VB-Cable 虚拟声卡+keyDown/keyUp 可发她真声语音条——更新"PC 只能当文件发"旧结论；风险=微信 AGC 降噪可能劣化克隆音色待 A/B
+- 校核 refuted 两强论断（OCR 非唯一绕 UIA=DB 读才是可靠读侧；OCR 非独占家人可达=iLink 扫码同样可达靠伦理否决）
+- 报告 docs/research/wechat-ocr-automation.md 成文（四路径对照表修正版）；裁决=自用低风险 GO/家人向默认 NO-GO 且比 iLink 更甚（零 bot 标识欺骗性最强）
+- findings/task_plan 更新；四条微信路径全景定论=没有一条为家人向打开干净的门
