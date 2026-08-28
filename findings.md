@@ -45,6 +45,13 @@
 - **`style.display = ''` 不等于"显示"**：清空 inline 声明后计算样式回落 CSS 类规则——`.mouth-patch{display:none}` 把贴片吃掉，**贴片自上线起从未渲染过一个像素**，而 inline style 采样"验证"全绿（假阳性）。对策已固化（memory: verify-rendered-pixels）：①显示元素一律显式 `display='block'`；②断言用 `getComputedStyle()`；③终验做状态间**截图像素 diff**；④CSS animation 作用元素上的 inline transform 会被 animation 覆盖——transform 打到无 animation 的子元素
 - **截图验收的运行时竞态**（08-27 两次假阴性）：rAF 循环每帧重写贴片 display、眨眼调度器定时翻转——evaluate 强制显示后截图会被覆写。绕法：慢放 `playbackRate=0.25` 拉长 cue 窗口抓实拍；或 cloneNode 复制一个不受运行时管的验证节点
 
+## 任务 #16 微信 UI 自动化活体探针：NO-GO 铁证（2026-08-28）
+- **微信 4.1.12.26 UIAutomation 路线彻底关闭**（Claude 直写 8 个只读探针，声明在案；小号 PID 15396）。控件树恒为 3 节点空壳（1 Window+2 空 Pane，深度 1）
+- 五重触发全败：①uiautomation attach 遍历 ②ElementFromPoint 坐标级命中**穿不透窗口内部**（只返回顶层 WindowControl）③SPI_SETSCREENREADER=TRUE ④**真实 Narrator 讲述人运行期间** ⑤comtypes 独立 RawViewWalker——排除全部假阴性（库封装/view 过滤/客户端不够强/窗口未激活）
+- **killer_risk 命中**（研究报告预言应验）：腾讯在 4.1.9→4.1.12 间收紧"按需暴露"，即使检测到最强无障碍客户端也不暴露 Qt 控件树。社区库最高只实测到 4.1.8.29/4.1.9.35
+- 连带：UIA 死 = 读（控件文本）+ 发（定位输入框）同时归零。读退路=解密 DB 轮询（4.1.11 跑通过，4.1.12 未复验）；发退路只剩坐标/OCR 最脆层
+- 环境全清理：探针只读未发消息未采集正文；Narrator 关闭+SPI 复位+窗口未留置顶。三选项交用户裁决（A 放弃微信实时线[推荐]/B 降级混合方案/C TG bot）→ 见 docs/research/wechat-ui-automation.md 第六节
+
 ## 任务 #18 桌面陪伴研究关键发现（2026-08-27，workflow 14 代理 + 本机探针）
 - **上海话本地 ASR 存在（原判"不存在"被校核翻案）**：DataoceanAI+清华 **Dolphin**（2025-03 开源，pip install dataoceanai-dolphin，权重 HF/ModelScope）语言表含 zh-WU/zh-SHANGHAI，厂方论文 0.4B 上海话 CER 7.81%（SenseVoice-S 吴语 20.43%）；另有含流式的 Dolphin-CN-Dialect。**未在她/用户口音上实测**——也可能是转写校对减负工具
 - **CosyVoice2 流式本机实测**：现役 SFT e14 fp32 无优化，`stream=True` 首包 2.18-4.44s（方差大）；本机 cosyvoice.py:91 原生支持，tts_server.py:70 写死 stream=False，改流式=改参数+HTTP chunked。GSV api_v2 streaming_mode 首包实测 ~1.07s。Rhubarb 5.8s 音频仅 1.09s（准实时"合成完先跑再播"可行）
@@ -52,6 +59,7 @@
 - **"本地 LLM 只能 8-14B 且小模型必违 Tier"推理链被校核否决**：CosyVoice2 量化后占用可压很低、27B/30B-A3B Q4 可能挤入 24GB；Vectara HHEM 榜实证体量不决定检索忠实度（Phi-4 14B 3.7% 优于 Llama-3.3-70B 4.1%）
 - **avatar/chat 两页"各持一半"实锤（代码级）**：avatar.html RMS 分支就是为动态 TTS 预留（无时间轴音频自动落入），chat.html TTS 语音条却用独立 Audio 不驱动嘴——把 :8022 MP3 blob 喂给挂 analyser 的 audio 即通，拼装级
 - **伦理证据链**（详见 docs/research/desktop-companion.md 第六节）：transitory use 是 deadbot 文献唯一接近共识的安全定位；MIT×OpenAI 2025 实证日时长与孤独/依赖正相关；Replika/Soulmate 证明"知情"不是护栏——**常驻形态被判①档不应做，上限=打开才在的对话窗**
+- **实物样本启发（08-27 用户提供某桌宠 app'蕾咪'截图）**：①思考模式开关被做成 UI 配置项（印证 v4-flash 默认思考坑普遍）——我方应硬编码永远关；②备用 API Key 自动切换值得抄，且我方可加独有末档：主/备端点全挂→降级纯检索回放原声+记忆（档案即降级层）；③config.json+UI 双通道配置优于纯 localStorage（清缓存丢配置）；④"如何获取 Key"引导=泛化产品 onboarding 范式；⑤**红线：其"拖图给她识图"走云端 GLM-4V——照片出机违铁律 3 绝不照搬**，合规替代=本地 VLM 或"拖图只做本地 EXIF/timeline 检索锚定、她用 Tier-1/2 真实内容回应"；⑥其常驻+输入框永在形态=我方①档"不应做"的活对照
 
 ## Rhubarb / 贴片管线坑（2026-08-26/27，Phase 1）
 - **rhubarb CLI**：`--machineReadable` 与 stdout 组合拿不到 JSON（125 条全空）——必须 `-o <文件>` 输出再读文件

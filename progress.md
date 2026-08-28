@@ -298,3 +298,10 @@
 - workflow wf_c886ce8b-4b8 收官：14 代理（6 研究 + 8 校核）全成功，~89 万 tokens/285 工具调用/20 分钟；校核 6 confirmed 2 refuted（上海话 ASR Dolphin 翻案 / 本地 LLM 显存-幻觉推理链否决）
 - 报告成文 docs/research/desktop-companion.md：技术拼装级可行；伦理三档判定——常驻不应做、上限=打开才在的对话窗（条件 a-f）、不做是合理默认
 - findings.md 增补六条关键发现；task_plan Phase 8 → research complete 等用户裁决
+
+## Session 2026-08-28（任务 #16 微信 UI 自动化活体探针）
+- 用户备好小号（PID 15396，已登录小号，4.1.12.26 确认未被自动更新推走）
+- Claude 直写 8 个只读探针（声明；uiautomation 2.0.29 + comtypes 1.4.16）：全程不点击/不输入/不发消息/不采集聊天正文
+- **NO-GO 铁证**：控件树恒 3 节点空壳；五重触发全败（attach遍历/ElementFromPoint穿不透/SPI_SETSCREENREADER/真实Narrator运行/comtypes RawViewWalker）→ killer_risk 命中，4.1.12.26 关闭 Qt QAccessible→UIA bridge
+- 连带：UIA 读+发同时归零；读退路=DB轮询(4.1.12未复验)，发退路=坐标/OCR最脆层
+- 环境全清理（Narrator关/SPI复位/窗口未置顶）；结论入 docs/research/wechat-ui-automation.md 第六节 + findings；三选项交用户裁决
