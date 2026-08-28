@@ -343,3 +343,11 @@
 - **意外之喜**：首轮即温和不夸张、形象一致性全保（对照 Phase1 嘴型首轮必夸张返工）——归因=眉眼区域改动比嘴型温和 + prompt 预置"嘴/镜框/发/脸锁死"
 - 合成预览 compose_emo_preview.py：烘焙区=双镜片内区(blink rects 羽化8)+眉带(370,225,820,315 羽化10)，ImageChops.lighter 合 mask（numpy 不在系统 py），composite；抽验 sad 合成无接缝嘴不变；审核页 emo_review.html 12 GIF 上 8020 → 等用户定稿
 - **任务 #20 立项 dsh-im**：Cordis 通道网关接 9 IM→DeepSeek Harness；官方 SDK(企微/QQ/钉钉)+微信个人号 iLink 协议；MIT/948★/无语音。撞既有结论=messaging-channels 个人号协议否决(封号>80%)+任务#16 UIA NO-GO。workflow wf_26efff09-b58 后台研究中（4 维+校核）→ docs/research/dsh-im-analysis.md
+
+## Session 2026-08-29（续：任务 #20 dsh-im 研究收口）
+- workflow wf_26efff09-b58 收官：11 代理/96 万 tokens/15 分钟；4 维（架构/微信风险/接入/战略）+ 7 校核（6 confirmed/1 refuted/1 unclear）
+- 核心新事实：微信 iLink=腾讯 2026 官方个人号 Bot 协议（ClawBot），第三条路，实质更新我们两份"微信封死"研究；但校核 refuted"官方=可给家人用"（机主控自己 agent 设计/未授权直连/家人拓扑无据/可随时终止）
+- dsh-im=连接层非大脑；不发原生语音条；接 persona 要写冒充 Harness 的 shim
+- 报告 docs/research/dsh-im-analysis.md 成文；裁决分层=自用低风险 GO / 家人向默认 NO-GO（第三方伦理+沉浸最大化，比桌面陪伴更保守）
+- 用户可自查：微信设置>插件看有无 ClawBot（秒级，判灰度，不用弃号）；iLink 能否发语音条动工前活体验证
+- findings/task_plan 更新；等用户裁决方向

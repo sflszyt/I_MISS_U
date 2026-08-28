@@ -45,6 +45,14 @@
 - **`style.display = ''` 不等于"显示"**：清空 inline 声明后计算样式回落 CSS 类规则——`.mouth-patch{display:none}` 把贴片吃掉，**贴片自上线起从未渲染过一个像素**，而 inline style 采样"验证"全绿（假阳性）。对策已固化（memory: verify-rendered-pixels）：①显示元素一律显式 `display='block'`；②断言用 `getComputedStyle()`；③终验做状态间**截图像素 diff**；④CSS animation 作用元素上的 inline transform 会被 animation 覆盖——transform 打到无 animation 的子元素
 - **截图验收的运行时竞态**（08-27 两次假阴性）：rAF 循环每帧重写贴片 display、眨眼调度器定时翻转——evaluate 强制显示后截图会被覆写。绕法：慢放 `playbackRate=0.25` 拉长 cue 窗口抓实拍；或 cloneNode 复制一个不受运行时管的验证节点
 
+## 任务 #20 dsh-im / 微信 iLink 关键发现（2026-08-29，workflow 11 代理）
+- **微信 iLink/ClawBot = 腾讯 2026 官方个人号 Bot 协议**（GitHub Tencent verified + npm @tencent-weixin 签名 + 官方 ToS 深圳南山；端点 ilinkai.weixin.qq.com/协议 2.4.6/扫码 get_bot_qrcode/35s 长轮询/context_token≈24h）——**第三条微信路径，实质更新 messaging-channels.md + wechat-ui-automation.md 的"微信封死"结论**。绕开 UIA(#16 死于客户端无障碍关闭)与 hook 灰产(伪造注入)两死因；reply-only 硬性契合"永不主动"
+- **但"官方≠可给家人用"（校核 refuted 强论断）**：iLink 是"机主控自己 agent"设计、须用户先发触发；dsh-im 脱离官方 OpenClaw 直连=未授权客户端；家人入站与 bot 聊天拓扑无据；腾讯保留随时终止+裁定"可连哪些第三方 AI"（把 iLink 指向本地 persona 是否允许存疑）
+- **查你号在不在 iLink 灰度=秒级 in-app**：微信 设置>插件>ClawBot 看有无入口，**不用备弃号**（校核 refuted 了"须弃号探针"）
+- **dsh-im 是连接层非大脑**：DeepSeek Harness(dsh) 的 Cordis 插件，无 LLM 推理；接 persona=写冒充 Harness Host 的本机 HTTP+WS shim（仿真 host.describe/workspace/session/带 seq 事件日志+WS mux，非"一个 /reply"那么轻）或摘 MIT 的 weixin-api.mjs 进自有网关；禁 agentPreset 塞 persona（大脑变云 LLM roleplay 违 Tier+数据出机）；禁 dsh AI Office 云中继
+- **不发原生语音条（confirmed 逐文件）**：TG/WA 出站无 audio 方法、wecom 只收语音；她真声只能当文件发；发语音条=逐平台自建转码（TG/WA=opus、微信/QQ=SILK 有 pilk、企微=AMR）；ffmpeg 在盘状态待复核
+- **裁决**：自用(绑自己号)=低风险 GO+顺带轴五 sessions；家人向=默认 NO-GO(第三方受众+沉浸最大化，先例=团队拒绝把逝母微信做数字分身)。企微 aibot 对家人个人微信 NO-GO。详见 docs/research/dsh-im-analysis.md
+
 ## 任务 #16 微信 UI 自动化活体探针：NO-GO 铁证（2026-08-28）
 - **微信 4.1.12.26 UIAutomation 路线彻底关闭**（Claude 直写 8 个只读探针，声明在案；小号 PID 15396）。控件树恒为 3 节点空壳（1 Window+2 空 Pane，深度 1）
 - 五重触发全败：①uiautomation attach 遍历 ②ElementFromPoint 坐标级命中**穿不透窗口内部**（只返回顶层 WindowControl）③SPI_SETSCREENREADER=TRUE ④**真实 Narrator 讲述人运行期间** ⑤comtypes 独立 RawViewWalker——排除全部假阴性（库封装/view 过滤/客户端不够强/窗口未激活）

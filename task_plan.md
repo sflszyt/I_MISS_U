@@ -144,7 +144,11 @@
 > 用户指令："研究 xmanrui/dsh-im，作为桌面陪伴外的另一个副产品，把'调教好的'虚拟人物接入各平台（尤其微信）文字+语音聊天，卡通形象不需要"
 > 关联既有结论必须核：messaging-channels.md（个人号协议伪造已否决 >80% 封号）+ 任务 #16 微信 UIA NO-GO（4.1.12.26 铁证）——本项目是第三种微信接入路径
 - ground truth：dsh-im=Cordis 框架通道网关，把 9 IM（飞书/微信/钉钉/企微/QQ/Slack/TG/Discord/WA）接入本机"DeepSeek Harness"；官方 SDK（企微 aibot/QQ 官方 bot/钉钉 stream）+ 微信个人号走 iLink 长轮询协议；MIT/948★；**README 未提语音**（用户要语音=空白）
-- ⬜ workflow 研究（架构拆解/微信 iLink 封号风险+官方企微替代路径/persona+语音接入设计/对抗校核）→ 报告 docs/research/dsh-im-analysis.md → 用户裁决
+- ✅ workflow 研究收口（wf_26efff09-b58，11 代理/96 万 tokens，6 confirmed/1 refuted/1 unclear）→ docs/research/dsh-im-analysis.md
+- **核心发现**：①dsh-im=连接层非大脑（DeepSeek Harness 的 Cordis 插件，接 persona 要写冒充 Harness 的本机 shim，非即插即用）②**微信 iLink 是腾讯 2026 官方个人号 Bot 协议（ClawBot），第三条路，实质更新我们"微信封死"结论**——绕开 UIA(#16)与 hook 灰产两死因、reply-only 天然契合"永不主动"；**但校核 refuted"官方=可给家人用"**：它是"机主控自己 agent"设计、dsh-im 直连属未授权客户端、家人向拓扑无据、腾讯可随时终止+裁定可连哪些 AI ③**不发原生语音条**（她真声只能当文件发，发语音条=逐平台自建转码 SILK/opus/AMR）④企微 aibot 对家人个人微信 NO-GO
+- **裁决（分层）**：自用（绑自己号+仅自己模式+轴五 sessions 采集）=有条件 GO 低风险；**家人向（妈妈进家人聊天列表）=默认 NO-GO**（第三方受众+沉浸/欺骗最大化，比桌面陪伴更保守；先例=某团队拒绝把逝母微信记录做数字分身）；即便全员知情同意仍劝阻常驻形态
+- **用户可自查两硬点**：①微信 设置>插件 看有无 ClawBot 入口（秒级，判你号在不在 iLink 灰度，无需弃号）②iLink 能否发原生语音条（动工前活体验证）
+- ⬜ 等用户裁决方向（自用验证 / 家人向按闸门 / 先不做）
 
 ## 决策记录
 - 2026-08-09 用户拍板 MVP 范围（本文件顶部指令）
