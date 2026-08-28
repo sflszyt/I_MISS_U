@@ -124,6 +124,13 @@
 - 对照判定：口型/语音/人格/记忆四项我们领先；**要补的只有情绪表情资产 + 桌宠壳形态**
 - 落地候选（等裁决）：**方案甲**=companion 页内补情绪表情层（ComfyUI 情绪贴片 4-6 个+用户定稿闸门+关键词驱动，资产两形态通用）→ **方案乙**=桌宠壳（PyQt5 QWebEngineView 透明窗装我们 HTML 运行时 / Tauri v2；仍守"打开才在"：无托盘无自启关窗道别）；推荐甲→乙
 - 借形不借魂：蕾咪的常驻/主动搭话/游戏化/恋人模式/云识图全部排除（条件 a-f 与铁律 3）
+- ✅ **用户裁决（2026-08-28）：方案甲先，且硬要求=iPhone/Mac/PC 三平台 HTML 正常运行**
+
+### Phase 8B-甲：情绪表情层 + 三平台兼容（2026-08-28 开工）— status: in_progress
+> 用户指令："方案甲先 确保所有平台（iphone/mac/pc）html可正常运行"
+- ✅ 8B-1+8B-2 **兼容加固与情绪层运行时完成**（2026-08-28，DeepSeek 全文回显+区域纪律模式 + Codex REJECT(2 Major+1 Medium 全实锤)→hotfix×4→ACCEPT）：①iOS 解锁 unlockAudio（send 手势内 SILENT_WAV 静音 play/pause + 合成 click 派发进 iframe 触发 avatar audioCtx.resume）②播放被拒→气泡 ▶"播放她的声音"按钮兜底（同步 throw/promise reject 双路径，按钮保留可重试）③CSS：viewport-fit=cover/100dvh/safe-area/16px 防缩放/tap-highlight ④情绪层：iframe 注入 emotion-overlay（显式 inline style 不挂 mouth-patch 类、插眨眼层之下）+ emotions.json 数据驱动（404 静默关）+ 关键词检测 + 同名防呆滞(刷新计时) + 回落。**工艺沉淀：DeepSeek"全文回显+区域纪律+diff 校验"11 块 146 行零漂移**（对照上次整函数重生成漂移事故）。验证：Playwright 桌面全绿 + emotion DOM 机制 computed style 实测(block/none/层序/全尺寸加载) + iPhone 390×844 视口布局全绿（无横滚/输入栏贴底/16px）
+- ⬜ 8B-3 **情绪贴片资产**（ComfyUI 复用 Phase 0/1 管线）：候选情绪集=默认微笑/开心/心疼-难过/嗔怪(她真实的凶)/思考，眉眼区域贴片（与嘴/眨眼层正交）；首轮必夸张预期+温和化迭代；**GIF 审核页→用户逐个定稿闸门**
+- ⬜ 8B-4 验收：Playwright 桌面 + iPhone 视口模拟；**真机验收=用户 iPhone/Mac 经 Tailscale**（家里侧无法替代）
 
 ## 决策记录
 - 2026-08-09 用户拍板 MVP 范围（本文件顶部指令）

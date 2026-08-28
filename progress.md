@@ -327,3 +327,11 @@
 - 机制拆透：透明窗=Frameless+StaysOnTop+WA_TranslucentBackground+QLabel 立绘；情绪=LLM 回复关键词匹配→8 张 PNG 切换（同表情防呆滞/说完回落 Shut）；说话=Open/Shut 静态双帧（无音频无口型——比我们 Phase 1 落后两代）；37 字回复约束
 - 报告成文 docs/research/kira-remy-analysis.md：借形（透明立绘窗/情绪表情层/打字机气泡细节）不借魂（常驻/主动/游戏化/云识图全排除）；落地候选 方案甲(情绪贴片层)→方案乙(桌宠壳 QWebEngineView/Tauri) 等用户裁决
 - task_plan 注册 Phase 9（任务 #19）
+
+## Session 2026-08-28（续：8B-甲 三平台兼容 + 情绪层运行时）
+- 用户裁决：方案甲先 + 硬要求 iPhone/Mac/PC HTML 正常运行
+- 侦察：.mouth-patch{display:none} 类坑确认（overlay 全显式 inline style）；avatar 内部有"首次点击 resume AudioContext"监听→companion 合成 click 派发可薅（同源共享用户激活）
+- DeepSeek 新工艺：**全文回显+区域纪律+diff 校验**——规格含 7 个改动区+原文件全文，产出 11 块 146 行差异逐字对应规格零漂移（对照 8A-2a 整函数重生成漂移事故，此工艺定式化）
+- Codex R1 REJECT 全实锤：showEmotion 同名 return 跳过计时器刷新 / 兜底按钮同步 throw 自删重试入口+降级路径不补按钮 / detectEmotion null 条目崩 → 声明 hotfix×4 → R2 ACCEPT
+- 验证：py_compile/node --check/11 项 grep 全绿；Playwright：emotions.json 404 静默关 ✓、emotion overlay DOM 机制 computed style 实测（显式 block/none、绝对定位全尺寸 1104x944、层序 emotion<blink）✓、iPhone 390×844 视口（无横滚/脸+输入栏布局/16px 防缩放）✓
+- 测试用 emotions.json 已删（眨眼图替身不可留作真资产）；下一步 8B-3 ComfyUI 情绪贴片（默认微笑/开心/心疼/嗔怪/思考，用户定稿闸门）+ 8B-4 用户真机验收（iPhone/Mac 经 Tailscale）

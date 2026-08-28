@@ -12,7 +12,7 @@ TEMPLATE = r"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>陪伴</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -107,6 +107,16 @@ TEMPLATE = r"""<!DOCTYPE html>
     position: absolute; top: 10px; right: 12px; background: none; border: none;
     color: #8888aa; font-size: 20px; cursor: pointer;
   }
+  * { -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100vh; height: 100dvh; }
+  #input-text { font-size: 16px; }   /* iOS 聚焦防自动放大 */
+  #input-bar { padding-bottom: calc(8px + env(safe-area-inset-bottom)); }
+  .play-voice-btn {
+    display: inline-flex; align-items: center; gap: 6px; margin-top: 6px;
+    background: #2d4a7a; color: #fff; border: none; border-radius: 14px;
+    padding: 5px 14px; font-size: 13px; cursor: pointer;
+  }
+  .play-voice-btn:active { background: #3a5c96; }
 </style>
 </head>
 <body>
@@ -195,6 +205,12 @@ var companionVoiceUrls = [];
 var faceReady = false;
 var contextLoaded = false;
 var sendPending = false;
+var audioUnlocked = false;
+var SILENT_WAV = 'data:audio/wav;base64,UklGRmQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YUAAAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA';
+var emotionsCfg = null;
+var lastEmotion = null;
+var emotionTimer = null;
+var emotionImg = null;
 
 /* ===== helpers ===== */
 function esc(s) {
@@ -488,6 +504,7 @@ function sendMessage() {
   if (!settingsComplete()) { return; }
   if (!contextLoaded) { return; }
   if (!inputText.value.trim()) return;
+  unlockAudio();
   var userText = inputText.value.trim();
   inputText.value = ''; autoGrow();
   addBubble({type:'user', text: userText});
@@ -523,6 +540,7 @@ function sendMessage() {
       }
       contentEl.textContent = finalText;
       history.push({role: 'assistant', content: finalText});
+      showEmotion(detectEmotion(finalText));
       chat.scrollTop = chat.scrollHeight;
       // TODO 8A-2b: 关窗道别语、空闲「去忙了」、rhythm.json 限速、使用统计自见卡
 
@@ -534,7 +552,7 @@ function sendMessage() {
           body: JSON.stringify({text: finalText, lang: 'mandarin'})
         })
         .then(function(r) { if (!r.ok) throw new Error('tts ' + r.status); return r.blob(); })
-        .then(function(b) { speakBlob(b); })
+        .then(function(b) { speakBlob(b, contentEl); })
         .catch(function() { /* 合成失败：保持文字气泡，不打断 */ });
       }
     }, function(err) {
@@ -567,25 +585,128 @@ function autoGrow() {
 }
 
 /* ===== iframe 集成 ===== */
-function speakBlob(blob) {
+/* iOS/Safari 音频解锁：必须在用户手势的同步调用链里执行 */
+function unlockAudio() {
+  if (audioUnlocked) return;
+  try {
+    var p = frame.contentWindow.document.getElementById('player');
+    if (p) {
+      if (!p.src) { p.src = SILENT_WAV; }
+      p.muted = true;
+      var pr = p.play();
+      if (pr && pr.then) {
+        pr.then(function(){ p.pause(); p.muted = false; audioUnlocked = true; })
+          .catch(function(){ p.muted = false; });
+      }
+    }
+    /* 同源 iframe 共享用户激活：合成 click 触发 avatar 内部的 audioCtx.resume 监听 */
+    try {
+      var idoc = frame.contentWindow.document;
+      idoc.dispatchEvent(new frame.contentWindow.Event('click', {bubbles: true}));
+    } catch(e2) {}
+  } catch(e) {}
+}
+
+function ensureEmotionImg() {
+  if (emotionImg) return emotionImg;
+  try {
+    var idoc = frame.contentWindow.document;
+    var container = idoc.getElementById('avatar-image');
+    if (!container) return null;
+    var img = idoc.createElement('img');
+    img.id = 'emotion-overlay';
+    img.alt = '';
+    /* 全显式 inline style，不挂 mouth-patch 类（display 回落事故铁律） */
+    img.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;display:none;';
+    var blink = idoc.getElementById('eyes-blink');
+    if (blink) { container.insertBefore(img, blink); } else { container.appendChild(img); }
+    emotionImg = img;
+    return img;
+  } catch(e) { return null; }
+}
+
+function detectEmotion(text) {
+  if (!emotionsCfg || !emotionsCfg.emotions || !text) return null;
+  var lower = String(text).toLowerCase();
+  for (var name in emotionsCfg.emotions) {
+    var ent = emotionsCfg.emotions[name];
+    if (!ent) continue;
+    var kws = ent.keywords || [];
+    for (var i = 0; i < kws.length; i++) {
+      if (kws[i] && lower.indexOf(String(kws[i]).toLowerCase()) !== -1) return name;
+    }
+  }
+  return null;
+}
+
+function showEmotion(name) {
+  if (!name || !emotionsCfg || !emotionsCfg.emotions[name] || !emotionsCfg.emotions[name].file) return;
+  var delay0 = (emotionsCfg.neutral_delay_ms || 8000);
+  if (name === lastEmotion) {                     /* 同表情防呆滞：不换图但必须刷新回落计时 */
+    if (emotionTimer) { clearTimeout(emotionTimer); }
+    emotionTimer = setTimeout(clearEmotion, delay0);
+    return;
+  }
+  var img = ensureEmotionImg();
+  if (!img) return;
+  img.src = emotionsCfg.emotions[name].file;
+  img.style.display = 'block';                    /* 显式 block，铁律 */
+  lastEmotion = name;
+  if (emotionTimer) { clearTimeout(emotionTimer); }
+  var delay = (emotionsCfg.neutral_delay_ms || 8000);
+  emotionTimer = setTimeout(clearEmotion, delay);
+}
+
+function clearEmotion() {
+  if (emotionImg) { emotionImg.style.display = 'none'; }
+  lastEmotion = null;
+}
+
+function speakBlob(blob, bubbleEl) {
   var url = URL.createObjectURL(blob);
   companionVoiceUrls.push(url);
   if (companionVoiceUrls.length > 50) {
     try { URL.revokeObjectURL(companionVoiceUrls.shift()); } catch(e) {}
   }
-  var played = false;
-  try {
+  var playViaFrame = function() {
     var p = frame.contentWindow.document.getElementById('player');
-    if (p) {
-      p.src = url;
-      var pr = p.play();
-      if (pr && pr.catch) pr.catch(function(){});
-      played = true;
+    if (!p) throw new Error('no player');
+    p.muted = false;
+    p.src = url;
+    return p.play();
+  };
+  var playViaAudio = function() {
+    var a = new Audio(url);
+    return a.play();
+  };
+  var showBtn = function(playFn) {
+    if (!bubbleEl) return;
+    var btn = document.createElement('button');
+    btn.className = 'play-voice-btn';
+    btn.textContent = '▶ 播放她的声音';
+    btn.addEventListener('click', function() {
+      var pr;
+      try { pr = playFn(); } catch(e) { pr = null; }
+      if (pr && pr.then) {
+        pr.then(function(){ btn.remove(); }).catch(function(){ /* 播放仍失败：保留按钮可重试 */ });
+      }
+      /* pr 为 null（同步 throw）时保留按钮，不删除唯一重试入口 */
+    });
+    bubbleEl.appendChild(btn);
+  };
+  try {
+    var pr = playViaFrame();
+    if (pr && pr.then) {
+      pr.catch(function(err) {
+        /* iOS 自动播放被拒（NotAllowedError 等）→ 点按兜底（手势内必放） */
+        showBtn(playViaFrame);
+      });
     }
-  } catch(e) { played = false; }
-  if (!played) {
-    // 跨源/缺元素降级：仅播声，不驱动嘴
-    try { var a = new Audio(url); a.play(); } catch(e2) {}
+  } catch(e) {
+    /* 跨源/缺元素降级：仅播声不驱动嘴；仍带点按兜底 */
+    var pr2;
+    try { pr2 = playViaAudio(); } catch(e2) { pr2 = null; showBtn(playViaAudio); }
+    if (pr2 && pr2.then) { pr2.catch(function(){ showBtn(playViaAudio); }); }
   }
 }
 
@@ -626,6 +747,11 @@ function init() {
       addBubble({type:'notice', text:'档案加载失败：' + err.message});
       sendBtn.disabled = true;
     });
+
+  fetch('data/avatar/emotions.json')
+    .then(function(r) { if (!r.ok) throw new Error('no emotions'); return r.json(); })
+    .then(function(cfg) { emotionsCfg = cfg; })
+    .catch(function() { emotionsCfg = null; /* 资产未就绪：功能静默关闭 */ });
 
   // 输入框 auto-grow
   inputText.addEventListener('input', autoGrow);
