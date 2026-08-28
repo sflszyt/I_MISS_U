@@ -1,7 +1,45 @@
 # 交接文档（HANDOFF）
 
-> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-08-27，纸片人 Phase 1 收官（viseme 时间轴 + 四态嘴 + 眨眼 + 微摆整脸微活）**。
+> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-08-29，桌面陪伴 8A/8B 全线 + 三条微信路径研究收口（iLink/OCR）+ 蕾咪拆解**。
 > 读这份之前先读 `CLAUDE.md`（铁律），再读仓库根的 `task_plan.md` / `progress.md` / `findings.md`（MVP 计划与实时状态）。研究依据在 `docs/research/`。
+
+## ⓪⁸ 增补（2026-08-28→29：桌面陪伴上线 + 微信接入四路径全查 + 情绪贴片首轮，最先看这段）
+
+**本轮主线=任务 #18 桌面陪伴（companion）从立项到三平台上线；支线=为"接入各平台聊天"副产品把微信四条路径全部查清（#20 iLink / #21 OCR），以及 #19 蕾咪拆解。**
+
+### A. 桌面陪伴 companion（任务 #18，Phase 8A/8B）——已有可用产物
+1. **形态定案（用户裁决链）**：报告 `docs/research/desktop-companion.md` 三档裁决→用户选**上限形态"打开才在的对话窗口"**（条件 a-f 硬规格，非常驻桌宠）；架构=**iframe 组合**（companion 父页 iframe 内嵌 avatar.html face-only + 复用 chat 大脑），**avatar.html/chat.html 零改动，companion 纯新增**。
+2. **8A-0 告别/降级协议**：`docs/companion-farewell-protocol.md`（条件 f 前置件，第五格留用户填一句话）。
+3. **8A-2a 核心闭环**（commit caa1771）：`tools/build_companion_page.py` → `people/mama/archive_out/companion.html`（**不进 archive_dist**）。打字→三源检索→BYOK LLM 流式→:8022 合成她的声音→路由进 iframe 的 `audio#player`→脸的嘴动（RMS）。DeepSeek 写 + Codex 三轮 ACCEPT。**真浏览器实测：TTS→脸→嘴动端到端通**（speaking 态 + half 嘴型）。
+4. **8B-甲 三平台兼容 + 情绪层**（commit 7602150）：①**iOS 音频解锁**（send 手势内 SILENT_WAV 静音 play/pause + 向 iframe 派发合成 click 触发 avatar 的 audioCtx.resume）②**自动播放被拒→气泡 ▶"播放她的声音"按钮兜底**（同步 throw/promise reject 双路径）③CSS：viewport-fit/100dvh/safe-area/输入框 16px 防缩放 ④**情绪层运行时**：companion 侧向 iframe 注入 `emotion-overlay` img（**显式 inline style 不挂 mouth-patch 类**，插眨眼层之下）+ `emotions.json` 数据驱动（emotion→file+keywords，**404 静默关闭**）+ 关键词检测 + 同名防呆滞刷新计时 + 回落。Playwright 桌面 + iPhone 390×844 视口全绿。
+5. **8B-3 情绪贴片首轮**（commit 6465724）：ComfyUI 复用 gen_avatar_candidates.build_graph（Qwen-Image-Edit）生成 **4 情绪×3 种子=12 张**（happy 弯眼/sad 蹙眉/stern 嗔怪/think 侧看）；**首轮即温和+形象一致性全保**（归因=眉眼改动比嘴型温和 + prompt 锁死嘴/镜框/发/脸）。烘焙数学=双镜片内区(blink rects 羽化8)+眉带(370,225,820,315 羽化10)。审核页 `archive_out/emo_review.html`（12 GIF 底图↔情绪 0.8s 交替）已上 8020。**⏳ 等用户每情绪定稿 1 个 → 8B-3b 烘焙全尺寸 RGBA + 写 emotions.json 激活。**
+6. **DeepSeek 新工艺定式（重要）**：改现有大文件用**"全文回显+区域纪律+diff 校验"**——规格含改动区+原文件全文，产出逐块对应规格、diff 实证零漂移（对照 8A-2a 让 DeepSeek 整函数重生成→标识符全猜错的漂移事故）。
+7. **访问方式**：本机/手机经 Tailscale `http://100.116.45.2:8020/companion.html`；⚠️ **iPhone 上她的声音可能被 iOS autoplay 拦→出 ▶ 按钮**（点一下即放）；桌面浏览器完整。**⏳ 8B-4 用户真机验收（iPhone/Mac 经 Tailscale）未做。**
+8. **⏳ 未做：8A-2b 伦理护栏**（条件 a-e：关窗道别语/空闲离场/rhythm 节律限速/使用统计自见卡）——**companion v1 是纯技术闭环，护栏没上，日常常用前必须补**。
+
+### B. 微信接入四路径——全部查清，结论：没有一条为"家人向"打开干净的门
+> 副产品诉求=把"调教好的 mama"接入各平台（尤其微信）文字+语音聊天。四路径全景（详见各 docs/research）：
+- **① UIA 自动化**（任务 #16，wechat-ui-automation.md 第六节）：4.1.12.26 **NO-GO 铁证**（Qt 无障碍桥被主动关，控件树恒 3 节点空壳，五重触发全败）。
+- **② iLink/ClawBot 官方协议**（任务 #20，dsh-im-analysis.md）：**腾讯 2026 官方个人号 Bot 协议，第三条路，实质更新"微信封死"结论**；reply-only 天然契合"永不主动"。**但校核 refuted"官方=可给家人用"**：机主控自己 agent 设计/dsh-im 直连属未授权客户端/家人拓扑无据/腾讯可随时终止。dsh-im=连接层非大脑（接 persona 要写冒充 DeepSeek Harness 的本机 shim）、**不发原生语音条**。
+- **③ 服务号/企业微信**：需企业主体；企微 aibot 对外部个人微信直接拦截=家人向 NO-GO。
+- **④ OCR/RPA**（任务 #21，wechat-ocr-automation.md）：**GitHub 有零件没成品**（社媒"skill"=YoKo/pywechat 是 UIA 路线，在 4.1.12.26 死）；**★新事实：微信 PC 4.1.9+（用户 4.1.12.26 已有）支持发原生语音条（按住右Alt）**，VB-Cable 虚拟声卡+keyDown/keyUp 可发她真声语音条（**唯一 iLink 给不了的能力**，但微信 AGC/降噪可能劣化克隆音色待 A/B）。校核 refuted"OCR 唯一绕 UIA"（DB 读才是可靠读侧）。
+- **共同裁决**：**自用**（绑用户自己号+仅自己模式+顺带落地轴五 sessions 采集）=低风险 GO；**家人向=默认 NO-GO**（第三方受众=griefbot 哀悼者/继承人须三方同意，沉浸/欺骗最大化）。**OCR 家人向比 iLink 更该 NO-GO**（零 bot 标识、欺骗性最强）。**⏳ 三条微信线均等用户裁决方向；未写一行接入代码。**
+- **用户可自查两硬点**：①微信 设置>插件 看有无 **ClawBot** 入口（秒级，判 iLink 灰度，**不用备弃号**）②iLink/OCR 能否发原生语音条动工前活体验证。
+
+### C. 蕾咪拆解（任务 #19，kira-remy-analysis.md）
+"这种效果"=透明桌宠立绘窗 + 情绪表情立绘切换 + 打字机气泡；技术栈仅 **PyQt5 + 8 张 PNG，无 Live2D、无语音、口型仅 Open/Shut 双帧**（比我们落后两代）。**用户否全身化（维持半身框）**——蕾咪"全身动画"实为整图切换已拆穿。借形（情绪表情层→已做进 8B）不借魂（常驻/主动/游戏化/云识图全排除）。桌宠壳（方案乙 QWebEngineView/Tauri）留远期。
+
+### D. 环境现场（08-29 会话结束时）
+- **:8022 TTS 常驻**（生成情绪贴片时曾停腾显存，已恢复；exp=mama_v02f160_llm e14）；**:9880 GSV 生成时被停未恢复**（需要时手动 api_v2）；**:8020 档案站常驻**（companion.html/emo_review.html/avatar/chat 都在）；**ComfyUI 起过（生成完可停，占显存）**；Tailscale userspace 常驻 100.116.45.2。**机器重启后 8020/8022/Tailscale 均需手动拉起。**
+- 新装库：`uiautomation 2.0.29` + `comtypes 1.4.16`（#16 探针用）。dsh-im/kira-remy 克隆在 scratchpad（研究用，未入库）。
+- **系统 python 无 numpy/ffmpeg**（PIL 合成改用 ImageChops；转码需 ffmpeg 在盘状态待复核）；ComfyUI 情绪生成调用器坑：poll_history 返回 (status,entry) 元组、extract_output_image 返回 (fname,subf,type) 元组。
+
+### 下回合建议顺序（08-29 刷新，覆盖下方各旧版）
+1. **情绪贴片收尾（最接近完成）**：等用户在 emo_review.html 每情绪定稿 1 个 → 8B-3b 烘焙 RGBA + emotions.json 激活 → companion 情绪层真正生效。
+2. **8A-2b 伦理护栏**（companion 日常可用前必须）：关窗道别/空闲离场/rhythm 限速/使用统计卡。
+3. **8B-4 用户真机验收**（iPhone/Mac 经 Tailscale 开 companion.html）。
+4. 微信三线等用户裁决（自用验证 / 先不做）；若自用，先建共享 `persona_core.py`（chat.html 检索/Tier 逻辑 Python 直译，所有 headless 皮肤共用）。
+5. 零散续：talking-head 特别版试片 / 601 敏感复核 / persona Q1-Q13 / DeepSeek key 轮换。
 
 ## ⓪⁷ 增补（2026-08-22→08-27：纸片人从"疯狂闪烁"到整脸微活全弧线，最先看这段）
 
