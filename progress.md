@@ -320,3 +320,10 @@
 - Codex 误报 1 条（send 监听被同行注释吞）：cat -A 实证 621 行独立成行 LF 结尾，CJK 行计数误读（findings 先例），未改
 - 真浏览器 Playwright 冒烟全绿：iframe sameOrigin=true + player 可达（speakBlob 路由确认）+ playlist/controls display:none + avatar flex 可见 + 抽屉开合 + 两处非本人标识 + deepseek-v4-flash 占位符；截图确认脸干净渲染 face-only；console 仅 favicon404(豁免)+:8022未启(TTS优雅降级)二良性
 - companion.html 生成于 people/mama/archive_out（不进 archive_dist）；下一步 8A-2b 条件 a-e 伦理护栏
+
+## Session 2026-08-28（续：任务 #19 蕾咪拆解研究）
+- 用户立项：研究 kira-remy-official，想把数字人做成"这种效果"（即 08-27 截图的蕾咪桌宠）
+- 侦察：GitHub 仓库 WebFetch + 本地 Downloads\Remy_v1.2.1.zip / Desktop\Remy 实装在盘；克隆源码 ~14k 行 Python 逐行拆解（仓库小，直读优于 workflow）
+- 机制拆透：透明窗=Frameless+StaysOnTop+WA_TranslucentBackground+QLabel 立绘；情绪=LLM 回复关键词匹配→8 张 PNG 切换（同表情防呆滞/说完回落 Shut）；说话=Open/Shut 静态双帧（无音频无口型——比我们 Phase 1 落后两代）；37 字回复约束
+- 报告成文 docs/research/kira-remy-analysis.md：借形（透明立绘窗/情绪表情层/打字机气泡细节）不借魂（常驻/主动/游戏化/云识图全排除）；落地候选 方案甲(情绪贴片层)→方案乙(桌宠壳 QWebEngineView/Tauri) 等用户裁决
+- task_plan 注册 Phase 9（任务 #19）
