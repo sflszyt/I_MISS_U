@@ -312,3 +312,11 @@
 - 源文件接口摸清：avatar 单 audio#player+analyser（blob 无时间轴自动落 RMS 口型）；chat attachVoiceBar 用独立 Audio 不驱动嘴=各持一半；streamRequest openai payload 无 thinking 控制（DeepSeek 默认思考坑）；占位符 deepseek-chat 已退役
 - **架构决策：iframe 组合**（非大合并页）——companion 父页 iframe avatar.html?mode=face + TTS blob 路由进 iframe audio；避免重构/触碰已上线 avatar.html，改动面最小
 - 下一步：8A-1 avatar 两处追加式小改（DeepSeek+Codex，验收字节一致+像素复验）
+
+## Session 2026-08-28（续：8A-2a 桌面陪伴合流页核心闭环）
+- 架构定案：iframe 组合（父页 iframe avatar.html face-only + 复用 chat 大脑），avatar.html/chat.html 零改动，companion 纯新增
+- DeepSeek 写 tools/build_companion_page.py（NOTHINK=1 关推理防烧正文；694 行含完整 HTML 模板 + 逐字复用 chat 大脑 JS）
+- Codex 审核链：R1 REJECT 3 BLOCKER(三源检索退化/分片键名/加载时序)+2 MAJOR(停止按钮/并发) → 我 4 处外科修（DeepSeek 整函数重生成漂移严重弃用，改声明 hotfix）→ R2 又抓 1 MAJOR(saveSettings 提前放行+首条并发双发) → contextLoaded+sendPending 双门控 → R3 ACCEPT
+- Codex 误报 1 条（send 监听被同行注释吞）：cat -A 实证 621 行独立成行 LF 结尾，CJK 行计数误读（findings 先例），未改
+- 真浏览器 Playwright 冒烟全绿：iframe sameOrigin=true + player 可达（speakBlob 路由确认）+ playlist/controls display:none + avatar flex 可见 + 抽屉开合 + 两处非本人标识 + deepseek-v4-flash 占位符；截图确认脸干净渲染 face-only；console 仅 favicon404(豁免)+:8022未启(TTS优雅降级)二良性
+- companion.html 生成于 people/mama/archive_out（不进 archive_dist）；下一步 8A-2b 条件 a-e 伦理护栏

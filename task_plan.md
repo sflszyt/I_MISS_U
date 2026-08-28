@@ -111,7 +111,8 @@
 - **Phase 8A 开工清单（2026-08-28）**：
   - ✅ 8A-0 告别/降级协议 docs/companion-farewell-protocol.md（条件 f，Claude 起草用户可改；第五格留用户填）
   - ⬜ 8A-1 build_avatar_page.py 两处追加式小改（DeepSeek+Codex）：①face-only 显示模式（?mode=face 隐藏播放列表 chrome 只留脸）②接收外部音频（postMessage/或父页直接设 audio#player.src 播 TTS blob 触发 RMS 口型）。**验收=无参数/无消息时 avatar.html 重建字节级一致 + 像素级口型复验**
-  - ⬜ 8A-2 tools/build_companion_page.py + companion.html（父页 iframe avatar.html?mode=face + 复用 chat 检索三源/SSE 双协议/buildMessages/TTS，把 blob 路由进 iframe audio；条件 a-e 行为：只应答/关窗道别语+空闲离场/Tier 与合成标签不减配/rhythm 节律限速/使用统计自见卡）；进 archive_out 不进 archive_dist
+  - 🔶 8A-2a **核心闭环完成**（2026-08-28，DeepSeek 写 + Codex REJECT→REJECT→ACCEPT + 声明 hotfix）：tools/build_companion_page.py 入库；companion.html（父页 iframe avatar.html face-only + 复用 chat 三源检索/SSE 双协议/buildMessages/TTS → blob 路由进 iframe audio#player 触发 RMS 口型）。Codex 两轮抓 3 BLOCKER（三源检索退化/分片键名 data.shards→message_shards/加载时序无门控）+ 2 MAJOR（停止按钮禁用/saveSettings 提前放行与并发双发）；DeepSeek 整函数重生成漂移严重（标识符全猜错）→ 改外科式声明 hotfix + contextLoaded/sendPending 双门控（比 chat.html 更严）→ ACCEPT。Codex 误报 1 条（send 监听被注释吞，cat -A 实证独立成行）。**真浏览器冒烟全绿**：iframe 同源可存取+player 可达+chrome 隐藏脸可见+抽屉+两处非本人标识+deepseek-v4-flash 占位符（console 仅 favicon404+TTS未启二良性）。thinking:disabled(仅 deepseek 端点)+占位符修正一并落地（8A-3 折入）
+  - ⬜ 8A-2b 条件 a-e 伦理护栏：关窗道别语（取 rhythm/语料 Tier-2）+ 空闲「去忙了」离场 + rhythm.json 真实节律限速 + 使用统计自见卡（首页/三月自查）；另修 contextLoaded 混用「未加载/已失败」两义的非阻塞瑕疵
   - ⬜ 8A-3 chat 构建器两处小修（payload 加 thinking:{type:disabled} 仅 endpoint 含 deepseek 时 + 占位符 deepseek-chat→deepseek-v4-flash；companion 与 chat.html 同源共享，一并修）
   - ⬜ 8A-4 轴五 sessions 采集：tts_server.py 加 POST /session → people/<slug>/sessions/*.jsonl（第二纪元，数字人话语永久 Tier-3）
   - ⬜ 8A-5 壳=Edge --app 快捷方式（刻意不自启不置顶）+ Playwright 真浏览器验收 + 像素级口型验收 + 用户真机验收
