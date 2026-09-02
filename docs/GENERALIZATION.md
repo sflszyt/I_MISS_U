@@ -153,7 +153,7 @@ people/<slug>/raw+normalized          people/<slug>/sessions/
 
 ### 5.2 数据流设计
 
-1. **采集**：chat.html 每轮对话落地 session 记录 `{ts, role: user|simulacrum, text, provider, model, retrieval_used[]}`。双通道：
+1. **采集**（✅ 2026-09-01 已在 companion.html 落地：tts_server `POST /session` + `/tts` 另存 WAV + localStorage 排队补传；chat.html 未接）：chat.html 每轮对话落地 session 记录 `{ts, role: user|simulacrum, text, provider, model, retrieval_used[]}`。双通道：
    - 本地服务在（`session_collector`，可并入 tts_server 加 `POST /session` 端点）→ 自动写 `sessions/YYYY-MM/session_<id>.jsonl`
    - 服务不在（纯静态档案场景）→ localStorage 持久化 + 页面提供"导出对话"下载 JSONL（用户手动放回 sessions/）
 2. **摄入**：`tools/ingest_sessions.py`（构建端）：校验/去重/敏感扫描 → sessions 层规范化

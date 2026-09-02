@@ -59,6 +59,11 @@ TEMPLATE = r"""<!DOCTYPE html>
   .bubble.center {
     align-self: center; background: none; color: #666; font-size: 13px;
   }
+  .time-divider { align-self: center; color: #666; font-size: 11px; margin: 6px 0 2px; }
+  .typing-dots i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #8888aa; margin: 0 2px; animation: typing-blink 1.2s infinite; }
+  .typing-dots i:nth-child(2) { animation-delay: 0.2s; }
+  .typing-dots i:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes typing-blink { 0%, 80%, 100% { opacity: 0.25; } 40% { opacity: 1; } }
   .bubble-avatar {
     width: 32px; height: 32px; border-radius: 50%; object-fit: cover;
     background: #333; flex-shrink: 0;
@@ -99,6 +104,7 @@ TEMPLATE = r"""<!DOCTYPE html>
     padding: 8px; border-radius: 6px; font-size: 13px; outline: none;
   }
   #drawer select:focus, #drawer input:focus { border-color: #5566aa; }
+  #drawer .cfg-hint { font-size: 11px; color: #7788aa; margin: 4px 0 8px; line-height: 1.5; min-height: 1em; }
   #save-btn {
     background: #2d4a7a; border: none; color: #fff; border-radius: 8px;
     padding: 10px; font-size: 14px; cursor: pointer; font-weight: 600; margin-top: 8px;
@@ -146,9 +152,13 @@ TEMPLATE = r"""<!DOCTYPE html>
   <div>
     <label>服务商</label>
     <select id="cfg-provider">
-      <option value="openai">OpenAI 兼容（DeepSeek 等）</option>
-      <option value="anthropic">Claude 官方（Anthropic）</option>
+      <option value="openai">OpenAI</option>
+      <option value="anthropic">Anthropic（Claude）</option>
+      <option value="deepseek">DeepSeek</option>
+      <option value="kimi">Kimi（Moonshot）</option>
+      <option value="custom">自定义（OpenAI 兼容端点）</option>
     </select>
+    <div class="cfg-hint" id="cfg-hint"></div>
   </div>
   <div>
     <label>接口地址</label>
@@ -200,7 +210,32 @@ var knowledgeCache = null;
 var knowledgeLoading = false;
 var ttsBase = location.protocol + '//' + location.hostname + ':8022';
 var ttsAvailable = false;
-var settings = {url:'', model:'', key:'', provider:'openai'};
+var sessionId = buildSessionId(new Date());
+var sessionTurn = 0;
+var sessionQueueKey = storageKey + '_sessionq';
+var sessionFlushing = false;
+var sessionStarted = false;
+var lastMessageTs = null;
+var TIME_DIVIDER_GAP_MS = 5 * 60 * 1000;
+var SESSION_QUEUE_MAX = 500;
+var voiceTurn = null;            /* 当前回复的呈现引擎状态 */
+var playerEndedHooked = false;   /* iframe player 的 ended 监听只挂一次 */
+var TTS_TOTAL_MAX = 240;         /* 全文超过此长度不走语音（分句后仍太长的失控回复） */
+var SEG_FIRST_MAX = 24;          /* 首段目标上限（越短首声越快） */
+var SEG_MAX = 42;                /* 后续段目标上限 */
+var SEG_MIN = 6;                 /* 过短句并入相邻段 */
+var activePlay = null;          /* 当前占用 iframe player 的回合（用于 ended 归属校验） */
+var PROVIDERS = {
+  openai: { url: 'https://api.openai.com/v1/chat/completions', model: 'gpt-5.6', keyPlaceholder: 'sk-...', hint: 'OpenAI 官方 Chat Completions 端点' },
+  anthropic: { url: 'https://api.anthropic.com/v1/messages', model: 'claude-opus-5', keyPlaceholder: 'sk-ant-...', hint: '需要 console.anthropic.com 的 API 额度（Claude Max 订阅不含 API）' },
+  deepseek: { url: 'https://api.deepseek.com/chat/completions', model: 'deepseek-v4-flash', keyPlaceholder: 'sk-...', hint: '追求更强可改模型为 deepseek-v4-pro' },
+  kimi: { url: 'https://api.moonshot.cn/v1/chat/completions', model: 'kimi-k3', keyPlaceholder: 'sk-...', hint: '海外账号请把地址改为 https://api.moonshot.ai/v1/chat/completions；更省可改模型为 kimi-k2.6' },
+  custom: { url: '', model: '', keyPlaceholder: '', hint: '任意 OpenAI 兼容端点（如本地 Ollama / LM Studio 的 /v1/chat/completions）' }
+};
+var DEFAULT_PROVIDER = 'deepseek';
+var settings = {url:'', model:'', key:'', provider: DEFAULT_PROVIDER, profiles: {}};
+var drawerProvider = DEFAULT_PROVIDER;
+var draftProfiles = null;
 var companionVoiceUrls = [];
 var faceReady = false;
 var contextLoaded = false;
@@ -216,35 +251,284 @@ var emotionImg = null;
 function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
+
+function pad2(n) {
+  return (n < 10 ? '0' : '') + n;
+}
+
+function buildSessionId(d) {
+  var s = pad2(d.getFullYear()) + pad2(d.getMonth() + 1) + pad2(d.getDate()) + '-' + pad2(d.getHours()) + pad2(d.getMinutes()) + pad2(d.getSeconds()) + '-';
+  var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  for (var i = 0; i < 6; i += 1) {
+    s += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return s;
+}
+
+function isoLocal(d) {
+  var off = d.getTimezoneOffset();
+  var sign = off <= 0 ? '+' : '-';
+  var abs = Math.abs(off);
+  var hh = pad2(Math.floor(abs / 60));
+  var mm = pad2(abs % 60);
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + 'T' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds()) + sign + hh + ':' + mm;
+}
+
+function formatTimeLabel(ts, nowTs) {
+  var d = new Date(ts);
+  var n = new Date(nowTs);
+  var hm = pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+  var dStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  var nStart = new Date(n.getFullYear(), n.getMonth(), n.getDate()).getTime();
+  if (dStart === nStart) { return hm; }
+  if (nStart - dStart === 86400000) { return '昨天 ' + hm; }
+  if (nStart - dStart > 0 && nStart - dStart < 7 * 86400000) { return '星期' + ['日','一','二','三','四','五','六'][d.getDay()] + ' ' + hm; }
+  if (d.getFullYear() === n.getFullYear()) { return (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + hm; }
+  return d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + hm;
+}
+
+function maybeAddTimeDivider(ts) {
+  if (lastMessageTs === null || ts - lastMessageTs > TIME_DIVIDER_GAP_MS) {
+    var div = document.createElement('div');
+    div.className = 'time-divider';
+    div.textContent = formatTimeLabel(ts, Date.now());
+    chat.appendChild(div);
+  }
+  lastMessageTs = ts;
+}
+
+function readSessionQueue() {
+  var raw = null;
+  try { raw = localStorage.getItem(sessionQueueKey); } catch (e) { return []; }
+  if (!raw) { return []; }
+  try {
+    var arr = JSON.parse(raw);
+    if (Object.prototype.toString.call(arr) === '[object Array]') { return arr; }
+    return [];
+  } catch (e) { return []; }
+}
+
+function writeSessionQueue(arr) {
+  try { localStorage.setItem(sessionQueueKey, JSON.stringify(arr)); } catch (e) {}
+}
+
+function makeQid() {
+  return sessionId + '-' + Date.now() + '-' + Math.floor(Math.random() * 1000000);
+}
+
+function enqueueSession(record) {
+  if (!record.qid) { record.qid = makeQid(); }
+  var q = readSessionQueue();
+  q.push(record);
+  while (q.length > SESSION_QUEUE_MAX) { q.shift(); }
+  writeSessionQueue(q);
+}
+
+function postSession(record) {
+  return fetch(ttsBase + '/session', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(record)
+  }).then(function(r) {
+    if (!r.ok) { throw new Error('session ' + r.status); }
+    return true;
+  });
+}
+
+function removeQueued(qid) {
+  var q = readSessionQueue();
+  var rest = [];
+  for (var i = 0; i < q.length; i++) {
+    if (q[i].qid !== qid) { rest.push(q[i]); }
+  }
+  writeSessionQueue(rest);
+}
+
+function flushSessionQueue() {
+  if (sessionFlushing) { return; }
+  var q = readSessionQueue();
+  if (!q.length) { return; }
+  sessionFlushing = true;
+  var next = function() {
+    var current = readSessionQueue();
+    if (!current.length) {
+      sessionFlushing = false;
+      return;
+    }
+    var rec = current[0];
+    if (!rec.qid) {                       /* 旧版无 qid 的积压记录：补 id 回存后照常发送，不丢弃 */
+      rec.qid = makeQid();
+      writeSessionQueue(current);
+    }
+    postSession(rec).then(function() {
+      removeQueued(rec.qid);
+      next();
+    }).catch(function() {
+      sessionFlushing = false;
+    });
+  };
+  next();
+}
+
+function logSession(rec) {
+  var record = {
+    session_id: sessionId,
+    turn: (typeof rec.turn === 'number') ? rec.turn : sessionTurn,
+    role: rec.role,
+    text: String(rec.text || ''),
+    ts: isoLocal(new Date()),
+    provider: settings.provider || '',
+    model: settings.model || '',
+    page: 'companion'
+  };
+  ['emotion', 'tts', 'retrieval_used', 'ua', 'aborted', 'detail'].forEach(function(k) {
+    if (rec[k] !== undefined) { record[k] = rec[k]; }
+  });
+  if (!ttsAvailable) {
+    enqueueSession(record);
+    return;
+  }
+  postSession(record).then(function() {
+    flushSessionQueue();
+  }).catch(function() {
+    enqueueSession(record);
+  });
+}
+
+function ensureSessionStarted() {
+  if (sessionStarted) { return; }
+  sessionStarted = true;
+  logSession({role: 'event', turn: 0, text: 'session_start', ua: navigator.userAgent});
+}
+function inferProvider(url, provider) {
+  if (Object.prototype.hasOwnProperty.call(PROVIDERS, provider)) { return provider; }
+  if (typeof url !== 'string') { url = ''; }
+  if (url.indexOf('api.anthropic.com') !== -1) { return 'anthropic'; }
+  if (url.indexOf('api.deepseek.com') !== -1) { return 'deepseek'; }
+  if (url.indexOf('moonshot.cn') !== -1 || url.indexOf('moonshot.ai') !== -1) { return 'kimi'; }
+  if (url.indexOf('api.openai.com') !== -1) { return 'openai'; }
+  if (url) { return 'custom'; }
+  return DEFAULT_PROVIDER;
+}
+function normalizeProfile(p) {
+  var result = {url: '', model: '', key: ''};
+  if (p && typeof p === 'object') {
+    result.url = (typeof p.url === 'string') ? p.url : '';
+    result.model = (typeof p.model === 'string') ? p.model : '';
+    result.key = (typeof p.key === 'string') ? p.key : '';
+  }
+  return result;
+}
+function cloneProfiles(src) {
+  var result = {};
+  if (src && Object.prototype.toString.call(src) === '[object Object]') {
+    for (var key in src) {
+      if (Object.prototype.hasOwnProperty.call(src, key) && Object.prototype.hasOwnProperty.call(PROVIDERS, key)) {
+        result[key] = normalizeProfile(src[key]);
+      }
+    }
+  }
+  return result;
+}
 function loadSettings() {
   try {
     var raw = localStorage.getItem(storageKey);
     if (raw) {
       var parsed = JSON.parse(raw);
-      settings = { url: parsed.url || '', model: parsed.model || '', key: parsed.key || '', provider: parsed.provider || 'openai' };
-    } else { settings = {url:'', model:'', key:'', provider:'openai'}; }
-  } catch(e) { settings = {url:'', model:'', key:'', provider:'openai'}; }
+      /* 旧版存档（无 profiles）里 'openai' 是"任意 OpenAI 兼容"的笼统值：除 anthropic 外按 URL 归类 */
+      var hasProfilesMap = Object.prototype.toString.call(parsed.profiles) === '[object Object]';
+      var legacy = !hasProfilesMap;
+      var provider = (legacy && parsed.provider !== 'anthropic') ? inferProvider(parsed.url, undefined) : inferProvider(parsed.url, parsed.provider);
+      var profiles = {};
+      if (hasProfilesMap) {
+        for (var key in parsed.profiles) {
+          if (Object.prototype.hasOwnProperty.call(parsed.profiles, key) && Object.prototype.hasOwnProperty.call(PROVIDERS, key)) {
+            profiles[key] = normalizeProfile(parsed.profiles[key]);
+          }
+        }
+      }
+      if (!profiles[provider] && ((typeof parsed.url === 'string' && parsed.url) || (typeof parsed.model === 'string' && parsed.model) || (typeof parsed.key === 'string' && parsed.key))) {
+        profiles[provider] = normalizeProfile({url: parsed.url, model: parsed.model, key: parsed.key});
+      }
+      var normalized = normalizeProfile(parsed);
+      var base = withDefaults(provider, profiles[provider] || normalized);
+      settings = {url: base.url, model: base.model, key: base.key, provider: provider, profiles: profiles};
+    } else {
+      settings = {url: '', model: '', key: '', provider: DEFAULT_PROVIDER, profiles: {}};
+    }
+  } catch(e) {
+    settings = {url: '', model: '', key: '', provider: DEFAULT_PROVIDER, profiles: {}};
+  }
 }
 function settingsComplete() { return settings && settings.url && settings.model && settings.key; }
+function withDefaults(provider, p) {
+  if (!Object.prototype.hasOwnProperty.call(PROVIDERS, provider)) { provider = DEFAULT_PROVIDER; }
+  var d = PROVIDERS[provider];
+  var n = normalizeProfile(p);
+  return {url: n.url || d.url, model: n.model || d.model, key: n.key};
+}
+
+function profileFor(provider) {
+  if (!Object.prototype.hasOwnProperty.call(PROVIDERS, provider)) { provider = DEFAULT_PROVIDER; }
+  var src = null;
+  if (draftProfiles && Object.prototype.hasOwnProperty.call(draftProfiles, provider)) { src = draftProfiles[provider]; }
+  else if (settings.profiles[provider]) { src = settings.profiles[provider]; }
+  return withDefaults(provider, src);
+}
+function fillDrawerFields(provider) {
+  var p = profileFor(provider);
+  cfgUrl.value = p.url;
+  cfgModel.value = p.model;
+  cfgKey.value = p.key;
+  applyProviderHints(provider);
+}
+function stashDraft(provider) {
+  if (!Object.prototype.hasOwnProperty.call(PROVIDERS, provider)) { return; }
+  if (!draftProfiles) { draftProfiles = {}; }
+  draftProfiles[provider] = {url: cfgUrl.value.trim(), model: cfgModel.value.trim(), key: cfgKey.value.trim()};
+}
+function onProviderChange() {
+  stashDraft(drawerProvider);
+  drawerProvider = cfgProvider.value;
+  if (!Object.prototype.hasOwnProperty.call(PROVIDERS, drawerProvider)) {
+    drawerProvider = DEFAULT_PROVIDER;
+    cfgProvider.value = DEFAULT_PROVIDER;
+  }
+  fillDrawerFields(drawerProvider);
+}
 function saveSettings() {
-  settings = {url: cfgUrl.value.trim(), model: cfgModel.value.trim(), key: cfgKey.value.trim(), provider: cfgProvider.value};
+  var p = cfgProvider.value;
+  if (!Object.prototype.hasOwnProperty.call(PROVIDERS, p)) { p = DEFAULT_PROVIDER; }
+  stashDraft(p);
+  settings.profiles = cloneProfiles(draftProfiles);
+  settings.provider = p;
+  var active = withDefaults(p, settings.profiles[p]);
+  settings.url = active.url;
+  settings.model = active.model;
+  settings.key = active.key;
   try { localStorage.setItem(storageKey, JSON.stringify(settings)); } catch(e) {}
+  draftProfiles = null;
   closeDrawer(); updateChatState();
 }
 function openDrawer() {
-  cfgProvider.value = settings.provider; cfgUrl.value = settings.url; cfgModel.value = settings.model; cfgKey.value = settings.key;
-  updatePlaceholders(); drawer.classList.add('open'); drawerOverlay.classList.add('open');
+  draftProfiles = cloneProfiles(settings.profiles);
+  drawerProvider = Object.prototype.hasOwnProperty.call(PROVIDERS, settings.provider) ? settings.provider : DEFAULT_PROVIDER;
+  cfgProvider.value = drawerProvider;
+  fillDrawerFields(drawerProvider);
+  drawer.classList.add('open'); drawerOverlay.classList.add('open');
 }
-function closeDrawer() { drawer.classList.remove('open'); drawerOverlay.classList.remove('open'); }
-function updatePlaceholders() {
-  if (cfgProvider.value === 'anthropic') {
-    cfgUrl.placeholder = 'https://api.anthropic.com/v1/messages'; cfgModel.placeholder = '例如 claude-opus-5'; cfgKey.placeholder = 'sk-ant-...';
-  } else {
-    cfgUrl.placeholder = 'https://api.deepseek.com/chat/completions（任意 OpenAI 兼容端点）'; cfgModel.placeholder = '例如 deepseek-v4-flash'; cfgKey.placeholder = 'sk-...';
-  }
+function closeDrawer() { draftProfiles = null; drawer.classList.remove('open'); drawerOverlay.classList.remove('open'); }
+function applyProviderHints(provider) {
+  var d = PROVIDERS[provider] || PROVIDERS[DEFAULT_PROVIDER];
+  cfgUrl.placeholder = d.url || 'https://.../v1/chat/completions';
+  cfgModel.placeholder = d.model ? ('例如 ' + d.model) : '模型名';
+  cfgKey.placeholder = d.keyPlaceholder || 'API Key';
+  var hintEl = document.getElementById('cfg-hint');
+  if (hintEl) { hintEl.textContent = d.hint || ''; }
 }
 function clearChat() { chat.innerHTML = ''; }
 function addBubble(opts) {
+  if (opts.type === 'user' || opts.type === 'subject') { maybeAddTimeDivider(Date.now()); }
   var div = document.createElement('div');
   if (opts.type === 'user') { div.className = 'bubble user'; div.textContent = opts.text; }
   else if (opts.type === 'subject') {
@@ -492,7 +776,7 @@ function streamRequest(messages, onDelta, onDone, onError) {
 }
 
 /* ===== probeTts ===== */
-function probeTts() { fetch(ttsBase + '/health', {method:'GET'}).then(function(r){ ttsAvailable = !!r.ok; }).catch(function(){ ttsAvailable = false; }); }
+function probeTts() { fetch(ttsBase + '/health', {method:'GET'}).then(function(r){ ttsAvailable = !!r.ok; if (ttsAvailable) { flushSessionQueue(); } }).catch(function(){ ttsAvailable = false; }); }
 
 /* ===== sendMessage ===== */
 function sendMessage() {
@@ -509,9 +793,15 @@ function sendMessage() {
   inputText.value = ''; autoGrow();
   addBubble({type:'user', text: userText});
   history.push({role:'user', content: userText});
+  ensureSessionStarted();
+  sessionTurn += 1;
+  var thisTurn = sessionTurn;
+  logSession({role:'user', turn: thisTurn, text: userText});
 
-  var subjectBubble = addBubble({type:'subject', text: '…'});
+  var subjectBubble = addBubble({type:'subject', text: ''});
   var contentEl = subjectBubble.querySelector('.bubble-content');
+  cancelVoiceTurn();
+  setTypingIndicator(contentEl);
 
   function run() {
     sendPending = false;
@@ -521,13 +811,12 @@ function sendMessage() {
     var kld = retrieveKnowledge(tokens, (knowledgeCache||{}).memories, (knowledgeCache||{}).transcripts, {memTop: 3, transTop: 2});
     var combined = kld.memories.concat(snippets, kld.transcripts);
     var retrievalBlock = buildRetrievalBlock(combined);
+    var retrievalUsed = combined.map(function(x){ return (x.label || '[消息]') + ' ' + (x.date || ''); });
     var messages = buildMessages(systemPrompt, history, retrievalBlock, userText);
 
     var accText = '';
     streamRequest(messages, function(delta) {
       accText += delta;
-      contentEl.textContent = accText;
-      chat.scrollTop = chat.scrollHeight;
     }, function(finalText, aborted) {
       sendBtn.disabled = false;
       sendBtn.classList.remove('stop');
@@ -535,26 +824,17 @@ function sendMessage() {
       streaming = false;
       controller = null;
       if (aborted) {
+        contentEl.textContent = accText || '（已停止）';
         history.push({role: 'assistant', content: accText});
+        logSession({role:'simulacrum', turn: thisTurn, text: accText, aborted: true, tts: 'skipped', retrieval_used: retrievalUsed});
         return;
       }
-      contentEl.textContent = finalText;
       history.push({role: 'assistant', content: finalText});
-      showEmotion(detectEmotion(finalText));
-      chat.scrollTop = chat.scrollHeight;
+      var emo = detectEmotion(finalText);
       // TODO 8A-2b: 关窗道别语、空闲「去忙了」、rhythm.json 限速、使用统计自见卡
 
-      // TTS: 合成她的声音，路由进 iframe 的 audio#player
-      if (ttsAvailable && finalText && finalText.length > 0 && finalText.length <= 120) {
-        fetch(ttsBase + '/tts', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({text: finalText, lang: 'mandarin'})
-        })
-        .then(function(r) { if (!r.ok) throw new Error('tts ' + r.status); return r.blob(); })
-        .then(function(b) { speakBlob(b, contentEl); })
-        .catch(function() { /* 合成失败：保持文字气泡，不打断 */ });
-      }
+      var mode = startTurnPresentation(contentEl, finalText, thisTurn, emo);
+      logSession({role:'simulacrum', turn: thisTurn, text: finalText, emotion: emo, tts: mode === 'voice' ? 'requested' : (ttsAvailable ? 'skipped_length' : 'unavailable'), retrieval_used: retrievalUsed});
     }, function(err) {
       sendBtn.disabled = false;
       sendBtn.classList.remove('stop');
@@ -562,6 +842,7 @@ function sendMessage() {
       streaming = false;
       controller = null;
       contentEl.textContent = '（出错了：' + (err || '未知错误') + '）';
+      logSession({role:'event', turn: thisTurn, text:'llm_error', detail: String(err || '')});
     });
   }
 
@@ -662,52 +943,293 @@ function clearEmotion() {
   lastEmotion = null;
 }
 
-function speakBlob(blob, bubbleEl) {
-  var url = URL.createObjectURL(blob);
+function splitSegments(text) {
+  if (!text) return [];
+  var pieces = [];
+  var cur = '';
+  var i;
+  for (i = 0; i < text.length; i++) {
+    var ch = text.charAt(i);
+    cur += ch;
+    if (ch === '。' || ch === '！' || ch === '？' || ch === '!' || ch === '?' || ch === '；' || ch === ';' || ch === '\n') {
+      pieces.push(cur);
+      cur = '';
+    }
+  }
+  if (cur) pieces.push(cur);
+  var result = [];
+  var cur2 = '';
+  for (i = 0; i < pieces.length; i++) {
+    var piece = pieces[i];
+    if (!cur2) {
+      cur2 = piece;
+    } else {
+      var limit = (result.length === 0 ? SEG_FIRST_MAX : SEG_MAX);
+      if (cur2.replace(/\s/g, '').length < SEG_MIN || (cur2 + piece).length <= limit) {
+        cur2 += piece;
+      } else {
+        result.push(cur2);
+        cur2 = piece;
+      }
+    }
+  }
+  if (cur2) {
+    if (result.length > 0 && cur2.replace(/\s/g, '').length < SEG_MIN) {
+      result[result.length - 1] += cur2;
+    } else {
+      result.push(cur2);
+    }
+  }
+  return result;
+}
+function setTypingIndicator(el) {
+  el.textContent = '';
+  var dots = document.createElement('span');
+  dots.className = 'typing-dots';
+  var i;
+  for (i = 0; i < 3; i++) {
+    var dot = document.createElement('i');
+    dots.appendChild(dot);
+  }
+  el.appendChild(dots);
+}
+function hookPlayerEnded() {
+  if (playerEndedHooked) return;
+  try {
+    var p = frame.contentWindow.document.getElementById('player');
+    p.addEventListener('ended', function() {
+      var ap = activePlay;
+      activePlay = null;
+      if (ap && ap === voiceTurn && !ap.canceled) { onSegmentEnded(ap); }
+    });
+    playerEndedHooked = true;
+  } catch (e) { /* 跨源降级路径由 fallbackAudio 自带 ended */ }
+}
+function trackBlobUrl(url) {
   companionVoiceUrls.push(url);
   if (companionVoiceUrls.length > 50) {
-    try { URL.revokeObjectURL(companionVoiceUrls.shift()); } catch(e) {}
+    try { URL.revokeObjectURL(companionVoiceUrls.shift()); } catch (e) {}
   }
-  var playViaFrame = function() {
+}
+function revealSegment(vt, i) {
+  if (vt.canceled) return;
+  if (!vt.firstShown) {
+    vt.firstShown = true;
+    showEmotion(vt.emo);
+  }
+  vt.revealed = i + 1;
+  vt.contentEl.textContent = vt.segments.slice(0, vt.revealed).join('');
+  chat.scrollTop = chat.scrollHeight;
+}
+function revealAll(vt) {
+  vt.contentEl.textContent = vt.segments.join('');
+  vt.firstShown = true;
+  chat.scrollTop = chat.scrollHeight;
+  showEmotion(vt.emo);
+}
+function cancelVoiceTurn() {
+  if (!voiceTurn) return;
+  var vt = voiceTurn;
+  vt.canceled = true;
+  if (vt.textTimer) clearTimeout(vt.textTimer);
+  if (vt.safetyTimer) clearTimeout(vt.safetyTimer);
+  if (!vt.doneRevealing && vt.revealed < vt.segments.length) revealAll(vt);
+  try {
+    var p = frame.contentWindow.document.getElementById('player');
+    if (p && p.pause) p.pause();
+  } catch (e) {}
+  if (vt.fallbackAudio) { try { vt.fallbackAudio.pause(); } catch (e2) {} }
+  if (activePlay === vt) { activePlay = null; }
+  voiceTurn = null;
+}
+function onSegmentEnded(vt) {
+  if (!vt || vt !== voiceTurn || vt.canceled) return;
+  vt.playing = false;
+  vt.playIdx += 1;
+  tryAdvance(vt);
+}
+function tryAdvance(vt) {
+  if (vt.canceled || vt.playing) return;
+  var i = vt.playIdx;
+  if (i >= vt.segments.length) {
+    vt.doneRevealing = true;
+    return;
+  }
+  var b = vt.blobs[i];
+  if (b === undefined) {
+    return;
+  }
+  if (b === 'failed') {
+    revealSegment(vt, i);
+    vt.playIdx += 1;
+    setTimeout(function() { tryAdvance(vt); }, 400);
+    return;
+  }
+  vt.playing = true;
+  revealSegment(vt, i);
+  playSegmentBlob(vt, b);
+}
+function playSegmentBlob(vt, blob) {
+  var url = URL.createObjectURL(blob);
+  trackBlobUrl(url);
+  try {
     var p = frame.contentWindow.document.getElementById('player');
     if (!p) throw new Error('no player');
     p.muted = false;
     p.src = url;
-    return p.play();
-  };
-  var playViaAudio = function() {
+    activePlay = vt;
+    var pr = p.play();
+    pr.catch(function() {
+      activePlay = null;
+      showPlayButton(vt, url);
+    });
+  } catch (e) {
     var a = new Audio(url);
-    return a.play();
-  };
-  var showBtn = function(playFn) {
-    if (!bubbleEl) return;
+    vt.fallbackAudio = a;
+    a.addEventListener('ended', function() {
+      if (vt === voiceTurn && !vt.canceled) { onSegmentEnded(vt); }
+    });
+    var pr2;
+    try {
+      pr2 = a.play();
+    } catch (e2) {
+      vt.playing = false;
+      vt.playIdx += 1;
+      setTimeout(function() { tryAdvance(vt); }, 400);
+      return;
+    }
+    if (pr2 && pr2.catch) {
+      pr2.catch(function() {
+        showPlayButton(vt, url, a);
+      });
+    }
+  }
+}
+function showPlayButton(vt, url, fallbackAudio) {
+  if (vt.canceled) return;
+  if (!vt.playBtnShown) {
     var btn = document.createElement('button');
     btn.className = 'play-voice-btn';
     btn.textContent = '▶ 播放她的声音';
     btn.addEventListener('click', function() {
-      var pr;
-      try { pr = playFn(); } catch(e) { pr = null; }
-      if (pr && pr.then) {
-        pr.then(function(){ btn.remove(); }).catch(function(){ /* 播放仍失败：保留按钮可重试 */ });
+      var ok = false;
+      try {
+        var p = frame.contentWindow.document.getElementById('player');
+        if (p) {
+          p.muted = false;
+          p.src = url;
+          activePlay = vt;
+          var pr = p.play();
+          if (pr && pr.then) {
+            pr.then(function() { btn.remove(); }).catch(function() { activePlay = null; });
+            ok = true;
+          } else {
+            ok = true;
+            btn.remove();
+          }
+        }
+      } catch (e) {}
+      if (!ok && fallbackAudio) {
+        try {
+          var pr2 = fallbackAudio.play();
+          if (pr2 && pr2.then) {
+            pr2.then(function() { btn.remove(); }).catch(function() {});
+          } else {
+            btn.remove();
+          }
+          ok = true;
+        } catch (e2) {}
       }
-      /* pr 为 null（同步 throw）时保留按钮，不删除唯一重试入口 */
     });
-    bubbleEl.appendChild(btn);
-  };
-  try {
-    var pr = playViaFrame();
-    if (pr && pr.then) {
-      pr.catch(function(err) {
-        /* iOS 自动播放被拒（NotAllowedError 等）→ 点按兜底（手势内必放） */
-        showBtn(playViaFrame);
-      });
-    }
-  } catch(e) {
-    /* 跨源/缺元素降级：仅播声不驱动嘴；仍带点按兜底 */
-    var pr2;
-    try { pr2 = playViaAudio(); } catch(e2) { pr2 = null; showBtn(playViaAudio); }
-    if (pr2 && pr2.then) { pr2.catch(function(){ showBtn(playViaAudio); }); }
+    vt.contentEl.appendChild(btn);
+    vt.playBtnShown = true;
   }
+}
+function synthSegment(vt, i) {
+  if (vt.canceled || i >= vt.segments.length) return;
+  var seg = vt.segments[i];
+  if (seg.replace(/\s/g, '') === '') {
+    vt.blobs[i] = 'failed';
+    tryAdvance(vt);
+    synthSegment(vt, i + 1);
+    return;
+  }
+  fetch(ttsBase + '/tts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: seg, lang: 'mandarin', session_id: sessionId, turn: vt.turn })
+  })
+  .then(function(r) {
+    if (!r.ok) throw new Error('tts ' + r.status);
+    return r.blob();
+  })
+  .then(function(blob) {
+    vt.blobs[i] = blob;
+    tryAdvance(vt);
+    synthSegment(vt, i + 1);
+  })
+  .catch(function(err) {
+    vt.blobs[i] = 'failed';
+    if (!vt.failLogged) {
+      vt.failLogged = true;
+      logSession({ role: 'event', turn: vt.turn, text: 'tts_failed', detail: String((err && err.message) || err || '') });
+    }
+    tryAdvance(vt);
+    synthSegment(vt, i + 1);
+  });
+}
+function scheduleTextReveal(vt) {
+  var i = 0;
+  var step = function() {
+    if (vt.canceled) return;
+    if (i >= vt.segments.length) {
+      vt.doneRevealing = true;
+      return;
+    }
+    revealSegment(vt, i);
+    i += 1;
+    var delay = (i === 1) ? 400 : Math.min(600 + vt.segments[i - 1].length * 90, 3500);
+    vt.textTimer = setTimeout(step, delay);
+  };
+  vt.textTimer = setTimeout(step, 400);
+}
+function startTurnPresentation(contentEl, finalText, turnNo, emo) {
+  cancelVoiceTurn();
+  var segments = splitSegments(finalText);
+  var mode = (ttsAvailable && finalText.length <= TTS_TOTAL_MAX && segments.length > 0) ? 'voice' : 'text';
+  var vt = {
+    turn: turnNo,
+    contentEl: contentEl,
+    fullText: finalText,
+    segments: segments,
+    blobs: [],
+    revealed: 0,
+    playIdx: 0,
+    playing: false,
+    canceled: false,
+    firstShown: false,
+    doneRevealing: false,
+    failLogged: false,
+    playBtnShown: false,
+    emo: emo,
+    textTimer: null,
+    safetyTimer: null,
+    mode: mode
+  };
+  voiceTurn = vt;
+  if (mode === 'voice') {
+    hookPlayerEnded();
+    synthSegment(vt, 0);
+    vt.safetyTimer = setTimeout(function() {
+      if (!vt.firstShown && !vt.canceled) {
+        vt.canceled = true;
+        revealAll(vt);
+      }
+    }, 20000);
+  } else {
+    scheduleTextReveal(vt);
+  }
+  return mode;
 }
 
 /* ===== init ===== */
@@ -770,7 +1292,7 @@ function init() {
   drawerOverlay.addEventListener('click', closeDrawer);
   drawerCloseBtn.addEventListener('click', closeDrawer);
   saveBtn.addEventListener('click', saveSettings);
-  cfgProvider.addEventListener('change', updatePlaceholders);
+  cfgProvider.addEventListener('change', onProviderChange);
 }
 
 init();
@@ -783,6 +1305,11 @@ window.retrieveKnowledge = retrieveKnowledge;
 window.loadKnowledge = loadKnowledge;
 window.buildRetrievalBlock = buildRetrievalBlock;
 window.buildMessages = buildMessages;
+window.inferProvider = inferProvider;
+window.PROVIDERS = PROVIDERS;
+window.formatTimeLabel = formatTimeLabel;
+window.buildSessionId = buildSessionId;
+window.splitSegments = splitSegments;
 
 })();
 </script>

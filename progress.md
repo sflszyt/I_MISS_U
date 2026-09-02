@@ -359,3 +359,50 @@
 - 校核 refuted 两强论断（OCR 非唯一绕 UIA=DB 读才是可靠读侧；OCR 非独占家人可达=iLink 扫码同样可达靠伦理否决）
 - 报告 docs/research/wechat-ocr-automation.md 成文（四路径对照表修正版）；裁决=自用低风险 GO/家人向默认 NO-GO 且比 iLink 更甚（零 bot 标识欺骗性最强）
 - findings/task_plan 更新；四条微信路径全景定论=没有一条为家人向打开干净的门
+
+## Session 2026-09-01（8B-3b 情绪贴片定稿 + 烘焙 + 激活；待办清理）
+- 用户令"完整报告项目进度"→ 全景报告；用户裁决移除四项待办（601 敏感复核 / persona Q1-Q13 / DeepSeek key 轮换 / 拟音词释义）→ HANDOFF 活跃区删除+裁决记录（旧章节历史不改）
+- 用户"情绪贴片看了 ok 定稿吧"→ 对照表（底图 vs 12 候选眉眼区）→ 推荐并经用户确认：**四情绪均种子 5002**（happy s5003 瞳孔变棕、sad s5003 带泪珠排除）；12 候选+manifest 归档 versions/emo_candidates_20260829/
+- **8B-3b**：DeepSeek 两路并行——①新工具 tools/bake_face_patch.py（262→300 行）②build_avatar_page.py 的 load_emotion_assets 片段（96 行；Claude 接线 3 行+docstring 一行，声明）。Claude 直写纯数据 persona/emotions.json（定稿+溯源+关键词表，声明）
+- 烘焙实跑：4 贴片 [CHECK] max_diff=0，~180KB，coverage 10.9%；叠底图 vs emo_review 用户审核合成图 **max_diff=0**（所见即所得）；`build_avatar_page --person mama` → `[EMOTION] 4 emotions`，data/avatar 收 4 PNG + emotions.json（file 已带 ?v=hash）
+- **Codex R1 REJECT**（1 BLOCKER 自验失败先 unlink 旧成品 / MAJOR --jobs 缺文件冒 traceback / MAJOR 负 feather+bool/float 漏校验 / MAJOR 关键词误报『太好了！！！→stern』『不错→happy』/ MINOR 缺 docstring）→ 代码回炉 DeepSeek（全文回显+四改动项，diff 实证零漂移；docstring 被放 import 后由 Claude 上移，声明）+ 关键词 r2 收窄（去标点类/单字唉/泛词赞棒不错好呀/等会，听话→不听话/听话点/要听话）→ **R2 ACCEPT with fixes**（1 MAJOR：src/out 未校验字符串）→ 声明 hotfix 2 行 → **ACCEPT**
+- 工具负路径实测：缺 jobs/畸形 region/src 非字符串/互斥参数/out==base 全部单行 [ERROR] exit=2；重烘三次 sha256 均一致；单任务产物 cmp== 批任务
+- **真浏览器 E2E（run_code_unsafe）**：page.route mock 同源 SSE 端点 + 经 ⚙ 抽屉 UI 配置 + 真按发送 → 真实运行时 showEmotion(detectEmotion(finalText))：sad→display block/src emo_sad?v=/1104×944/absolute/在 eyes-blink 之前/无 mouth-patch 类 → happy 切换 → 7844ms 回落 display none。截图人眼确认蹙眉/弯眼真实渲染（neutral2 恰抓到眨眼）
+- **教训**：Playwright 截图为 DPR 1.5×，像素 diff 用 CSS 坐标会算成"眉眼带 0 变化"（假阴性）——坐标乘 devicePixelRatio 后眉眼带占脸部变化 40-66%；ambient 微摆会给全脸带来底噪 diff，截图 diff 需配人眼复核
+- 环境：机器曾重启，手动拉起 :8020（Start-Process 脱钩）与 :8022 TTS（venv python 直启 + 日志重定向；cmd /c 包 bat 的写法静默失败）；:9880 未起
+- 文档：task_plan 8B-3/8B-3b ✅、HANDOFF ⓪⁹ 增补+建议顺序刷新、memory 项目状态+验收铁律补 DPR 条目
+
+## Session 2026-09-01（续：companion 多服务商抽屉 + TTS 接播真实语音 bug）
+- 用户令"服务商设置 OpenAI/Anthropic/DeepSeek/Kimi，每个预填接口地址和模型"。前置核实：claude-api skill（claude-opus-5 / v1/messages）；WebSearch+官方文档核 `gpt-5.6`（Chat Completions 支持）与 Kimi 现役 `kimi-k3`（K2 系列 5 月停服、k2.5/moonshot-v1 8/31 下线；国内 base api.moonshot.cn，docs 已迁 platform.kimi.com）；curl OPTIONS+POST 实测四家端点 CORS 全通（Kimi 首次 grep 漏看误判为无 CORS，深查纠正）
+- 设计：5 项下拉（含自定义）；`PROVIDERS` 常量表驱动预填/placeholder/提示行；`settings.profiles[provider]` 各自记忆；旧存档 `inferProvider` 按 URL 归类；DEFAULT_PROVIDER=deepseek
+- 工艺：**区域规格法**——规格给 6 个原文区域+要求，DeepSeek 只输出 `=== Rx ===` 新文本，Claude 用 splice 脚本精确替换（锚点唯一性预检）；避免 830 行文件全文回显撞 32k 输出上限。bash heredoc 含单引号规格炸过一次 → 规格文件改用 Write 工具
+- Claude 声明 hotfix：规格漏洞——旧存档 provider 'openai' 现为合法键致 URL 归类失效 → legacy（无 profiles map）且非 anthropic 时按 URL 推断
+- **Codex R1 ACCEPT with fixes**：MAJOR 草稿直接写 settings.profiles（清空→切换→关抽屉不保存→后续保存把空值持久化）/ MINOR legacy 判定应用 `[object Object]` → DeepSeek r2（draftProfiles 草稿区 + cloneProfiles + closeDrawer 丢弃）→ **R2 ACCEPT**
+- E2E（Playwright run_code_unsafe，route mock 四家端点）：旧存档 openai+deepseek 地址→deepseek 且保留自定模型/key；五家切换预填正确；草稿保留；取消路径 localStorage 不变；Kimi 请求 Bearer+kimi-k3（OpenAI 协议）；Anthropic 请求 x-api-key+dangerous 头+system 顶层；新用户默认 DeepSeek、无 key 发送禁用
+- **用户真机首测**："api设置成功 对话上了 文字+语音回复通"→ 报 bug：她念完后播放训练用真实语音。根因 avatar.html `audio.ended → playAt((cur+1)%len)`，cur=-1 → 第一条真声。修法 1 行 `blob:` 守卫（声明 hotfix，Codex ACCEPT：src 判据充分、Safari blob 形态一致、pause 复位链不受影响）。E2E 真实 :8022 TTS：play→playing→pause→ended 后 2.5s player 仍 paused 于 blob、now-title 未变、avatar 无 speaking 类
+- 文档：task_plan 8B-5/8B-6/8B-4 刷新、HANDOFF ⓪⁹ 追加 7/8、memory 项目状态。**archive_dist 未同步 avatar.html 改动**（独立页行为不变）
+- **用户二报：「拉到 DeepSeek 地址和模型没预填」** → Playwright 复现两种存档形态（旧版只存 key→迁移归 deepseek 但 url/model 空；新版 deepseek profile 空）：`profileFor` 见 profile 即原样返回不补默认。DeepSeek r3：新增 `withDefaults(provider,p)`（空串→默认，非空不覆盖）；profileFor/loadSettings 统一经其输出 → Codex ACCEPT with fixes（MINOR：saveSettings 也应走 withDefaults 保持同会话语义一致）→ 声明 hotfix 3 行 → **ACCEPT**。E2E：只留 key 保存当场可发送且请求带默认 URL/模型；五家预填全对；自定模型 deepseek-v4-pro 不被覆盖；取消路径不变
+
+## Session 2026-09-01（续：微信式时间分隔 + 轴五 sessions 日志）
+- 用户令：①聊天栏微信式时间（每轮集中聊天顶上一个）②log 功能记录双方文字带时间戳 + 每轮语音文件。对齐 GENERALIZATION 轴五既定架构（`POST /session` 并入 tts_server、`sessions/YYYY-MM/session_<id>.jsonl`、服务不在 localStorage 排队）
+- DeepSeek 两路并行：tts_server.py 全文回显+区域纪律（diff 实证只落点名区域）；companion 七区域规格（RC/RS/RH/RA/RP/RM/RX）+ splice 脚本精确替换。node 直跑 formatTimeLabel 五档全对、buildSessionId 匹配服务端正则
+- 服务端 r1 实测（Python UTF-8 客户端；Git Bash curl 会把中文 body 编码搞坏→400 是测试工具问题）：/session 200 落盘、`../../evil`/bad role/bad turn/超长/非法 JSON 全 400；/tts 带 session 落 WAV 24kHz mono、同 turn 自动 `_2`、非法 sid best-effort 不写
+- **Codex R1 ACCEPT with fixes（4 MAJOR）**：①时间分隔按「上次分隔线」算会每 5 分钟冒一条→改按「上一条消息」间隔（我的规格错误）②`_read_json_body` 异常路径不发响应→全路径尽力发 4xx/5xx ③`save_audio` exists→write 非原子、后缀耗尽覆盖→`open('xb')` 循环+耗尽 raise ④队列 flush 用 shift 可能误删→qid 标识按 id 删（服务端白名单加 qid）→ DeepSeek r2 两文件 → **R2 ACCEPT with fixes（1 MAJOR：无 qid 旧记录被丢弃）**→声明 hotfix（补 qid 回存再发）→ **ACCEPT**
+- 重启 TTS 两次（r1/r2，各 ~75s）；教训：PowerShell 用 `CommandLine -like '*tts_server.py*'` 杀进程会匹配到自己→必须加 `Name -eq 'python.exe'`
+- E2E（Playwright + 真实 :8022）：分隔线 1 条在首条 user 气泡上方、第二轮不重复；四轮对话 JSONL 全落盘（event/user/simulacrum(emotion,tts,retrieval_used 4)/simulacrum_audio(file)），/session 被 abort 的第 3 轮进队列(qid)→第 4 轮成功后补传→队列清空；4 个 WAV 落盘。测试 session 两组已删除
+- 文档：task_plan 8B-7、HANDOFF ⓪⁹ 第 9 点、GENERALIZATION 轴五采集状态标记、memory 项目状态
+
+## Session 2026-09-02（TTS 剥括号 + 回复变长诊断）
+- 用户三问：①括号内容别念（[捂脸]/（瞟一眼））②回复为何比以前长③是否开了深度思考
+- **#1 实施**（DeepSeek 三区域 + Codex ACCEPT）：tts_server 模块级 `strip_brackets`（BRACKET_RE 成对括号，不动点循环，空白压缩），`_handle_tts` 剥后合成+QC，剥空→400；simulacrum_audio 记录附 spoken_text。活体验证：带括号文本合成时长≈净文本、jsonl 见 spoken_text、全括号→400。服务端统一实现，chat.html 语音条同受益。TTS 重启一次（09-02）
+- **#2 诊断（据 sessions 日志实据）**：今晨真实会话全部为 deepseek/deepseek-v4-flash（r3 预填默认），回复 90-163 字符 vs 她本人节律中位 17 字；此前 chat 页配的是 deepseek-chat。结论=模型行为差异（V4 Flash 铺陈+动作描写+markdown 空行），非深度思考（页面对 deepseek 显式 thinking:disabled，日志可证）。系统提示只有「消息长短以语言与节律为准」软约束，无硬上限——候选改进：chat_system 加硬性长度/禁动作描写纪律（动 prompts 需用户闸门）
+- **#3 结论**：DeepSeek=显式关闭；Kimi kimi-k3=官方文档「始终推理」（reasoning_effort 默认 max，只可调低不可关，reasoning_content 独立于 content 不会进气泡）；OpenAI gpt-5.6=默认 medium；Anthropic claude-opus-5=默认 adaptive 开。切非 DeepSeek 服务商时推理默认在跑（更慢更贵但不显示）——如需，可给 kimi/openai 发低档 reasoning_effort（未实施，等用户表态）
+
+## Session 2026-09-02（续：分句语音流水线 + 微信式「正在输入」）
+- 用户两问诊断后两需求：①文字出现后等语音、越长越久——查 sessions 日志实据（synth 与音频时长成正比，90 字 8.9s；整句批量合成是根因）②做分句流水线③模型出字太快时显示端加人工延迟、学微信「正在输入」
+- 设计合一：发送→气泡三点打字动画（CSS keyframes）→回复分句，首段先合成先播、后段串行边播边接上，**每段文字随该段语音开播同刻浮现**（文声同步，首声≈首段合成）；TTS 不在/超 240 字→文字节奏兜底逐段浮现
+- DeepSeek 5 区域（RCSS/RSTATE/RENGINE/RSEND/RX，RENGINE 271 行状态机）+ splice 精确替换。splitSegments 精确分片单测 join===原文全过
+- **Codex R1 REJECT（BLOCKER）**：iframe player 'ended' 只读全局 voiceTurn，旧回合音频 ended 在新回合到达会误推进新回合 playIdx（跳首段）；fallback Audio 未存 vt 停不掉 → **R2**：activePlay 模块变量记当前占用播放器的回合，ended 校验 owner===voiceTurn；fallbackAudio 存 vt+带 vt 归属 ended；cancelVoiceTurn 暂停两者。短尾段并回（MINOR）一并修
+- **Codex R2 REJECT（BLOCKER）**：showPlayButton 手点 iframe 重播分支漏设 activePlay→多段回复在 autoplay 拦截后卡首段 → 声明 hotfix（重播前 activePlay=vt、失败清 null）→ **ACCEPT**
+- E2E（真浏览器+真 :8022）：①语音模式 2 段文声同步（t≈4.4s 首段、11.3s 次段，与 audio play 对齐）②并发压力（旧回合播中发新回合）新回合从首段正常播、旧回合文字 revealAll 保留③autoplay 拦截→按钮→点按后 endedCount=1 推进到第 2 段全文出齐④纯文字兜底全文出⑤停止键亮「（已停止）」。测试 session 全清理，保留真实 YqOjsW
+- **注记：沉浸感显著提升，8A-2b 伦理护栏优先级上升**。文档：task_plan 8B-9、HANDOFF ⓪⁹ 第 10 点、memory

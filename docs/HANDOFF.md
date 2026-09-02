@@ -1,9 +1,30 @@
 # 交接文档（HANDOFF）
 
-> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-08-29，桌面陪伴 8A/8B 全线 + 三条微信路径研究收口（iLink/OCR）+ 蕾咪拆解**。
+> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-09-02，companion 体验四连（情绪层激活 / 多服务商抽屉 / 时间分隔+会话日志 / 分句语音流水线+正在输入）**。
 > 读这份之前先读 `CLAUDE.md`（铁律），再读仓库根的 `task_plan.md` / `progress.md` / `findings.md`（MVP 计划与实时状态）。研究依据在 `docs/research/`。
 
-## ⓪⁸ 增补（2026-08-28→29：桌面陪伴上线 + 微信接入四路径全查 + 情绪贴片首轮，最先看这段）
+## ⓪⁹ 增补（2026-09-01→02：情绪层激活 + 多服务商抽屉 + 时间分隔/会话日志 + 分句语音流水线+正在输入，最先看这段）
+
+> 本段含 10 点：1-6 情绪贴片定稿激活（09-01）；7-8 多服务商抽屉 + 真机首测/blob 守卫（09-01）；9 轴五会话日志 + 时间分隔（09-01）+ TTS 剥括号（09-02）；10 分句语音流水线 + 微信式「正在输入」（09-02）。工程工艺沉淀见 memory [[deepseek-full-file-echo]]（区域规格法）[[verify-rendered-pixels]]（DPR/route-mock）[[deepseek-pipeline-lessons]]（PS 自杀坑/TTS 重启）。
+
+1. **用户定稿**：四情绪均取种子 5002（happy s5003 瞳孔变棕=形象漂移、sad s5003 带泪珠被排除）。原始 12 候选+manifest 已存 `people/mama/versions/emo_candidates_20260829/`。
+2. **8B-3b 完成（DeepSeek 写 + Codex ACCEPT）**：新工具 **`tools/bake_face_patch.py`**（person-generic 贴片烘焙：`--base` + 单任务 `--src/--out/--region x0,y0,x1,y1:feather` 或 `--jobs jobs.json`；掩码=矩形填充→GaussianBlur(feather)→lighter 合并，**与 emo_review 预览同数学、不内缩**——注意与 Phase 1 旧脚本"内缩+blur(f/2)"不同；内建 alpha_composite 自验 ≤2）；`build_avatar_page.py` 新增 `load_emotion_assets`（persona/emotions.json 裸文件名 → 校验 → 复制 data/avatar → file 改写 `data/avatar/<name>?v=<hash>` → reconcile 白名单）。**改情绪/关键词只需改 `persona/emotions.json` 然后 `python tools/build_avatar_page.py --person mama`**，companion 页零改动。
+3. **`persona/emotions.json` 契约**：`emotions` 键序 = detectEmotion 优先级（sad>stern>think>happy，小写子串首中即返）；关键词已按 Codex 误报实证收窄（无标点类/单字/泛词）；`neutral_delay_ms` 8000。默认微笑=底图本身。
+4. **验证链**：贴片叠底图 vs 用户审核合成图 max_diff=0；Playwright mock 同源 SSE + UI 配置 + 真按发送 → 真实运行时 sad→happy 切换→回落，computed style/层序/尺寸全对，截图人眼确认。**新教训：Playwright 截图是 devicePixelRatio 1.5×，像素 diff 的 CSS 坐标必须乘 DPR**（第一次算成"眉眼带 0 变化"是探针错误）。
+5. **环境**：机器曾重启——本会话已手动拉起 :8020（archive_out）与 :8022 TTS（e14，73s 加载）；Tailscale 进程在；:9880 GSV 未起。
+6. **同会话另一裁决**：用户移除四项待办（601 敏感复核 / persona Q1-Q13 / DeepSeek key 轮换 / 拟音词释义），见第六节。
+7. **companion 多服务商抽屉（同日，用户提出）**：OpenAI/Anthropic/DeepSeek/Kimi/自定义，选中即预填端点+模型（`gpt-5.6`/`claude-opus-5`/`deepseek-v4-flash`/`kimi-k3`，2026-09-01 官方文档核实；Kimi 国内 `api.moonshot.cn`，海外改 `.ai`；四家 CORS 预检实测通）。存档结构升级为 `{provider,url,model,key,profiles:{<provider>:{url,model,key}}}`，每家各自记 key；旧存档按 URL 自动归类。改预填值只改 `PROVIDERS` 常量表（build_companion_page.py）。存档字段为空一律补默认（`withDefaults`）——用户实测「切到 DeepSeek 没预填」即此根因（旧页只存了 key）。
+8. **用户真机首测通过 + 一 bug 修复**：API 配置成功、文字+语音回复通；bug=她念完 TTS 后接播训练用真实语音——根因 avatar.html `ended`→`playAt(cur+1)`，修法=`blob:` 音源守卫 1 行（build_avatar_page.py，Codex ACCEPT）。**avatar.html 因此有改动，archive_dist 未重新同步**（独立档案页行为不变，可择机 `build_archive` 重打包）。
+9. **轴五 sessions 日志已落地（同日，用户提出「记录双方文字+时间戳+每轮语音」）**：`tts_server.py` 新增 `POST /session`，companion 每轮把 user/simulacrum/event 记录 POST 过去，`/tts` 带 session_id/turn 时把 WAV 另存。**落盘位置 `people/mama/sessions/YYYY-MM/session_<YYYYMMDD-HHMMSS-rand>.jsonl` + `audio/session_<id>_t<turn>.wav`**（gitignore 内）。服务不在时记录进 localStorage 队列（`companion_mama_byok_sessionq`），下次 /health 通或任一条发送成功后补传。tts_server 现默认 `--person mama` 开日志（`--no-session-log` 关）；**重启 TTS 用 venv python 直启**：`C:/Users/justin/venvs/cosyvoice/Scripts/python.exe -X utf8 tools/tts_server.py`（Start-Process 脱钩 + 日志重定向；⚠️ 用 CommandLine 匹配杀进程时要限定 Name=python.exe，否则 PowerShell 会杀掉自己）。聊天栏同时上了微信式时间分隔（与上一条消息间隔 >5 分钟显示一次）。**09-02 增量：/tts 合成前 `strip_brackets` 剥掉 [表情]/（动作）**（显示保留、念白剥除；日志附 spoken_text）。
+10. **分句语音流水线 + 微信式「正在输入」（09-02，用户提出「文字出现要等语音／越长越久」+「学微信正在输入」）**：companion 回复按句号/叹问/分号/换行切段（`splitSegments`，`SEG_FIRST_MAX 24`/`SEG_MAX 42`/短尾并回），首段先合成先播、后段串行边播边合成，**每段文字随该段语音开播同刻浮现**——首声从「正比全文合成」降到「首段合成」。核心状态机 `voiceTurn`；旧回合遗留的 iframe player `ended` 靠模块变量 `activePlay`（当前占用播放器的回合）归属校验，不会误推进新回合；发送后气泡先 `setTypingIndicator`（三点 CSS 动画），onDelta 不再逐 token 写 DOM。TTS 不可用或全文 >240 字 → 文字节奏兜底；停止键显示已生成文字；`cancelVoiceTurn` 文字永不丢；20s safetyTimer 防服务端挂死。**这项显著提升沉浸感 → 8A-2b 伦理护栏更应尽早补。**下一步可做 `tools/ingest_sessions.py`（GENERALIZATION：校验/去重(qid)/敏感扫描 → 第四检索源），**数字人话语永久 Tier-3**。
+
+### 下回合建议顺序（09-01 刷新，覆盖下方各旧版）
+1. **8A-2b 伦理护栏**（companion 日常可用前必须）：关窗道别/空闲离场/rhythm 限速/使用统计卡。
+2. **8B-4 用户真机验收**（iPhone/Mac 经 Tailscale `http://100.116.45.2:8020/companion.html`，现在情绪层已生效可一并看）。
+3. 微信三线等用户裁决（自用验证 / 先不做）；若自用，先建共享 `persona_core.py`。
+4. talking-head 特别版试片（可选增强）。
+
+## ⓪⁸ 增补（2026-08-28→29：桌面陪伴上线 + 微信接入四路径全查 + 情绪贴片首轮）
 
 **本轮主线=任务 #18 桌面陪伴（companion）从立项到三平台上线；支线=为"接入各平台聊天"副产品把微信四条路径全部查清（#20 iLink / #21 OCR），以及 #19 蕾咪拆解。**
 
@@ -12,7 +33,7 @@
 2. **8A-0 告别/降级协议**：`docs/companion-farewell-protocol.md`（条件 f 前置件，第五格留用户填一句话）。
 3. **8A-2a 核心闭环**（commit caa1771）：`tools/build_companion_page.py` → `people/mama/archive_out/companion.html`（**不进 archive_dist**）。打字→三源检索→BYOK LLM 流式→:8022 合成她的声音→路由进 iframe 的 `audio#player`→脸的嘴动（RMS）。DeepSeek 写 + Codex 三轮 ACCEPT。**真浏览器实测：TTS→脸→嘴动端到端通**（speaking 态 + half 嘴型）。
 4. **8B-甲 三平台兼容 + 情绪层**（commit 7602150）：①**iOS 音频解锁**（send 手势内 SILENT_WAV 静音 play/pause + 向 iframe 派发合成 click 触发 avatar 的 audioCtx.resume）②**自动播放被拒→气泡 ▶"播放她的声音"按钮兜底**（同步 throw/promise reject 双路径）③CSS：viewport-fit/100dvh/safe-area/输入框 16px 防缩放 ④**情绪层运行时**：companion 侧向 iframe 注入 `emotion-overlay` img（**显式 inline style 不挂 mouth-patch 类**，插眨眼层之下）+ `emotions.json` 数据驱动（emotion→file+keywords，**404 静默关闭**）+ 关键词检测 + 同名防呆滞刷新计时 + 回落。Playwright 桌面 + iPhone 390×844 视口全绿。
-5. **8B-3 情绪贴片首轮**（commit 6465724）：ComfyUI 复用 gen_avatar_candidates.build_graph（Qwen-Image-Edit）生成 **4 情绪×3 种子=12 张**（happy 弯眼/sad 蹙眉/stern 嗔怪/think 侧看）；**首轮即温和+形象一致性全保**（归因=眉眼改动比嘴型温和 + prompt 锁死嘴/镜框/发/脸）。烘焙数学=双镜片内区(blink rects 羽化8)+眉带(370,225,820,315 羽化10)。审核页 `archive_out/emo_review.html`（12 GIF 底图↔情绪 0.8s 交替）已上 8020。**⏳ 等用户每情绪定稿 1 个 → 8B-3b 烘焙全尺寸 RGBA + 写 emotions.json 激活。**
+5. **8B-3 情绪贴片首轮**（commit 6465724）：ComfyUI 复用 gen_avatar_candidates.build_graph（Qwen-Image-Edit）生成 **4 情绪×3 种子=12 张**（happy 弯眼/sad 蹙眉/stern 嗔怪/think 侧看）；**首轮即温和+形象一致性全保**（归因=眉眼改动比嘴型温和 + prompt 锁死嘴/镜框/发/脸）。烘焙数学=双镜片内区(blink rects 羽化8)+眉带(370,225,820,315 羽化10)。审核页 `archive_out/emo_review.html`（12 GIF 底图↔情绪 0.8s 交替）已上 8020。**→ ✅ 2026-09-01 定稿+烘焙+激活完成，见 ⓪⁹。**
 6. **DeepSeek 新工艺定式（重要）**：改现有大文件用**"全文回显+区域纪律+diff 校验"**——规格含改动区+原文件全文，产出逐块对应规格、diff 实证零漂移（对照 8A-2a 让 DeepSeek 整函数重生成→标识符全猜错的漂移事故）。
 7. **访问方式**：本机/手机经 Tailscale `http://100.116.45.2:8020/companion.html`；⚠️ **iPhone 上她的声音可能被 iOS autoplay 拦→出 ▶ 按钮**（点一下即放）；桌面浏览器完整。**⏳ 8B-4 用户真机验收（iPhone/Mac 经 Tailscale）未做。**
 8. **⏳ 未做：8A-2b 伦理护栏**（条件 a-e：关窗道别语/空闲离场/rhythm 节律限速/使用统计自见卡）——**companion v1 是纯技术闭环，护栏没上，日常常用前必须补**。
@@ -35,11 +56,12 @@
 - **系统 python 无 numpy/ffmpeg**（PIL 合成改用 ImageChops；转码需 ffmpeg 在盘状态待复核）；ComfyUI 情绪生成调用器坑：poll_history 返回 (status,entry) 元组、extract_output_image 返回 (fname,subf,type) 元组。
 
 ### 下回合建议顺序（08-29 刷新，覆盖下方各旧版）
-1. **情绪贴片收尾（最接近完成）**：等用户在 emo_review.html 每情绪定稿 1 个 → 8B-3b 烘焙 RGBA + emotions.json 激活 → companion 情绪层真正生效。
+1. ~~情绪贴片收尾~~ ✅ 2026-09-01 完成（见 ⓪⁹）。
 2. **8A-2b 伦理护栏**（companion 日常可用前必须）：关窗道别/空闲离场/rhythm 限速/使用统计卡。
 3. **8B-4 用户真机验收**（iPhone/Mac 经 Tailscale 开 companion.html）。
 4. 微信三线等用户裁决（自用验证 / 先不做）；若自用，先建共享 `persona_core.py`（chat.html 检索/Tier 逻辑 Python 直译，所有 headless 皮肤共用）。
-5. 零散续：talking-head 特别版试片 / 601 敏感复核 / persona Q1-Q13 / DeepSeek key 轮换。
+5. 零散续：talking-head 特别版试片。
+> ❌ **四项待办已移除（2026-08-29 用户裁决，不再列待办、不再催办）**：601 敏感疑似复核 / persona Q1-Q13（早已收口，见 progress 08-13）/ DeepSeek API key 轮换 / 4 个拟音词释义。旧版章节再出现这四项一律视为已废止。
 
 ## ⓪⁷ 增补（2026-08-22→08-27：纸片人从"疯狂闪烁"到整脸微活全弧线，最先看这段）
 
@@ -265,9 +287,11 @@
 - **控制台中文乱码**是 GBK 代码页显示问题，文件都是 UTF-8，勿在脚本里强改 stdout 编码（Codex 建议保持现状）
 - 审核循环战绩参考：Codex 第一轮抓过 3 个 blocker（--person 路径注入写 raw/），修复模式是 slug 正则 + resolve() 锚定校验——新工具写 spec 时直接把这两条要求写进去
 
-## 六、用户待办（2026-08-21 刷新）
+## 六、用户待办（2026-08-29 刷新）
 
 - ~~安排家人盲听~~ **已移除（2026-08-21 用户裁决）**——M1 以本人盲听 v2 关闭
 - ~~说话帧确认~~ **已闭环（2026-08-23）**——用户实报口型 bug 后三根因修复（看门狗/帧素材重做/缓存穿透，见 progress 08-22/23 节）：新映射 静息=闭嘴微笑 s3002（用户选定）/ 说话=原张嘴笑定稿
-- [ ] DeepSeek API key 轮换（历史遗留，key 曾在对话明文出现）
-- [ ] 4 个拟音词释义（皮雪雪/交难受/铿钱/老麻球）随手补
+- ~~DeepSeek API key 轮换~~ **已移除（2026-08-29 用户裁决）**
+- ~~4 个拟音词释义~~ **已移除（2026-08-29 用户裁决）**
+- ~~601 敏感疑似复核~~ **已移除（2026-08-29 用户裁决）**——报告文件保留在 normalized/，闸门页默认剔除逻辑不变，仅不再作为待办
+- ~~persona Q1-Q13~~ **已移除（2026-08-29 用户裁决）**——实际早已全部收口（progress 08-13），此前为陈旧残留

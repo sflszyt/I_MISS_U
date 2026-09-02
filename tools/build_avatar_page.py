@@ -767,6 +767,8 @@ document.getElementById('btn-next').addEventListener('click', function () {
     playAt(to);
 });
 audio.addEventListener('ended', function () {
+    // 外部注入的 blob: 音源（companion 页的 TTS）播完不接播放列表——否则她念完话会接着播训练用的真实语音
+    if (audio.src && audio.src.indexOf('blob:') === 0) return;
     if (items.length > 0) playAt((cur + 1) % items.length);
 });
 audio.addEventListener('pause', function () {
@@ -1597,6 +1599,104 @@ def copy_binary(src: Path, dst: Path):
             f_out.write(f_in.read())
 
 
+def load_emotion_assets(persona_dir: Path, avatar_dst_dir: Path) -> list:
+    """
+    将 persona 侧的情绪资产复制到 archive 侧，并返回需要加入 reconcile 白名单的文件名列表。
+
+    persona 侧 emotions.json 中的 "file" 是裸文件名（如 "emo_happy.png"），
+    archive 侧 emotions.json 中的 "file" 是带路径和版本号的 URL（如 "data/avatar/emo_happy.png?v=abc123"）。
+    返回值是白名单文件名列表（含 "emotions.json" 和所有复制的图片裸文件名），供 reconcile_avatar_dir 使用。
+
+    校验不通过或任何异常时不写任何文件，返回空列表；拷贝阶段中途失败可能留下部分文件，
+    reconcile 会根据返回的空白名单将其清理。
+    """
+    src_json = persona_dir / "emotions.json"
+    if not src_json.is_file():
+        return []
+
+    try:
+        with open(src_json, 'r', encoding='utf-8') as f:
+            cfg = json.load(f)
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as e:
+        print("[WARN] emotions.json ignored: 读取/解析失败: {}".format(e), file=sys.stderr)
+        return []
+
+    if not isinstance(cfg, dict):
+        print("[WARN] emotions.json ignored: 顶层必须是 JSON 对象", file=sys.stderr)
+        return []
+
+    # 校验 neutral_delay_ms
+    if "neutral_delay_ms" in cfg:
+        ndm = cfg["neutral_delay_ms"]
+        if not isinstance(ndm, int) or isinstance(ndm, bool) or ndm <= 0:
+            print("[WARN] emotions.json ignored: neutral_delay_ms 必须是大于 0 的整数", file=sys.stderr)
+            return []
+
+    # 校验 emotions
+    emotions = cfg.get("emotions")
+    if not isinstance(emotions, dict) or not emotions:
+        print("[WARN] emotions.json ignored: emotions 必须是非空对象", file=sys.stderr)
+        return []
+
+    key_re = re.compile(r'^[a-z0-9_]+$')
+    files_to_copy = set()
+
+    for key, val in emotions.items():
+        if not isinstance(key, str) or not key or not key_re.match(key):
+            print("[WARN] emotions.json ignored: 情绪键 '{}' 不符合 ^[a-z0-9_]+$ 或为空".format(key), file=sys.stderr)
+            return []
+        if not isinstance(val, dict):
+            print("[WARN] emotions.json ignored: 情绪 '{}' 的值必须是对象".format(key), file=sys.stderr)
+            return []
+
+        fname = val.get("file")
+        if not isinstance(fname, str) or not fname:
+            print("[WARN] emotions.json ignored: 情绪 '{}' 缺少非空 file".format(key), file=sys.stderr)
+            return []
+        if Path(fname).name != fname or ".." in fname or "/" in fname or "\\" in fname:
+            print("[WARN] emotions.json ignored: 情绪 '{}' 的 file '{}' 必须是裸文件名".format(key, fname), file=sys.stderr)
+            return []
+        if not fname.lower().endswith(".png"):
+            print("[WARN] emotions.json ignored: 情绪 '{}' 的 file '{}' 必须以 .png 结尾".format(key, fname), file=sys.stderr)
+            return []
+        src_file = persona_dir / fname
+        if not src_file.is_file():
+            print("[WARN] emotions.json ignored: 情绪 '{}' 的 file '{}' 在 persona 侧不存在".format(key, fname), file=sys.stderr)
+            return []
+
+        if "keywords" in val:
+            kw = val["keywords"]
+            if not isinstance(kw, list) or not all(isinstance(x, str) and x for x in kw):
+                print("[WARN] emotions.json ignored: 情绪 '{}' 的 keywords 必须是字符串列表".format(key), file=sys.stderr)
+                return []
+
+        files_to_copy.add(fname)
+
+    # 所有校验通过，开始复制
+    try:
+        for fname in files_to_copy:
+            copy_binary(persona_dir / fname, avatar_dst_dir / fname)
+    except OSError as e:
+        print("[WARN] emotions.json ignored: 复制文件失败: {}".format(e), file=sys.stderr)
+        return []
+
+    # 深拷贝并改写 file 字段
+    try:
+        cfg2 = json.loads(json.dumps(cfg))
+        for key in cfg2["emotions"]:
+            fname = cfg2["emotions"][key]["file"]
+            dst_file = avatar_dst_dir / fname
+            cfg2["emotions"][key]["file"] = "data/avatar/" + fname + "?v=" + _file_version_tag(str(dst_file))
+        write_atomic(avatar_dst_dir / "emotions.json",
+                     json.dumps(cfg2, ensure_ascii=False, indent=2) + "\n")
+    except (json.JSONDecodeError, OSError, KeyError) as e:
+        print("[WARN] emotions.json ignored: 写入 archive 侧失败: {}".format(e), file=sys.stderr)
+        return []
+
+    print("[EMOTION] {} emotions -> data/avatar/emotions.json".format(len(emotions)))
+    return ["emotions.json"] + sorted(files_to_copy)
+
+
 def reconcile_avatar_dir(archive_dir: Path, use_image_mode: bool, has_open_frame: bool, has_choice_json: bool, use_patch_mode: bool = False, patch_extra_files=None):
     """Reconcile archive_out/data/avatar against the desired asset set.
     
@@ -1604,6 +1704,7 @@ def reconcile_avatar_dir(archive_dir: Path, use_image_mode: bool, has_open_frame
     (+ avatar_choice.json if has_choice_json). Delete anything else.
     patch mode active: desired = avatar.png + mouth_half.png + mouth_open.png + mouth_patches.json
     + any extra patch files (blink etc).
+    + emotion overlay assets (emotions.json + PNGs) when persona/emotions.json is valid (see load_emotion_assets).
     image mode inactive: delete the whole dir if it exists.
     """
     avatar_dir = archive_dir / "data" / "avatar"
@@ -1773,6 +1874,7 @@ def main():
 
     viseme_script = load_visemes(archive_dir)
 
+    emotion_extra = []
     if use_patch_mode:
         # Resolve viseme map and rms states
         states = patch_config["states"]
@@ -1835,6 +1937,7 @@ def main():
             blink_version = "?v=" + _file_version_tag(avatar_dst_dir / blink_file)
         
         copy_binary(mouth_patches_json, avatar_dst_dir / "mouth_patches.json")
+        emotion_extra = load_emotion_assets(persona_dir, avatar_dst_dir)
         
         # Build avatar block with all state imgs + blink
         base_v = "?v=" + _file_version_tag(avatar_dst_dir / "avatar.png")
@@ -1876,6 +1979,7 @@ def main():
     patch_extra = []
     if use_patch_mode:
         patch_extra.append("visemes.json")  # whitelist
+        patch_extra.extend(emotion_extra)
         if blink_file:
             patch_extra.append(blink_file)
         for sname, fname in state_files.items():
