@@ -1,7 +1,17 @@
 # 交接文档（HANDOFF）
 
-> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-09-02，companion 体验四连（情绪层激活 / 多服务商抽屉 / 时间分隔+会话日志 / 分句语音流水线+正在输入）**。
+> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-09-07，提交前全量刷新：#22 研究 a/b 收口（a 已裁决）+ 8B-10 语音条分条 + 8B-11 起音淡入 + #23 给爸爸六段语音**。最先看 ⓪¹⁰。（09-02 后补：进度全景核对（workflow 六路，输出未落盘）后修文档失真——四项待办移除日期更正为 09-01、⓪⁷/二章/六章过期陈述加标注、下回合列表 09-02 刷新）。
 > 读这份之前先读 `CLAUDE.md`（铁律），再读仓库根的 `task_plan.md` / `progress.md` / `findings.md`（MVP 计划与实时状态）。研究依据在 `docs/research/`。
+
+## ⓪¹⁰ 增补（2026-09-02→07：#22 研究 + 8B-10/8B-11 + #23，最先看这段）
+
+1. **#22 研究收口（09-02/03）**：a `docs/research/ios-app-deployment.md`——companion 对外只依赖 LLM(BYOK) + :8022 三路由；iOS 26 主屏网页默认作为 Web App 打开，http 无 secure-context 需求 → **A1 加 apple-touch-icon 即成手机专属入口**；A2 WKWebView 壳技术可行但收益全在 desktop-companion 6.2③ 禁区；她的声音出不了 4090（端侧运行时无 CosyVoice2 SFT）；云 GPU NO-GO。**用户裁决 D1–D5：A1 接受 + 8A-2b 先行 / https 跳过 / Phase 13 有声档案立项 / A2 暂不做 / PC 常开手动拉起。** b `docs/research/build-app-productization.md`——"建档工作台"而非"产出 companion 的自动化 App"；三条硬边界（微信取 key / 4090 / 判断力工作）；§4 把关功能表是 8A-2b 超集；分期 P0–P3。**E1–E6 待用户裁决。**
+2. **8B-10 微信式语音条 + ≤30 字分条（09-05→06）**：用户看 sessions 日志后两条反馈。根因 `TTS_TOTAL_MAX=240` 整段跳过语音（7/17 条 skipped_length）；另发现 `build_rhythm_block` 读的键全不在 rhythm.json（模型从未见"中位 17 字/69% 单条/70% 无句末标点"）。现状：`splitMessages`（换行→句末→子句→硬切且不拆代理对，≤30）→ 每条独立 `.bubble.subject`，三点占位串行；前 MSG_MAX_VOICE=12 条各自 `/tts`（30 s 超时盖到 body）；语音条 `.voice-bar`+`.voice-text`（抽屉开关，键 storageKey+'_ui'）；回放/停止（`stopReplay` 模块级，回合进行中不回放，被拒当前条点击=按 ▶）；`vt.waiting` 文字延时闸门；内部气泡 `noDivider`；标签/标点-only 不送 TTS；Blob 保留 60 条；sessions simulacrum 记 `tts∈{requested,partial,unavailable}`+`messages`。工艺：DeepSeek 区域规格两轮 + Claude 声明 hotfix + 三视角 workflow 审查（26 发现→10 确认修）+ Codex 三轮 ACCEPT；E2E 两套 Playwright route-mock 全绿；单测 14 例。提示词加"分条发：一行一条 ≤30 字"。
+3. **8B-11 起音爆音淡入（09-07）**：模型每次开口前 ~15 ms 爆音（两语域/companion/批量签名一致）→ tts_server `soften_onsets`（5 ms 帧起音检测，30 ms 升余弦淡入，`--onset-fade-ms` 0 关）；实测起音比 2.5→0.7。DeepSeek 两轮 + Codex ACCEPT；单测 6 例。**事故**：第二轮区域锚点吞掉相邻 `strip_brackets` → 500，已恢复；教训见 findings。
+4. **#23 给爸爸六段语音（09-06，已交付关闭）**：家人向首次实际使用，用户知情自决。脚本 `scratchpad/synth_for_dad.py`（按句 ≤80 字走 :8022、句间 0.3 s/段间 0.85 s 拼接、WAV+MP3+manifest sha256），两语域各 6 段，用户选 **wu**；产物 `people/mama/exports/for_dad_20260906/`（Tier-3 标识，不进 archive_dist；那批合成于 8B-11 之前）。
+5. **Codex MCP**：ChatGPT 账号下必须传 `model: gpt-5.5`（5.4/5.6 被拒）；登录态失效表现为 "refresh token was revoked"，PC 上 `codex login`，远程 `codex login --device-auth`（设备码 15 分钟过期）。
+6. **服务现状**：:8020 http.server（archive_out）与 :8022 tts_server（e14，soften_onsets 已生效，session 日志开）均在跑；重启机器后需手动拉起（用户 D5 裁决：PC 常开手动拉起）。
+7. **实施队列（已裁决）**：8A-2b 护栏 → A1 主屏图标 → Phase 13 有声档案；8B-4 真机验收顺带覆盖 8B-10/11 的体验反馈。
 
 ## ⓪⁹ 增补（2026-09-01→02：情绪层激活 + 多服务商抽屉 + 时间分隔/会话日志 + 分句语音流水线+正在输入，最先看这段）
 
@@ -12,17 +22,21 @@
 3. **`persona/emotions.json` 契约**：`emotions` 键序 = detectEmotion 优先级（sad>stern>think>happy，小写子串首中即返）；关键词已按 Codex 误报实证收窄（无标点类/单字/泛词）；`neutral_delay_ms` 8000。默认微笑=底图本身。
 4. **验证链**：贴片叠底图 vs 用户审核合成图 max_diff=0；Playwright mock 同源 SSE + UI 配置 + 真按发送 → 真实运行时 sad→happy 切换→回落，computed style/层序/尺寸全对，截图人眼确认。**新教训：Playwright 截图是 devicePixelRatio 1.5×，像素 diff 的 CSS 坐标必须乘 DPR**（第一次算成"眉眼带 0 变化"是探针错误）。
 5. **环境**：机器曾重启——本会话已手动拉起 :8020（archive_out）与 :8022 TTS（e14，73s 加载）；Tailscale 进程在；:9880 GSV 未起。
-6. **同会话另一裁决**：用户移除四项待办（601 敏感复核 / persona Q1-Q13 / DeepSeek key 轮换 / 拟音词释义），见第六节。
+6. **同会话另一裁决（2026-09-01）**：用户移除四项待办（601 敏感复核 / persona Q1-Q13 / DeepSeek key 轮换 / 拟音词释义），见第六节。
 7. **companion 多服务商抽屉（同日，用户提出）**：OpenAI/Anthropic/DeepSeek/Kimi/自定义，选中即预填端点+模型（`gpt-5.6`/`claude-opus-5`/`deepseek-v4-flash`/`kimi-k3`，2026-09-01 官方文档核实；Kimi 国内 `api.moonshot.cn`，海外改 `.ai`；四家 CORS 预检实测通）。存档结构升级为 `{provider,url,model,key,profiles:{<provider>:{url,model,key}}}`，每家各自记 key；旧存档按 URL 自动归类。改预填值只改 `PROVIDERS` 常量表（build_companion_page.py）。存档字段为空一律补默认（`withDefaults`）——用户实测「切到 DeepSeek 没预填」即此根因（旧页只存了 key）。
 8. **用户真机首测通过 + 一 bug 修复**：API 配置成功、文字+语音回复通；bug=她念完 TTS 后接播训练用真实语音——根因 avatar.html `ended`→`playAt(cur+1)`，修法=`blob:` 音源守卫 1 行（build_avatar_page.py，Codex ACCEPT）。**avatar.html 因此有改动，archive_dist 未重新同步**（独立档案页行为不变，可择机 `build_archive` 重打包）。
 9. **轴五 sessions 日志已落地（同日，用户提出「记录双方文字+时间戳+每轮语音」）**：`tts_server.py` 新增 `POST /session`，companion 每轮把 user/simulacrum/event 记录 POST 过去，`/tts` 带 session_id/turn 时把 WAV 另存。**落盘位置 `people/mama/sessions/YYYY-MM/session_<YYYYMMDD-HHMMSS-rand>.jsonl` + `audio/session_<id>_t<turn>.wav`**（gitignore 内）。服务不在时记录进 localStorage 队列（`companion_mama_byok_sessionq`），下次 /health 通或任一条发送成功后补传。tts_server 现默认 `--person mama` 开日志（`--no-session-log` 关）；**重启 TTS 用 venv python 直启**：`C:/Users/justin/venvs/cosyvoice/Scripts/python.exe -X utf8 tools/tts_server.py`（Start-Process 脱钩 + 日志重定向；⚠️ 用 CommandLine 匹配杀进程时要限定 Name=python.exe，否则 PowerShell 会杀掉自己）。聊天栏同时上了微信式时间分隔（与上一条消息间隔 >5 分钟显示一次）。**09-02 增量：/tts 合成前 `strip_brackets` 剥掉 [表情]/（动作）**（显示保留、念白剥除；日志附 spoken_text）。
 10. **分句语音流水线 + 微信式「正在输入」（09-02，用户提出「文字出现要等语音／越长越久」+「学微信正在输入」）**：companion 回复按句号/叹问/分号/换行切段（`splitSegments`，`SEG_FIRST_MAX 24`/`SEG_MAX 42`/短尾并回），首段先合成先播、后段串行边播边合成，**每段文字随该段语音开播同刻浮现**——首声从「正比全文合成」降到「首段合成」。核心状态机 `voiceTurn`；旧回合遗留的 iframe player `ended` 靠模块变量 `activePlay`（当前占用播放器的回合）归属校验，不会误推进新回合；发送后气泡先 `setTypingIndicator`（三点 CSS 动画），onDelta 不再逐 token 写 DOM。TTS 不可用或全文 >240 字 → 文字节奏兜底；停止键显示已生成文字；`cancelVoiceTurn` 文字永不丢；20s safetyTimer 防服务端挂死。**这项显著提升沉浸感 → 8A-2b 伦理护栏更应尽早补。**下一步可做 `tools/ingest_sessions.py`（GENERALIZATION：校验/去重(qid)/敏感扫描 → 第四检索源），**数字人话语永久 Tier-3**。
 
-### 下回合建议顺序（09-01 刷新，覆盖下方各旧版）
-1. **8A-2b 伦理护栏**（companion 日常可用前必须）：关窗道别/空闲离场/rhythm 限速/使用统计卡。
-2. **8B-4 用户真机验收**（iPhone/Mac 经 Tailscale `http://100.116.45.2:8020/companion.html`，现在情绪层已生效可一并看）。
-3. 微信三线等用户裁决（自用验证 / 先不做）；若自用，先建共享 `persona_core.py`。
-4. talking-head 特别版试片（可选增强）。
+### 下回合建议顺序（09-07 刷新，覆盖下方各旧版）
+0. **8B-10（语音条分条）与 8B-11（起音爆音淡入）已提交（09-07）**：剩用户真机体验反馈（分条节奏、30 字上限、语音条样式、开头是否还有"啵"）→ 提交。#23 给爸爸六段语音已交付关闭（`people/mama/exports/for_dad_20260906/`，注意那批是淡入修复前合成的）。**Codex MCP 注意**：ChatGPT 账号下 `mcp__codex__codex` 必须传 `model: gpt-5.5`（默认 gpt-5.4 与铁律写的 gpt-5.6 都被拒）；登录态失效表现为 "refresh token was revoked"，`codex login status` 仍显示已登录，在 PC 上 `codex login`（浏览器流）即可，远程用 `codex login --device-auth`（设备码 15 分钟过期）
+0b. #22-b 裁决 E1–E6（用户"晚点再裁决"）；已裁决的 a 实施队列：8A-2b → A1 主屏图标 → Phase 13 有声档案
+1. **8A-2b 伦理护栏**（companion 日常可用前必须；⚠️ sessions 日志显示已进入真机实际使用而护栏未上，分句流水线又提升了沉浸感——优先级最高）：关窗道别/空闲离场/rhythm 限速/使用统计卡。
+2. **8B-4 完整真机验收**（09-01 首测已通；iPhone/Mac 经 Tailscale `http://100.116.45.2:8020/companion.html`，含情绪层）。
+3. 微信三线等用户裁决方向（自用验证 / 先不做）；若自用，先建共享 `persona_core.py`（chat.html 检索/Tier 逻辑 Python 直译，所有 headless 皮肤共用）。用户可秒级自查：微信 设置>插件 有无 ClawBot 入口。
+4. 择机 `python tools/build_archive.py --person mama` 重打包 archive_dist（archive_dist 缺 avatar.html 的 blob 守卫（08-27 版 vs archive_out 09-01 版，md5 实证不一致）+ data/avatar 下的情绪贴片资产）。
+5. 可选：`tools/ingest_sessions.py`（sessions → 校验/去重(qid)/敏感扫描 → 第四检索源，数字人话语永久 Tier-3）；talking-head 特别版试片；chat_system 长度纪律 / 非 DeepSeek 服务商 reasoning_effort 低档（等用户表态，progress 09-02）；8A-3 的 chat.html 侧同步（占位符 deepseek-chat）。
+> 旧版列表里静默消失的零散项（VoxCPM2 A/B、TG bot 通道网关、relative_to 小修、记音字还原、archive_dist 分发备份）**未经用户裁决移除，只是未排期**——需要时可重提。
 
 ## ⓪⁸ 增补（2026-08-28→29：桌面陪伴上线 + 微信接入四路径全查 + 情绪贴片首轮）
 
@@ -33,9 +47,9 @@
 2. **8A-0 告别/降级协议**：`docs/companion-farewell-protocol.md`（条件 f 前置件，第五格留用户填一句话）。
 3. **8A-2a 核心闭环**（commit caa1771）：`tools/build_companion_page.py` → `people/mama/archive_out/companion.html`（**不进 archive_dist**）。打字→三源检索→BYOK LLM 流式→:8022 合成她的声音→路由进 iframe 的 `audio#player`→脸的嘴动（RMS）。DeepSeek 写 + Codex 三轮 ACCEPT。**真浏览器实测：TTS→脸→嘴动端到端通**（speaking 态 + half 嘴型）。
 4. **8B-甲 三平台兼容 + 情绪层**（commit 7602150）：①**iOS 音频解锁**（send 手势内 SILENT_WAV 静音 play/pause + 向 iframe 派发合成 click 触发 avatar 的 audioCtx.resume）②**自动播放被拒→气泡 ▶"播放她的声音"按钮兜底**（同步 throw/promise reject 双路径）③CSS：viewport-fit/100dvh/safe-area/输入框 16px 防缩放 ④**情绪层运行时**：companion 侧向 iframe 注入 `emotion-overlay` img（**显式 inline style 不挂 mouth-patch 类**，插眨眼层之下）+ `emotions.json` 数据驱动（emotion→file+keywords，**404 静默关闭**）+ 关键词检测 + 同名防呆滞刷新计时 + 回落。Playwright 桌面 + iPhone 390×844 视口全绿。
-5. **8B-3 情绪贴片首轮**（commit 6465724）：ComfyUI 复用 gen_avatar_candidates.build_graph（Qwen-Image-Edit）生成 **4 情绪×3 种子=12 张**（happy 弯眼/sad 蹙眉/stern 嗔怪/think 侧看）；**首轮即温和+形象一致性全保**（归因=眉眼改动比嘴型温和 + prompt 锁死嘴/镜框/发/脸）。烘焙数学=双镜片内区(blink rects 羽化8)+眉带(370,225,820,315 羽化10)。审核页 `archive_out/emo_review.html`（12 GIF 底图↔情绪 0.8s 交替）已上 8020。**→ ✅ 2026-09-01 定稿+烘焙+激活完成，见 ⓪⁹。**
+5. **8B-3 情绪贴片首轮**（commit 6465724）：ComfyUI 复用 gen_avatar_candidates.build_graph（Qwen-Image-Edit）生成 **4 情绪×3 种子=12 张**（happy 弯眼/sad 蹙眉/stern 嗔怪/think 侧看）；**首轮即温和+形象一致性全保**（归因=眉眼改动比嘴型温和 + prompt 锁死嘴/镜框/发/脸）。烘焙区域=双镜片内区(blink rects 羽化8)+眉带(370,225,820,315 羽化10)（定稿烘焙 `bake_face_patch.py` 与 emo_review 预览同数学=矩形→GaussianBlur(feather)→lighter 合并、不内缩，与 Phase 1 嘴/眨眼旧脚本"内缩+blur(f/2)"不同，见 ⓪⁹ 第 2 点）。审核页 `archive_out/emo_review.html`（12 GIF 底图↔情绪 0.8s 交替）已上 8020。**→ ✅ 2026-09-01 定稿+烘焙+激活完成，见 ⓪⁹。**
 6. **DeepSeek 新工艺定式（重要）**：改现有大文件用**"全文回显+区域纪律+diff 校验"**——规格含改动区+原文件全文，产出逐块对应规格、diff 实证零漂移（对照 8A-2a 让 DeepSeek 整函数重生成→标识符全猜错的漂移事故）。
-7. **访问方式**：本机/手机经 Tailscale `http://100.116.45.2:8020/companion.html`；⚠️ **iPhone 上她的声音可能被 iOS autoplay 拦→出 ▶ 按钮**（点一下即放）；桌面浏览器完整。**⏳ 8B-4 用户真机验收（iPhone/Mac 经 Tailscale）未做。**
+7. **访问方式**：本机/手机经 Tailscale `http://100.116.45.2:8020/companion.html`；⚠️ **iPhone 上她的声音可能被 iOS autoplay 拦→出 ▶ 按钮**（点一下即放）；桌面浏览器完整。**⏳ 8B-4 用户真机验收（iPhone/Mac 经 Tailscale）未做。** → 已过期：09-01 首测已通（API 配置+文字/语音回复），完整验收待续（⓪⁹）
 8. **⏳ 未做：8A-2b 伦理护栏**（条件 a-e：关窗道别语/空闲离场/rhythm 节律限速/使用统计自见卡）——**companion v1 是纯技术闭环，护栏没上，日常常用前必须补**。
 
 ### B. 微信接入四路径——全部查清，结论：没有一条为"家人向"打开干净的门
@@ -51,7 +65,7 @@
 "这种效果"=透明桌宠立绘窗 + 情绪表情立绘切换 + 打字机气泡；技术栈仅 **PyQt5 + 8 张 PNG，无 Live2D、无语音、口型仅 Open/Shut 双帧**（比我们落后两代）。**用户否全身化（维持半身框）**——蕾咪"全身动画"实为整图切换已拆穿。借形（情绪表情层→已做进 8B）不借魂（常驻/主动/游戏化/云识图全排除）。桌宠壳（方案乙 QWebEngineView/Tauri）留远期。
 
 ### D. 环境现场（08-29 会话结束时）
-- **:8022 TTS 常驻**（生成情绪贴片时曾停腾显存，已恢复；exp=mama_v02f160_llm e14）；**:9880 GSV 生成时被停未恢复**（需要时手动 api_v2）；**:8020 档案站常驻**（companion.html/emo_review.html/avatar/chat 都在）；**ComfyUI 起过（生成完可停，占显存）**；Tailscale userspace 常驻 100.116.45.2。**机器重启后 8020/8022/Tailscale 均需手动拉起。**
+- **:8022 TTS 常驻**（生成情绪贴片时曾停腾显存，已恢复；exp=mama_v02f160_llm e14）；**:9880 GSV 生成时被停未恢复**（需要时手动 api_v2）；**:8020 档案站常驻**（companion.html/emo_review.html/avatar/chat 都在）；**ComfyUI 起过（生成完可停，占显存）**；Tailscale userspace 常驻 100.116.45.2。**机器重启后 8020/8022 需手动拉起；Tailscale 有登录自启任务 `TailscaleUserspace`（⓪⁹ 重启后实证进程在）。**
 - 新装库：`uiautomation 2.0.29` + `comtypes 1.4.16`（#16 探针用）。dsh-im/kira-remy 克隆在 scratchpad（研究用，未入库）。
 - **系统 python 无 numpy/ffmpeg**（PIL 合成改用 ImageChops；转码需 ffmpeg 在盘状态待复核）；ComfyUI 情绪生成调用器坑：poll_history 返回 (status,entry) 元组、extract_output_image 返回 (fname,subf,type) 元组。
 
@@ -61,7 +75,7 @@
 3. **8B-4 用户真机验收**（iPhone/Mac 经 Tailscale 开 companion.html）。
 4. 微信三线等用户裁决（自用验证 / 先不做）；若自用，先建共享 `persona_core.py`（chat.html 检索/Tier 逻辑 Python 直译，所有 headless 皮肤共用）。
 5. 零散续：talking-head 特别版试片。
-> ❌ **四项待办已移除（2026-08-29 用户裁决，不再列待办、不再催办）**：601 敏感疑似复核 / persona Q1-Q13（早已收口，见 progress 08-13）/ DeepSeek API key 轮换 / 4 个拟音词释义。旧版章节再出现这四项一律视为已废止。
+> ❌ **四项待办已移除（2026-09-01 用户裁决——此前误记 08-29，git 实证该裁决出自 09-01 会话；不再列待办、不再催办）**：601 敏感疑似复核 / persona Q1-Q13（早已收口，见 progress 08-13）/ DeepSeek API key 轮换 / 4 个拟音词释义。旧版章节再出现这四项一律视为已废止。
 
 ## ⓪⁷ 增补（2026-08-22→08-27：纸片人从"疯狂闪烁"到整脸微活全弧线，最先看这段）
 
@@ -72,8 +86,8 @@
    - **运行时**：build_avatar_page.py patch 模式数据驱动 N 态——mouth_patches.json v2（states/viseme_map/rms_states/blink，Python 端 fallback resolve：wide→open/round→half/pucker→round）；驱动优先级=时间轴（currentTime 查 cue）>RMS 回退（BYOK 动态 TTS 分支）>closed；眨眼调度器待机也眨；`.avatar` ambient 常驻微摆。审核链：DeepSeek×2 + Codex REJECT（增量吞失败/config 损坏回退死路→DOM 扫描恢复/空 states 建运矛盾）→ ACCEPT + 声明 hotfix×4（含 DeepSeek 丢 avatar-base img 的 BLOCKER）
    - **资产定稿**：W1=wide2_s4211（温和大张）/ R1=round_s4203（圆唇）/ 嘟唇并入圆唇 / B1=blink_s4201（眨眼=双镜片内区替换，镜框恒用底图像素）；烘焙全尺寸 RGBA（RGB 取 raw 非 comp——叠加数学要求，自验 diff=0）。工艺：嘴型 prompt 首轮必夸张需温和化迭代；round 二轮精修反而更厚（模型爱给她涂厚唇），回用首轮
    - **像素级验收**：8 秒采样六通道全动（closed/half/open/wide/round+眨眼，TL 驱动 178/178）；慢放 0.25× 抓 wide 实拍、克隆节点抓眨眼实拍（**截图验收防 rAF/调度器覆写竞态**——两次假阴性被识别绕过）
-4. **微信 UI 自动化研究（任务 #16，08-22 立项完成研究）**：`docs/research/wechat-ui-automation.md`（2f37ed4）——可行但有闸门；微信 4.x Qt Quick 自绘 UI"按需暴露无障碍树"；wxauto 家族对 4.1.x 已死；**下一步=30 分钟 go/no-go 探针（uiautomation attach + inspect.exe，需用户备一次性小号）**；回退=DB 轮询读 + UIA/剪贴板发
-5. **环境现场（08-27 收尾时）**：api_v2 :9880 已恢复常驻（**真实路径=`~/gpt-sovits/GPT-SoVITS-v2pro-20250604/runtime/python.exe` + workdir/tts_infer_v2pro.yaml**，勿再用 `~/gpt-sovits/runtime` 旧记法）；8020 档案站常驻（archive_out）；ComfyUI 已停；archive_dist 已同步（166 文件 checks=ok）；Rhubarb 在 ~/tools。机器重启后 8020/9880/Tailscale 均需手动拉起
+4. **微信 UI 自动化研究（任务 #16，08-22 立项完成研究）**：`docs/research/wechat-ui-automation.md`（2f37ed4）——可行但有闸门；微信 4.x Qt Quick 自绘 UI"按需暴露无障碍树"；wxauto 家族对 4.1.x 已死；**下一步=30 分钟 go/no-go 探针（uiautomation attach + inspect.exe，需用户备一次性小号）**；回退=DB 轮询读 + UIA/剪贴板发 **→ 已被 ⓪⁸ B① 覆盖：08-28 活体探针 NO-GO 铁证（4.1.12.26 控件树恒空壳），ClawBot 灰度自查亦不用备小号；本条仅历史。**
+5. **环境现场（08-27 收尾时）**：api_v2 :9880 已恢复常驻（**真实路径=`~/gpt-sovits/GPT-SoVITS-v2pro-20250604/runtime/python.exe` + workdir/tts_infer_v2pro.yaml**，勿再用 `~/gpt-sovits/runtime` 旧记法）；8020 档案站常驻（archive_out）；ComfyUI 已停；archive_dist 已同步（166 文件 checks=ok）；Rhubarb 在 ~/tools。机器重启后 8020/9880 需手动拉起，Tailscale 有登录自启任务 **→ 已过期（见 ⓪⁹ 第 5 点）：9880 现未起；archive_dist 自 09-01 起落后 archive_out（avatar.html 缺 blob 守卫、data/avatar 缺情绪资产），待重打包**
 6. **审核物料红线（08-25 固化）**：SendUserFile 在部分会话被禁用且曾报成功未送达——**音频/图片/GIF 审核物料一律走 8020 站点页面**（先例：mouth_preview.html / phase1_preview.html / gsv_review.html）
 
 ### 下回合建议顺序（08-27 刷新，覆盖下方各旧版）
@@ -140,9 +154,9 @@
 
 ## ⓪⁺⁺⁺ 增补（2026-08-17 凌晨：对话页四连升级 + 远程访问，最先看这段）
 
-1. **对话页新能力（全部 Codex 审 + 真浏览器 E2E）**：①file:// 直开引导（修"Failed to fetch"实报）②接口类型双模式——OpenAI 兼容（DeepSeek：`https://api.deepseek.com/chat/completions` + `deepseek-chat`）/ **Claude 官方**（`https://api.anthropic.com/v1/messages` + `anthropic-dangerous-direct-browser-access` 头，CORS 直连实测通；Max 订阅≠API 额度，需 console 充值）③**用户气泡漏渲染文本 bug 修复**（自 v1 潜伏）④**微信式语音回复**——tools/tts_server.py 本地合成服务 :8022（v0.2 e14，默认沪普；`wu-sft/tts_server/start_tts.bat` 一键启动，已常驻）+ 语音条 UI（点击播放/右键长按转文字/"合成语音·非原声"标签/≤120 字/四类失败降级文字）。审核插曲：Codex 首轮 REJECT 的 BLOCKER 被六格矩阵实证不能复现（其分帧实验污染自身连接），复审撤回改 ACCEPT；真发现（分帧加固/token 选项/blob 池/touchcancel）全修
+1. **对话页新能力（全部 Codex 审 + 真浏览器 E2E）**：①file:// 直开引导（修"Failed to fetch"实报）②接口类型双模式——OpenAI 兼容（DeepSeek：`https://api.deepseek.com/chat/completions` + `deepseek-chat`；**→ companion 页 09-01 起预填 `deepseek-v4-flash`，chat.html 占位符仍旧**）/ **Claude 官方**（`https://api.anthropic.com/v1/messages` + `anthropic-dangerous-direct-browser-access` 头，CORS 直连实测通；Max 订阅≠API 额度，需 console 充值）③**用户气泡漏渲染文本 bug 修复**（自 v1 潜伏）④**微信式语音回复**——tools/tts_server.py 本地合成服务 :8022（v0.2 e14，默认沪普；`wu-sft/tts_server/start_tts.bat` 一键启动，已常驻）+ 语音条 UI（点击播放/右键长按转文字/"合成语音·非原声"标签/≤120 字/四类失败降级文字）。审核插曲：Codex 首轮 REJECT 的 BLOCKER 被六格矩阵实证不能复现（其分帧实验污染自身连接），复审撤回改 ACCEPT；真发现（分帧加固/token 选项/blob 池/touchcancel）全修
 2. **远程访问已通（Tailscale 私网）**：**手机任何网络访问 `http://100.116.45.2:8020/`** = 家里档案站全部页面（含语音对话，TTS 走同主机 8022）。架构：**userspace 模式用户态 tailscaled**（腾讯电脑管家拦 SYSTEM 服务出网 WSAEACCES，服务版已停用禁用；提权用户态 + --unattended）；登录自启任务 `TailscaleUserspace`；设备 justin-pc(100.116.45.2) + iphone182(100.111.127.101)。排障链与风险详见 progress 08-17 节（管家若日后拦用户态进程需回家白名单；UDP 受限走 DERP TCP 中继）
-3. TTS 服务与 LAN http.server 均非开机自启（TTS 用 start_tts.bat、档案站用 archive_out/start_server.bat 手动起；后续可仿 TailscaleUserspace 注册计划任务）
+3. TTS 服务与 LAN http.server 均非开机自启（TTS 用 start_tts.bat、档案站用 archive_out/start_server.bat 手动起；后续可仿 TailscaleUserspace 注册计划任务）**→ 现行 TTS 启动法见 ⓪⁹ 第 9 点（venv python 直启；cmd /c 包 bat 会静默失败，progress 09-01）**
 
 ## ⓪⁺⁺ MVP 已交付（2026-08-16 深夜收官，最先看这段）
 
@@ -227,8 +241,8 @@
 |---|---|
 | 多人架构 | 方案 A：单仓库多人，`people/<slug>/`，工具/prompts 通用 |
 | 产品形态 | **混合 C**（构建端 Claude skill + 消费端自包含静态 HTML + 可选 BYOK 对话页）✅ 用户已确认 |
-| 语音选型（**2026-08-18 刷新**） | **现役：CosyVoice2-Wu-SFT 全量 SFT = v0.2 e14 双语域**（上海话 `<|wuyu|>` + 沪普裸文本）。十维度选型矩阵见 `docs/research/tts-frontier-2026.md`：普通话/粤语泛化=GPT-SoVITS v2Pro 主选（已拍板开工）· VoxCPM2=唯一沪语 A/B 候选 · Qwen3-TTS=方言开源化观察对象。**家人盲听是唯一标准**不变 |
-| 微信导出（**已定案 2026-08-04**） | 用户微信实测 **4.1.11.24**。chatlog/chatlog-new 不支持 4.1.x（出局）。**采用混合方案**：①文字+图片→ `chatlog-keeper`（MIT，已在 4.1.11 取到 key 并缓存，`wechat`+`images` 命令）；②视频→ **直接复制** `xwechat_files/<wxid>/msg/video/**/*.mp4`（4.1 视频是明文 mp4，实测 387 个）；③语音→ **自研提取器**（SILK blob 在加密消息库内，需先探测表/字段，DeepSeek 写 Codex 审，pilk/silk→wav）。详见 `docs/research/wechat-media-extraction.md`。备选交叉验证：`LifeArchiveProject/WeChatDataAnalysis`（无协议、DMCA靶心，用完即弃）。chatlog-keeper 源码在 `installers/chatlog-keeper-0.2.0/`，已建 .venv 装好依赖 |
+| 语音选型（**2026-08-18 刷新**） | **现役：CosyVoice2-Wu-SFT 全量 SFT = v0.2 e14 双语域**（上海话 `<|wuyu|>` + 沪普裸文本）。十维度选型矩阵见 `docs/research/tts-frontier-2026.md`：普通话/粤语泛化=GPT-SoVITS v2Pro 主选（Phase 6 已于 08-21 收官）· VoxCPM2=唯一沪语 A/B 候选 · Qwen3-TTS=方言开源化观察对象。~~家人盲听是唯一标准~~ → 08-21 用户裁决移除家人盲听，M1 以本人盲听 v2 关口 |
+| 微信导出（**已定案 2026-08-04**） | 用户微信实测 **4.1.11.24**（08-28 时已升 4.1.12.26；4.1.x 取 key 方法见 memory wechat-key-extraction）。chatlog/chatlog-new 不支持 4.1.x（出局）。**采用混合方案**：①文字+图片→ `chatlog-keeper`（MIT，已在 4.1.11 取到 key 并缓存，`wechat`+`images` 命令）；②视频→ **直接复制** `xwechat_files/<wxid>/msg/video/**/*.mp4`（4.1 视频是明文 mp4，实测 387 个）；③语音→ **自研提取器**（SILK blob 在加密消息库内，需先探测表/字段，DeepSeek 写 Codex 审，pilk/silk→wav）。详见 `docs/research/wechat-media-extraction.md`。备选交叉验证：`LifeArchiveProject/WeChatDataAnalysis`（无协议、DMCA靶心，用完即弃）。chatlog-keeper 源码在 `installers/chatlog-keeper-0.2.0/`，已建 .venv 装好依赖 |
 | 数据源架构 | 源适配器 → UIF 统一中间格式（`schema/uif.schema.json`）→ 下游只消费 UIF |
 | 三条自我保护约束 | 已入 CLAUDE.md 铁律（Tier 分级+人工闸门 / 保留完整性 / 沉浸度克制） |
 | 硬件 | RTX 4090 24GB + i9-14900KF + 64GB RAM，全本地无约束 |
@@ -254,7 +268,7 @@
 3. ~~`tools/parse_wechat.py`（#13）~~ ✅ **已完成（2026-08-05，DeepSeek 两轮 + Codex 三轮审核 ACCEPT）**：已产出 `people/mama/normalized/wechat_messages.uif.jsonl`（20923 条，妈妈 9386 条，jsonschema 全量校验通过，report 见同目录）。配置在 `people/mama/wechat_parse_config.json`（gitignore 内，重建时需按下述规格重写）。媒体 ref 由 #11/#12 后续按 chat_room+ts+sender_wxid 关联合并。**筛选规格（2026-08-05 核实后扩充，勿退回旧版）**：①一对一会话 `chat_room=laurawang001` 整段收录（6968 条，妈妈发 5048）；②**群聊补抓**——妈妈在 4 个群发过 4338 条（全部文字）：家庭群 `17586423176@chatroom`（她 3622/群 6981，成员仅她+justin+爸爸）、`25722082802@chatroom`（430）、`5030199976@chatroom`（147）、`3758229935@chatroom`（139），这些群的完整对话（含他人发言作为前后文）一并收录；③UIF 中 `chat_room` 区分语境（私聊/家庭群/亲友群），他人消息 sender 必须清晰标注，不得与妈妈本人的话混入 persona 语料
 4. ~~**M0 收尾**~~ **备份关口已由用户明确豁免（2026-08-05："不要去管备份了，假设资料很安全"）**——backup_check/双备份不再阻塞后续里程碑，勿再催办。照片/家庭录像清点（ingest_media）仍待素材导入 raw 后进行
    - **新立项（2026-08-05，用户拍板）——数据源扩展**：
-     - **微博（#14）**：两部分素材——①她自己微博账号的全部内容；②**用户（justin）微博下她的评论/回复**。适配器 `tools/parse_weibo.py` 输出 UIF post 记录（schema 已支持 author/comments）。前置：素材获取方式待研究（她的账号官方导出是否可行/网页存档抓取；justin 自己的微博可官方导出后筛她的评论），先由用户收集 raw → `people/mama/raw/weibo/`
+     - **微博（#14，⚠️ 编号后被 08-18 GPT-SoVITS 泛化管道任务 #14 复用，引用时称"微博适配器"）**：两部分素材——①她自己微博账号的全部内容；②**用户（justin）微博下她的评论/回复**。适配器 `tools/parse_weibo.py` 输出 UIF post 记录（schema 已支持 author/comments）。前置：素材获取方式待研究（她的账号官方导出是否可行/网页存档抓取；justin 自己的微博可官方导出后筛她的评论），先由用户收集 raw → `people/mama/raw/weibo/`
      - **微信朋友圈（#15）**：她的朋友圈（含 justin 可见的点赞/评论互动）。适配器 `tools/parse_moments.py` 输出 UIF post 记录（source=wechat_moments）。前置：朋友圈数据在手机端，导出方式待研究（微信自带"个人信息导出"里朋友圈部分/手机备份工具），先由用户收集 raw → `people/mama/raw/moments/`
      - 两者共同点：先解决**素材到手**，adapter 都是纯解析（模式同 #13，DeepSeek 写 + Codex 审）
 5. **M1 语音验证（进行中，2026-08-05 启动）**：
@@ -287,11 +301,20 @@
 - **控制台中文乱码**是 GBK 代码页显示问题，文件都是 UTF-8，勿在脚本里强改 stdout 编码（Codex 建议保持现状）
 - 审核循环战绩参考：Codex 第一轮抓过 3 个 blocker（--person 路径注入写 raw/），修复模式是 slug 正则 + resolve() 锚定校验——新工具写 spec 时直接把这两条要求写进去
 
-## 六、用户待办（2026-08-29 刷新）
+## 六、用户待办（2026-09-02 刷新）
+
+**当前有效（用户侧动作）**：
+- 8B-4 完整真机验收：iPhone/Mac 经 Tailscale 开 `http://100.116.45.2:8020/companion.html`（含情绪层）
+- 微信接入方向裁决（自用验证 / 先不做）；可秒级自查：微信 设置>插件 有无 ClawBot 入口
+- talking-head 特别版是否点头（可选）
+- `docs/companion-farewell-protocol.md` 第五格留你填一句话（首次自查日 2026-11-28）
+- chat_system 长度纪律 / 非 DeepSeek 服务商 reasoning_effort 低档——是否要做（progress 09-02）
+
+**已移除 / 已闭环（历史）**：
 
 - ~~安排家人盲听~~ **已移除（2026-08-21 用户裁决）**——M1 以本人盲听 v2 关闭
-- ~~说话帧确认~~ **已闭环（2026-08-23）**——用户实报口型 bug 后三根因修复（看门狗/帧素材重做/缓存穿透，见 progress 08-22/23 节）：新映射 静息=闭嘴微笑 s3002（用户选定）/ 说话=原张嘴笑定稿
-- ~~DeepSeek API key 轮换~~ **已移除（2026-08-29 用户裁决）**
-- ~~4 个拟音词释义~~ **已移除（2026-08-29 用户裁决）**
-- ~~601 敏感疑似复核~~ **已移除（2026-08-29 用户裁决）**——报告文件保留在 normalized/，闸门页默认剔除逻辑不变，仅不再作为待办
-- ~~persona Q1-Q13~~ **已移除（2026-08-29 用户裁决）**——实际早已全部收口（progress 08-13），此前为陈旧残留
+- ~~说话帧确认~~ **已闭环（2026-08-23）**——用户实报口型 bug 后三根因修复（看门狗/帧素材重做/缓存穿透，见 progress 08-22/23 节）：新映射 静息=闭嘴微笑 s3002（用户选定）/ 说话=原张嘴笑定稿 **（注：此映射属双帧体系，同日 08-23 双帧架构判死；现行=Phase 1 贴片体系：底图 s3002 + 四态嘴贴片 W1/R1 + 眨眼 B1 + 情绪贴片，见 ⓪⁷/⓪⁹）**
+- ~~DeepSeek API key 轮换~~ **已移除（2026-09-01 用户裁决）**
+- ~~4 个拟音词释义~~ **已移除（2026-09-01 用户裁决）**
+- ~~601 敏感疑似复核~~ **已移除（2026-09-01 用户裁决）**——报告文件保留在 normalized/，闸门页默认剔除逻辑不变，仅不再作为待办
+- ~~persona Q1-Q13~~ **已移除（2026-09-01 用户裁决）**——实际早已全部收口（progress 08-13），此前为陈旧残留

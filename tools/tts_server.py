@@ -35,6 +35,7 @@ SESSION_OPTIONAL_FIELDS = {
     'ts': (str, 64), 'provider': (str, 32), 'model': (str, 128), 'emotion': (str, 32),
     'tts': (str, 32), 'page': (str, 32), 'ua': (str, 300), 'detail': (str, 500),
     'qid': (str, 64), 'aborted': (bool, None), 'retrieval_used': (list, 20),
+    'messages': (int, None),
 }
 
 BRACKET_RE = re.compile(r'[\[【（(][^\[\]【】（）()]*[\]】）)]')
@@ -48,6 +49,67 @@ def strip_brackets(text):
         text = BRACKET_RE.sub(' ', text)
     return re.sub(r'\s+', ' ', text).strip()
 
+
+def soften_onsets(data, sr, fade_ms=30, thresh=0.01, quiet=0.005, min_gap_ms=200, frame_ms=5):
+    """在每个"起音"处做 fade_ms 的升余弦淡入，压掉 SFT 模型每次开口带的 ~15 ms 爆音。
+    起音定义：5 ms 帧 RMS 首次 > thresh，且此前连续 >= min_gap_ms 的帧 RMS < quiet（或它是整段的第一次发声）。
+    fade_ms <= 0 或数据为空时原样返回。返回 float32 副本，不改输入。"""
+    if fade_ms <= 0 or data is None or len(data) == 0:
+        return np.array(data, dtype=np.float32) if data is not None else data
+
+    x = np.asarray(data, dtype=np.float32)
+    if x.size == 0:
+        return x.copy()
+
+    total = len(x)
+    frame = int(sr * frame_ms / 1000)
+    if frame < 1:
+        frame = 1
+
+    n_frames = total // frame
+    if n_frames == 0:
+        return x.copy()
+
+    x2 = x[: n_frames * frame] ** 2
+    rms = np.sqrt(x2.reshape(n_frames, frame).mean(axis=1))
+
+    min_gap_frames = max(1, int(min_gap_ms / frame_ms))
+    output = x.copy()
+
+    n = int(sr * fade_ms / 1000)
+    if n < 1:
+        n = 1
+    t = np.arange(n, dtype=np.float32) / n
+    fade_curve = 0.5 - 0.5 * np.cos(np.pi * t)
+
+    onset_samples = []
+    seen_voice = False
+    quiet_run = 0
+    in_voice = False
+
+    for i in range(n_frames):
+        if rms[i] < quiet:
+            quiet_run += 1
+            in_voice = False
+        elif rms[i] <= thresh:
+            # quiet <= rms <= thresh: breath/floor noise, resets quiet prefix
+            quiet_run = 0
+            # in_voice unchanged
+        else:  # rms[i] > thresh
+            if not in_voice and (not seen_voice or quiet_run >= min_gap_frames):
+                onset_samples.append(i * frame)
+                in_voice = True
+                seen_voice = True
+            quiet_run = 0
+
+    # Apply fade at each onset start sample
+    for start_sample in onset_samples:
+        fade_len = min(n, total - start_sample)
+        if fade_len <= 0:
+            continue
+        output[start_sample:start_sample + fade_len] *= fade_curve[:fade_len]
+
+    return output
 
 class SessionLog:
     def __init__(self, sessions_dir):
@@ -143,7 +205,7 @@ class TTSService:
                 pad = torch.zeros((1, pad_len), dtype=wav.dtype)
                 wav = torch.cat([pad, wav, pad], dim=1)
             duration = wav.shape[1] / self.cv.sample_rate
-            data = wav.numpy().flatten()
+            data = soften_onsets(wav.numpy().flatten(), self.cv.sample_rate, fade_ms=self.args.onset_fade_ms)
             pcm = (np.clip(data, -1.0, 1.0) * 32767).astype(np.int16)
             buf = io.BytesIO()
             sf.write(buf, pcm, self.cv.sample_rate, format='WAV', subtype='PCM_16')
@@ -417,6 +479,9 @@ def build_handler(service):
                 elif ftype is str:
                     if not isinstance(val, str) or (maxlen is not None and len(val) > maxlen):
                         continue
+                elif ftype is int:
+                    if isinstance(val, bool) or not isinstance(val, int) or val < 0 or val > 99999:
+                        continue
                 else:
                     if not isinstance(val, ftype):
                         continue
@@ -442,6 +507,7 @@ def main():
     parser.add_argument('--ref', default=REF_DEFAULT)
     parser.add_argument('--prompt-text', default=PROMPT_TEXT_DEFAULT)
     parser.add_argument('--default-lang', choices=['mandarin', 'wu'], default=DEFAULT_LANG_DEFAULT)
+    parser.add_argument('--onset-fade-ms', type=int, default=30, help='每个起音处的淡入毫秒数（压掉模型开口爆音；0=关闭）')
     parser.add_argument('--pad-ms', type=int, default=200)
     parser.add_argument('--max-chars', type=int, default=120)
     parser.add_argument('--max-retries', type=int, default=1)

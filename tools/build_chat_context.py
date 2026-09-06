@@ -128,75 +128,229 @@ def build_rhythm_block(rhythm: dict[str, Any] | None) -> str:
 
     lines: list[str] = []
 
-    text_stats = rhythm.get("text_stats")
-    if isinstance(text_stats, dict):
-        total = text_stats.get("messages_total")
-        avg = text_stats.get("avg_length")
-        median = text_stats.get("median_length")
-        if total is not None:
-            lines.append(f"消息总量 {total} 条")
-        if avg is not None:
-            lines.append(f"平均长度约 {avg} 字")
-        if median is not None:
-            lines.append(f"中位长度约 {median} 字")
+    # 1. 消息长度
+    try:
+        text_stats = rhythm.get("text_stats")
+        if isinstance(text_stats, dict):
+            mean = text_stats.get("mean")
+            median = text_stats.get("median")
+            p90 = text_stats.get("p90")
+            sample_count = text_stats.get("sample_count")
+            has_samples = (not isinstance(sample_count, (int, float))) or sample_count > 0   # 零样本不输出看似确定的统计
+            if has_samples and isinstance(median, (int, float)) and isinstance(mean, (int, float)):
+                if isinstance(p90, (int, float)):
+                    lines.append(f"消息长度：中位 {median:.0f} 字、平均 {mean:.0f} 字，九成不超过 {p90:.0f} 字（样本 {sample_count if isinstance(sample_count, (int, float)) else '?'} 条）")
+                else:
+                    lines.append(f"消息长度：中位 {median:.0f} 字、平均 {mean:.0f} 字（样本 {sample_count if isinstance(sample_count, (int, float)) else '?'} 条）")
+            if has_samples and isinstance(text_stats.get("buckets"), dict) and any(isinstance(v, (int, float)) and v > 0 for v in text_stats["buckets"].values()):
+                buckets = text_stats["buckets"]
+                sc = sample_count if isinstance(sample_count, (int, float)) and sample_count > 0 else None
+                parts = []
+                for key, val in buckets.items():
+                    label = "100 字以上" if key == "100+" else f"{key} 字"
+                    label = label.replace("1-5", "1–5").replace("6-15", "6–15").replace("16-40", "16–40").replace("41-100", "41–100")
+                    if sc and isinstance(val, (int, float)):
+                        parts.append(f"{label} {round(val * 100 / sc)}%")
+                    elif isinstance(val, (int, float)):
+                        parts.append(f"{label} {val} 条")
+                if parts:
+                    lines.append("长度分布：" + "、".join(parts))
+    except Exception:
+        pass
 
-    time_pattern = rhythm.get("time_pattern")
-    if isinstance(time_pattern, dict):
-        peak_hours = time_pattern.get("peak_hours")
-        active_periods = time_pattern.get("active_periods")
-        if isinstance(peak_hours, (list, tuple)) and len(peak_hours) > 0:
-            top2 = [str(h) for h in peak_hours[:2]]
-            lines.append(f"活跃高峰时段：{', '.join(top2)}")
-        elif isinstance(active_periods, (list, tuple)) and len(active_periods) > 0:
-            top2 = [str(p) for p in active_periods[:2]]
-            lines.append(f"活跃时段：{', '.join(top2)}")
+    # 旧键兼容：消息总量/平均/中位
+    try:
+        old_text = rhythm.get("text_stats")
+        if isinstance(old_text, dict):
+            total = old_text.get("messages_total")
+            avg = old_text.get("avg_length") or old_text.get("average_length")
+            median_old = old_text.get("median_length")
+            if isinstance(total, (int, float)):
+                lines.append(f"消息总量 {total:.0f} 条")
+            if isinstance(avg, (int, float)):
+                lines.append(f"平均长度约 {avg:.0f} 字")
+            if isinstance(median_old, (int, float)):
+                lines.append(f"中位长度约 {median_old:.0f} 字")
+    except Exception:
+        pass
 
-    burst = rhythm.get("burst")
-    if isinstance(burst, dict):
-        note = burst.get("overall") or burst.get("note") or burst.get("summary")
-        if note:
-            lines.append(f"连发习惯：{note}")
-    elif isinstance(burst, str) and burst.strip():
-        lines.append(f"连发习惯：{burst.strip()}")
+    # 2. 连发
+    try:
+        burst = rhythm.get("burst")
+        if isinstance(burst, dict):
+            dist = burst.get("distribution")
+            if isinstance(dist, dict):
+                total_bursts = 0
+                if isinstance(dist, dict):
+                    for v in dist.values():
+                        if isinstance(v, (int, float)):
+                            total_bursts += v if isinstance(v, (int, float)) else 0
+                if total_bursts and isinstance(total_bursts, (int, float)) and total_bursts > 0:
+                    b_parts = []
+                    for key in ["1", "2", "3", "4", "5+"]:
+                        val = dist.get(key)
+                        if not isinstance(val, (int, float)):
+                            continue
+                        label = "5 条以上" if key == "5+" else f"{key} 条"
+                        b_parts.append(f"{label} {round(val * 100 / total_bursts)}%")
+                    longest = burst.get("longest_burst")
+                    longest_txt = f"；最长一次连发 {longest} 条" if isinstance(longest, (int, float)) else ""
+                    if b_parts:
+                        lines.append("连发习惯：一次只发 " + "、".join(b_parts) + longest_txt)
+            elif isinstance(burst.get("overall") or burst.get("note") or burst.get("summary"), str):
+                note = burst.get("overall") or burst.get("note") or burst.get("summary")
+                if note:
+                    lines.append(f"连发习惯：{note}")
+        elif isinstance(burst, str) and burst.strip():
+            lines.append(f"连发习惯：{burst.strip()}")
+    except Exception:
+        pass
 
-    punct = rhythm.get("punctuation_habits")
-    if isinstance(punct, dict):
-        notable = punct.get("notable") or punct.get("significant") or punct.get("overall")
-        if notable:
-            lines.append(f"标点习惯：{notable}")
-    elif isinstance(punct, str) and punct.strip():
-        lines.append(f"标点习惯：{punct.strip()}")
+    # 3. 句末标点
+    try:
+        punct = rhythm.get("punctuation_habits")
+        if isinstance(punct, dict):
+            no_end = punct.get("no_end_punct_ratio")
+            if isinstance(no_end, (int, float)):
+                per_100 = punct.get("per_100")
+                q = per_100.get("?") if isinstance(per_100, dict) else None
+                ex = per_100.get("!") if isinstance(per_100, dict) else None
+                dots = per_100.get("...") if isinstance(per_100, dict) else None
+                line = f"句末标点：{no_end * 100:.0f}% 的消息不带句末标点"
+                extras = []
+                if isinstance(q, (int, float)):
+                    extras.append(f"问号约 {round(q)} 个")
+                if isinstance(ex, (int, float)):
+                    extras.append(f"感叹号约 {round(ex)} 个")
+                if isinstance(dots, (int, float)):
+                    extras.append(f"省略号约 {round(dots)} 个")
+                if extras:
+                    line += "；每百条消息里" + "、".join(extras)
+                lines.append(line)
+            elif punct.get("notable") or punct.get("significant") or punct.get("overall"):
+                note = punct.get("notable") or punct.get("significant") or punct.get("overall")
+                if note:
+                    lines.append(f"标点习惯：{note}")
+        elif isinstance(punct, str) and punct.strip():
+            lines.append(f"标点习惯：{punct.strip()}")
+    except Exception:
+        pass
 
-    catchphrases = rhythm.get("catchphrases")
-    if isinstance(catchphrases, list) and len(catchphrases) > 0:
-        formatted = format_catchphrases(catchphrases)
-        if formatted:
-            lines.append("口头禅：" + "，".join(formatted))
+    # 4. 活跃时段
+    try:
+        time_pattern = rhythm.get("time_pattern")
+        if isinstance(time_pattern, dict):
+            top = time_pattern.get("top_hours")
+            if isinstance(top, (list, tuple)) and len(top) > 0:
+                ts = []
+                for item in top[:3]:
+                    h = None
+                    if isinstance(item, dict):
+                        cnt = item.get("count")
+                        if isinstance(cnt, (int, float)) and cnt <= 0:
+                            continue   # 零计数的"高峰"不算高峰
+                        h = item.get("hour")
+                    elif isinstance(item, (int, float, str)):
+                        h = item
+                    if h is not None:
+                        ts.append(str(h))
+                if ts:
+                    lines.append("活跃高峰：" + "、".join(ts) + " 点")
+            else:
+                peak = time_pattern.get("peak_hours")
+                active = time_pattern.get("active_periods")
+                if isinstance(peak, (list, tuple)) and len(peak) > 0:
+                    lines.append(f"活跃高峰时段：{', '.join(str(h) for h in peak[:3])}")
+                elif isinstance(active, (list, tuple)) and len(active) > 0:
+                    lines.append(f"活跃时段：{', '.join(str(p) for p in active[:3])}")
+    except Exception:
+        pass
 
-    emoji = rhythm.get("emoji_usage")
-    if isinstance(emoji, dict):
-        note = emoji.get("summary") or emoji.get("overall") or emoji.get("habit")
-        top = emoji.get("top")
-        if note:
-            lines.append(f"Emoji/颜文字习惯：{note}")
-        elif isinstance(top, (list, tuple)) and len(top) > 0:
-            top_str = ", ".join(str(t) for t in top[:5])
-            lines.append(f"常用 Emoji/颜文字：{top_str}")
-    elif isinstance(emoji, str) and emoji.strip():
-        lines.append(f"Emoji/颜文字习惯：{emoji.strip()}")
+    # 5. 回复速度
+    try:
+        lat = rhythm.get("reply_latency")
+        if isinstance(lat, dict):
+            med_sec = lat.get("median_sec")
+            p90_sec = lat.get("p90_sec")
+            if isinstance(med_sec, (int, float)):
+                if isinstance(p90_sec, (int, float)):
+                    lines.append(f"回复速度：中位约 {med_sec:.0f} 秒，九成在 {p90_sec / 60:.0f} 分钟内")
+                else:
+                    lines.append(f"回复速度：中位约 {med_sec:.0f} 秒")
+            elif isinstance(p90_sec, (int, float)):
+                lines.append(f"回复速度：九成在 {p90_sec / 60:.0f} 分钟内")
+    except Exception:
+        pass
 
-    voice = rhythm.get("voice_habit")
-    if isinstance(voice, dict):
-        note = voice.get("summary") or voice.get("overall") or voice.get("habit")
-        if note:
-            lines.append(f"语音使用习惯：{note}")
-    elif isinstance(voice, str) and voice.strip():
-        lines.append(f"语音使用习惯：{voice.strip()}")
+    # 6. 口头禅
+    try:
+        catchphrases = rhythm.get("catchphrases")
+        if isinstance(catchphrases, list) and len(catchphrases) > 0:
+            formatted = format_catchphrases(catchphrases)
+            if formatted:
+                lines.append("口头禅：" + "，".join(formatted))
+    except Exception:
+        pass
+
+    # 7. 表情
+    try:
+        emoji = rhythm.get("emoji_usage")
+        if isinstance(emoji, dict):
+            bracket = emoji.get("top20_bracket")
+            if isinstance(bracket, (list, tuple)) and len(bracket) > 0:
+                tags = []
+                for item in bracket[:5]:
+                    if isinstance(item, dict):
+                        tag = item.get("tag")
+                        cnt = item.get("count")
+                        if tag is not None and isinstance(cnt, (int, float)):
+                            tags.append(f"{tag}({cnt})")
+                        elif tag is not None:
+                            tags.append(str(tag))
+                    else:
+                        tags.append(str(item))
+                if tags:
+                    lines.append("常用表情：" + "、".join(tags))
+            else:
+                note = emoji.get("summary") or emoji.get("overall") or emoji.get("habit")
+                top = emoji.get("top")
+                if note:
+                    lines.append(f"Emoji/颜文字习惯：{note}")
+                elif isinstance(top, (list, tuple)) and len(top) > 0:
+                    lines.append(f"常用 Emoji/颜文字：{', '.join(str(t) for t in top[:5])}")
+        elif isinstance(emoji, str) and emoji.strip():
+            lines.append(f"Emoji/颜文字习惯：{emoji.strip()}")
+    except Exception:
+        pass
+
+    # 8. 语音
+    try:
+        voice = rhythm.get("voice_habit")
+        if isinstance(voice, dict):
+            ratio = voice.get("ratio")
+            vcount = voice.get("voice_message_count")
+            dur = voice.get("duration")
+            if isinstance(ratio, (int, float)):
+                mean_sec = dur.get("mean_sec") if isinstance(dur, dict) else None
+                if isinstance(vcount, (int, float)):
+                    if isinstance(mean_sec, (int, float)):
+                        lines.append(f"语音条：占消息的 {ratio * 100:.1f}%（{vcount:.0f} 条），平均约 {mean_sec:.0f} 秒")
+                    else:
+                        lines.append(f"语音条：占消息的 {ratio * 100:.1f}%（{vcount:.0f} 条）")
+                else:
+                    lines.append(f"语音条：占消息的 {ratio * 100:.1f}%")
+            else:
+                note = voice.get("summary") or voice.get("overall") or voice.get("habit")
+                if note:
+                    lines.append(f"语音使用习惯：{note}")
+        elif isinstance(voice, str) and voice.strip():
+            lines.append(f"语音使用习惯：{voice.strip()}")
+    except Exception:
+        pass
 
     if not lines:
         return "（暂无节律统计）"
     return "\n".join(lines)
-
 
 def truncate_persona(text: str, max_kb: int) -> tuple[str, bool]:
     """Truncate at last full line under limit. Returns (text, truncated)."""

@@ -406,3 +406,38 @@
 - **Codex R2 REJECT（BLOCKER）**：showPlayButton 手点 iframe 重播分支漏设 activePlay→多段回复在 autoplay 拦截后卡首段 → 声明 hotfix（重播前 activePlay=vt、失败清 null）→ **ACCEPT**
 - E2E（真浏览器+真 :8022）：①语音模式 2 段文声同步（t≈4.4s 首段、11.3s 次段，与 audio play 对齐）②并发压力（旧回合播中发新回合）新回合从首段正常播、旧回合文字 revealAll 保留③autoplay 拦截→按钮→点按后 endedCount=1 推进到第 2 段全文出齐④纯文字兜底全文出⑤停止键亮「（已停止）」。测试 session 全清理，保留真实 YqOjsW
 - **注记：沉浸感显著提升，8A-2b 伦理护栏优先级上升**。文档：task_plan 8B-9、HANDOFF ⓪⁹ 第 10 点、memory
+
+## Session 2026-09-02（续 2：进度全景报告 + 文档失真修复）
+- 用户 /clear 后令"报告项目完整进度"→ workflow 六路并行核对（里程碑三文档 / HANDOFF 全篇 / 仓库产物实存 / 环境活体探针 / 研究目录 / 三源一致性；6/6 返回，63 次工具调用）→ 全景报告。核对实证：HANDOFF ⓪⁹/⓪⁸ 点名产物全部在盘（emotions.json 键序 sad>stern>think>happy、visemes.json 326KB、data/avatar 10 PNG、sessions/2026-09 1 jsonl+2 wav、emo_candidates 13 文件）；:8020/:8022 up（/health e14 session_log true）、:9880/:8188 down、Tailscale 100.116.45.2；archive_dist/avatar.html（08-27）与 archive_out（09-01）md5 不一致=已知未同步
+- 用户令"先修复这些文档失真"→ **Claude 直写（声明，文档非代码）**，补丁脚本逐条断言唯一命中：①CLAUDE.md M4 行补 09-01/02 四连、去掉"贴片首轮待定稿"、副产品线标明"研究裁决/方向等用户"②task_plan Phase 1/3 状态头改 complete、3 完成标准改已达成、4c 标搁置（被 :8022 动态合成取代）、Phase 8/9 头改"用户已裁决"、8A-1 标被取代、8A-2a ✅、8A-3 标 🔶（companion 侧落地/chat.html 未动，build_chat_page 占位符仍 deepseek-chat）、8A-4 ✅（由 8B-7 落地）、Phase 10 重复骨架块删除、Phase 10/11 头改 research complete、决策记录补 08-28→09-02 四行（08-28 两裁决合写）、Errors 表改写 1 行+补 3 行③HANDOFF：四项待办移除日期 08-29→09-01（git -S 实证出自 09-02 提交、progress 记 09-01 会话）、下回合列表 09-02 刷新（加 archive_dist 重打包 / ingest_sessions / 静默消失项声明未经裁决）、⓪⁷ 第 4/5 点加"已被覆盖/已过期"标注、⓪⁸ D 与 ⓪⁷ 的"Tailscale 需手动拉起"改为有自启任务、二章语音行去"已拍板开工/家人盲听唯一标准"、微信版本加 4.1.12.26、#14 编号复用警示、六章加"当前有效用户侧动作"、说话帧条加双帧体系已废注④findings 补"companion 四连教训"一节（DPR/PS 自杀/区域规格/音频归属/关键词误报/两套烘焙数学/withDefaults/回复变长诊断/分句首声）
+- 未动：progress.md 历史条目、HANDOFF 旧增补段正文（只加标注不改史）、people/ 一切
+
+## Session 2026-09-02（续 3：文档修复核证 + 任务 #22 立项 + 研究 a 收口）
+- 文档失真修复经独立对抗核证（workflow 8 组 217 条主张：213 证实、3 反驳已修——`wechat-ocr-analysis.md` 错名、Errors 表把流式/32k 误归 Phase 0 修法、1 条不可证改措辞）
+- 用户立项 #22（Phase 12）：a/ iOS 部署与专属 App；b/ 0→1 建档 App 产品化。研究 workflow 内部三路完成（运行时依赖/管线闸门/伦理约束），外部 7 路扫描因账号限额（20:10 复位）全失败；用户指令"一个一个来"→ 改主模型逐条 WebSearch/WebFetch 补查，先 a 后 b
+- **a 收口**：`docs/research/ios-app-deployment.md`——A0–A5 矩阵；推荐 A1 主屏 Web App（iOS 26 默认 Web App、加图标即可、http 无 secure-context 需求、tailscale serve https 零改动）；A2 壳不推荐（收益全在 6.2 ③ 禁区）；声音出不了 4090（端侧运行时无 CosyVoice2 SFT）；A5 云 GPU NO-GO；建议另立 A3′ 有声档案；前提 8A-2b。待裁决 D1–D5。task_plan Phase 12 已拆 a ✅ / b ⬜
+- 未动：people/ 一切；未提交
+
+## Session 2026-09-03（#22-a 裁决 + b 收口）
+- 用户裁决 a：D1 A1 接受 + 8A-2b 先行；D2 https 跳过；D3 A3′ 有声档案立项（task_plan 新 Phase 13）；D4 A2 壳暂不做；D5 PC 常开手动拉起。实施顺序：8A-2b → A1 图标 → Phase 13
+- **b 收口**：`docs/research/build-app-productization.md`——主模型逐条补查（ComfyUI Desktop/Pinokio 打包先例、WeChatMsg_2026 4.0 适配、标识办法 2025-09-01 + 深度合成规定 + 民法典 994、StoryFile 破产/2Wai 反弹）+ 内部管线盘点 33 项；结论=建档工作台 B1（产出档案，companion 可选）、三条硬边界、§4 把关功能表、P0–P3 分期。待裁决 E1–E6
+- 未动：people/ 一切；未提交
+
+## Session 2026-09-05（8B-10 语音条 + ≤30 字分条；用户反馈驱动）
+- 用户反馈两条（推迟 #22-b 裁决）：默认发语音条可回味 + 下方备注文字；片段太长不生成语音→每条 ≤30 字分条各自合成。日志实证：sessions 17 条回复 7 条 `skipped_length`（`TTS_TOTAL_MAX=240` 全文超长整段跳过）；同时发现 `build_rhythm_block` 读的键在 rhythm.json 里全不存在（模型从未拿到长度/连发/标点统计）
+- 实现：DeepSeek 区域规格两轮（R1–R9 / R1–R4，锚点唯一预检，49+39 hunk 全落规格区）+ Claude 声明 hotfix 8 处（硬切、ended 清回放、cancel 提前保证顺序、cancel 清回放、空回复守卫、删死函数、logSession 白名单 `messages`、标点-only 不送 TTS）+ Python 侧 2 处（tts_server int 字段校验、rhythm 死表达式）；提示词加"分条发"规则；rebuild chat_context + companion
+- 验收：ES5 扫描 0；splitMessages 单测 12 例；Playwright route-mock 真运行时 E2E 两轮全绿（截图人眼确认语音条）；真 :8022 冒烟 29 字 5.5 s；tts_server 重启两次（白名单/校验生效）
+- 审查：Codex MCP 报 refresh token revoked（CLI 显示已登录但实际失效）→ 改三视角 workflow（状态机/浏览器平台/安全+Python）26 发现 → 对抗核证 12（上限）：10 确认（1 major：旧回合 ▶ 按钮劫持 player 致新回合悬挂；9 minor）2 反驳，未核证 14 条人工筛出 4 条一并修（代理对硬切、纯空白 ['']、标签行送 TTS、标点类漏 …）→ 第二轮 DeepSeek 全修 → E2E 复验通过。**Codex 验收待补**：`codex logout` 后走 `codex login --device-auth`（浏览器流回调 localhost 不适合远程），两个设备码均 15 分钟超时未授权（用户远程未及时操作）；用户回家后 `codex login` 浏览器流登录成功（09-06 23:03）；MCP 默认模型 gpt-5.4 与 gpt-5.6 均被拒（"not supported when using Codex with a ChatGPT account"），`model: gpt-5.5` 可用 → **Codex 三轮 REJECT(5: 标点合并超 30/丢开头标点、超时未盖 body、降级 Audio 拒绝不清动画、零样本节律误导、未用变量)→REJECT(1: 被拒态点语音条绕开 activePlay 致回合停住)→ACCEPT**；每轮 Claude 声明式 hotfix + 单测 14 例 + E2E 两套复验全绿。8B-10 收口
+- 教训入 findings/memory：Playwright MCP 沙箱无 Buffer/setTimeout、中途抛错的脚本会变僵尸继续操作页面（重跑前 browser_close）、截图落仓库根要移走
+- 未动：people/ 一切（sessions 只做元数据统计）；未提交
+
+## Session 2026-09-06（#23 给爸爸的六段语音）
+- 用户立项 #23（Phase 14）：09-04 晚对话截图发给爸爸后爸爸很触动，要把数字人六段回复（turn 6–11，136–334 字，其中 4 段当晚因 TTS_TOTAL_MAX 未出声）整段合成她的声音。家人向首次实际使用，用户知情自决；产物带"合成语音·非本人原声·Tier-3"标识，不进 archive_dist
+- 实现：Claude 直写一次性脚本 `scratchpad/synth_for_dad.py`（声明；只读会话日志、按句 ≤80 字走 :8022、句间 0.3 s/段间 0.85 s 拼接、峰值限幅、WAV+MP3+manifest sha256），两语域各 6 段：wu 42–92 s、mandarin 33–81 s，110 句 0 失败，合成约 12 分钟；对照试听页（自包含 6.6 MB）放 `people/mama/exports/for_dad_20260906/` 与 8020 站 `review/for_dad/`，SendUserFile 发用户
+- 用户选 **wu 上海话域**，6 个 MP3 已 SendUserFile 发出；09-07 用户已转发给爸爸、关闭 #23。用户问"每段开头一声很短的声音"→ 实测为模型起音爆音（前 15 ms RMS 2–3×、峰值 2×、重心 800 Hz，每句起音都有，两语域与 companion 片段一致）；A/B 试听（30 ms 淡入 / 切 15 ms+淡入）用户说都没问题 → 选不裁剪的淡入方案，立 8B-11 修 tts_server 出口（本次 SendUserFile 6.6 MB HTML + 6 个 MP3 全部送达，比 08 月时可靠）；爸爸反馈是否入档由用户定
+
+## Session 2026-09-07（8B-11 起音爆音抑制）
+- 用户关闭 #23（六段已发爸爸）→ 要求修 companion 每段开头的"啵"。根因：模型每次开口前 ~15 ms 爆音（12 成品/两语域探针/会话片段签名一致：head15 RMS 2–3×、峰值 2×、重心 800 Hz vs 正文 400 Hz），每句单独合成故每个语音条都有；推断为 SFT 训练片段自动切段硬起音被学进去
+- 修法：tts_server 出口 `soften_onsets`（起音检测 + 30 ms 升余弦淡入，不裁剪）。DeepSeek 区域规格两轮（首轮 Codex 抓出静音前缀用 thresh 而非 quiet、首次发声只认第 0 帧 → 重写为单次线性扫描 seen_voice/quiet_run/in_voice）→ Codex ACCEPT；单测 6 例通过。**事故**：第二轮区域锚点 `def soften_onsets(`…`
+class ` 吞掉了 DeepSeek 首轮放在其后的 `strip_brackets`，重启后 /tts NameError 500——从备份恢复该函数（Claude 声明），补 hunk 落区/关键符号断言纪律入 findings。恢复后重启实测：起音比 2.1–2.9 → 0.63–0.78，起音峰值 0.18 → 0.10–0.15，含 `[捂脸]` 标签文本正常合成
+- 未提交（8B-10 + 8B-11 + #22 两报告 + 文档）

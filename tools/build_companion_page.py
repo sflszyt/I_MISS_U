@@ -68,6 +68,39 @@ TEMPLATE = r"""<!DOCTYPE html>
     width: 32px; height: 32px; border-radius: 50%; object-fit: cover;
     background: #333; flex-shrink: 0;
   }
+  .bubble-content { min-width: 0; }
+  .bubble-content.voice { display: flex; flex-direction: column; gap: 4px; }
+  .voice-bar {
+    display: flex; align-items: center; gap: 8px; height: 32px;
+    padding: 0 10px; border-radius: 16px; background: #2d3f6b; color: #fff;
+    cursor: pointer; max-width: 100%; user-select: none; -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .voice-bar:active { background: #3b5188; }
+  .voice-icon {
+    position: relative; width: 16px; height: 16px; flex-shrink: 0;
+  }
+  .voice-icon i {
+    position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+    border: 2px solid transparent; border-right-color: #fff; border-radius: 50%;
+  }
+  .voice-icon i:nth-child(1) { width: 4px; height: 4px; }
+  .voice-icon i:nth-child(2) { width: 9px; height: 9px; }
+  .voice-icon i:nth-child(3) { width: 14px; height: 14px; }
+  .voice-bar.playing .voice-icon i:nth-child(2),
+  .voice-bar.playing .voice-icon i:nth-child(3) {
+    animation: voice-arc 1.2s infinite;
+  }
+  .voice-bar.playing .voice-icon i:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes voice-arc {
+    0%, 100% { opacity: .15; }
+    50% { opacity: 1; }
+  }
+  .voice-dur { font-size: 12px; opacity: .9; white-space: nowrap; }
+  .voice-text { font-size: 13px; color: #bbb; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; }
+  #chat.hide-voice-text .voice-text { display: none; }
+  #drawer .cfg-check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #ccc; margin: 4px 0 12px; }
+  #drawer .cfg-check input { width: auto; margin: 0; }
   #input-bar {
     flex-shrink: 0; display: flex; gap: 8px; padding: 8px 12px;
     background: #16213e; border-top: 1px solid #2a2a4a;
@@ -172,6 +205,7 @@ TEMPLATE = r"""<!DOCTYPE html>
     <label>API Key</label>
     <input id="cfg-key" type="password" placeholder="sk-...">
   </div>
+  <label class="cfg-check"><input type="checkbox" id="cfg-voice-text" checked> 语音条下方显示文字</label>
   <button id="save-btn">保存并开始</button>
 </div>
 
@@ -194,6 +228,7 @@ var cfgProvider = document.getElementById('cfg-provider');
 var cfgUrl = document.getElementById('cfg-url');
 var cfgModel = document.getElementById('cfg-model');
 var cfgKey = document.getElementById('cfg-key');
+var cfgVoiceText = document.getElementById('cfg-voice-text');
 var drawerCloseBtn = document.getElementById('drawer-close-btn');
 var frame = document.getElementById('face-frame');
 
@@ -220,10 +255,16 @@ var TIME_DIVIDER_GAP_MS = 5 * 60 * 1000;
 var SESSION_QUEUE_MAX = 500;
 var voiceTurn = null;            /* 当前回复的呈现引擎状态 */
 var playerEndedHooked = false;   /* iframe player 的 ended 监听只挂一次 */
-var TTS_TOTAL_MAX = 240;         /* 全文超过此长度不走语音（分句后仍太长的失控回复） */
-var SEG_FIRST_MAX = 24;          /* 首段目标上限（越短首声越快） */
-var SEG_MAX = 42;                /* 后续段目标上限 */
-var SEG_MIN = 6;                 /* 过短句并入相邻段 */
+var MSG_MAX = 30;                /* 每条消息字符上限（微信式短消息） */
+var MSG_MAX_VOICE = 12;          /* 单回合最多为前 N 条消息合成语音，其余纯文字（失控超长回复保护） */
+var uiPrefsKey = storageKey + '_ui';
+var showVoiceText = true;        /* 语音条下方显示文字（默认开） */
+var replayingBar = null;         /* 正在回放的语音条元素 */
+var replayUrl = null;            /* 回放用 blob URL（下次回放前 revoke） */
+var replayAudio = null;          /* 回放降级路径（无 iframe player）用的 Audio 实例，便于停止 */
+var TTS_FETCH_TIMEOUT_MS = 30000; /* 单条 /tts 请求超时，超时按 'failed' 转文字继续 */
+var VOICE_BLOB_KEEP = 60;        /* 最多保留最近 N 条语音条的 Blob 供回放，更早的释放 */
+var voiceBars = [];              /* 按创建顺序登记的语音条元素（用于 Blob 释放） */
 var activePlay = null;          /* 当前占用 iframe player 的回合（用于 ended 归属校验） */
 var PROVIDERS = {
   openai: { url: 'https://api.openai.com/v1/chat/completions', model: 'gpt-5.6', keyPlaceholder: 'sk-...', hint: 'OpenAI 官方 Chat Completions 端点' },
@@ -381,7 +422,7 @@ function logSession(rec) {
     model: settings.model || '',
     page: 'companion'
   };
-  ['emotion', 'tts', 'retrieval_used', 'ua', 'aborted', 'detail'].forEach(function(k) {
+  ['emotion', 'tts', 'messages', 'retrieval_used', 'ua', 'aborted', 'detail'].forEach(function(k) {
     if (rec[k] !== undefined) { record[k] = rec[k]; }
   });
   if (!ttsAvailable) {
@@ -528,7 +569,7 @@ function applyProviderHints(provider) {
 }
 function clearChat() { chat.innerHTML = ''; }
 function addBubble(opts) {
-  if (opts.type === 'user' || opts.type === 'subject') { maybeAddTimeDivider(Date.now()); }
+  if (!opts.noDivider && (opts.type === 'user' || opts.type === 'subject')) { maybeAddTimeDivider(Date.now()); }
   var div = document.createElement('div');
   if (opts.type === 'user') { div.className = 'bubble user'; div.textContent = opts.text; }
   else if (opts.type === 'subject') {
@@ -791,6 +832,7 @@ function sendMessage() {
   unlockAudio();
   var userText = inputText.value.trim();
   inputText.value = ''; autoGrow();
+  cancelVoiceTurn();               /* 先收掉上一回合（未念完的消息就地转文字），再挂用户气泡，保证顺序 */
   addBubble({type:'user', text: userText});
   history.push({role:'user', content: userText});
   ensureSessionStarted();
@@ -800,7 +842,6 @@ function sendMessage() {
 
   var subjectBubble = addBubble({type:'subject', text: ''});
   var contentEl = subjectBubble.querySelector('.bubble-content');
-  cancelVoiceTurn();
   setTypingIndicator(contentEl);
 
   function run() {
@@ -833,8 +874,8 @@ function sendMessage() {
       var emo = detectEmotion(finalText);
       // TODO 8A-2b: 关窗道别语、空闲「去忙了」、rhythm.json 限速、使用统计自见卡
 
-      var mode = startTurnPresentation(contentEl, finalText, thisTurn, emo);
-      logSession({role:'simulacrum', turn: thisTurn, text: finalText, emotion: emo, tts: mode === 'voice' ? 'requested' : (ttsAvailable ? 'skipped_length' : 'unavailable'), retrieval_used: retrievalUsed});
+      var pres = startTurnPresentation(contentEl, finalText, thisTurn, emo);
+      logSession({role:'simulacrum', turn: thisTurn, text: finalText, emotion: emo, tts: pres.tts, messages: pres.count, retrieval_used: retrievalUsed});
     }, function(err) {
       sendBtn.disabled = false;
       sendBtn.classList.remove('stop');
@@ -943,43 +984,110 @@ function clearEmotion() {
   lastEmotion = null;
 }
 
-function splitSegments(text) {
-  if (!text) return [];
-  var pieces = [];
-  var cur = '';
-  var i;
-  for (i = 0; i < text.length; i++) {
-    var ch = text.charAt(i);
-    cur += ch;
-    if (ch === '。' || ch === '！' || ch === '？' || ch === '!' || ch === '?' || ch === '；' || ch === ';' || ch === '\n') {
-      pieces.push(cur);
-      cur = '';
+function splitMessages(text) {
+  var s = String(text || '');
+  if (!s) return [];
+  var lines = s.split('\n');
+  var out = [];
+  var i, j;
+  for (i = 0; i < lines.length; i++) {
+    var line = lines[i].replace(/^\s+|\s+$/g, '');
+    if (!line) continue;
+    var primary = [];
+    var cur = '';
+    for (j = 0; j < line.length; j++) {
+      var ch1 = line.charAt(j);
+      cur += ch1;
+      if (ch1 === '。' || ch1 === '！' || ch1 === '？' || ch1 === '!' || ch1 === '?' || ch1 === '；' || ch1 === ';') {
+        primary.push(cur);
+        cur = '';
+      }
     }
-  }
-  if (cur) pieces.push(cur);
-  var result = [];
-  var cur2 = '';
-  for (i = 0; i < pieces.length; i++) {
-    var piece = pieces[i];
-    if (!cur2) {
-      cur2 = piece;
-    } else {
-      var limit = (result.length === 0 ? SEG_FIRST_MAX : SEG_MAX);
-      if (cur2.replace(/\s/g, '').length < SEG_MIN || (cur2 + piece).length <= limit) {
+    if (cur) primary.push(cur);
+    var lineMsgs = [];
+    var cur2 = '';
+    for (j = 0; j < primary.length; j++) {
+      var piece = primary[j];
+      if (!cur2) {
+        cur2 = piece;
+      } else if ((cur2 + piece).length <= MSG_MAX) {
         cur2 += piece;
       } else {
-        result.push(cur2);
+        lineMsgs.push(cur2);
         cur2 = piece;
       }
     }
-  }
-  if (cur2) {
-    if (result.length > 0 && cur2.replace(/\s/g, '').length < SEG_MIN) {
-      result[result.length - 1] += cur2;
-    } else {
-      result.push(cur2);
+    if (cur2) lineMsgs.push(cur2);
+    for (j = 0; j < lineMsgs.length; j++) {
+      var m = lineMsgs[j];
+      if (m.length > MSG_MAX) {
+        var secondary = [];
+        var cur3 = '';
+        var k;
+        for (k = 0; k < m.length; k++) {
+          var ch2 = m.charAt(k);
+          cur3 += ch2;
+          if (ch2 === '，' || ch2 === '、' || ch2 === ',' || ch2 === '：' || ch2 === ':') {
+            secondary.push(cur3);
+            cur3 = '';
+          }
+        }
+        if (cur3) secondary.push(cur3);
+        var cur4 = '';
+        for (k = 0; k < secondary.length; k++) {
+          var sp = secondary[k];
+          if (sp.length > MSG_MAX) {
+            if (cur4) { out.push(cur4); cur4 = ''; }
+            var h = 0;
+            while (h < sp.length) {
+              var take = MSG_MAX;
+              if (h + take > sp.length) take = sp.length - h;
+              if (take > 0 && h + take <= sp.length) {
+                var cutPos = h + take;
+                if (cutPos > h && cutPos <= sp.length) {
+                  var cp = sp.charCodeAt(cutPos - 1);
+                  if (cp >= 0xD800 && cp <= 0xDBFF && cutPos < sp.length) {
+                    take -= 1;
+                  }
+                }
+              }
+              out.push(sp.substr(h, take));
+              h += take;
+            }
+            continue;
+          }
+          if (!cur4) {
+            cur4 = sp;
+          } else if ((cur4 + sp).length <= MSG_MAX) {
+            cur4 += sp;
+          } else {
+            out.push(cur4);
+            cur4 = sp;
+          }
+        }
+        if (cur4) out.push(cur4);
+      } else {
+        out.push(m);
+      }
     }
   }
+  var result = [];
+  for (i = 0; i < out.length; i++) {
+    var item = out[i].replace(/^\s+|\s+$/g, '');
+    var stripped = item.replace(/[\s。！？!?；;，、,：:…\.~～—\-·"'“”‘’]/g, '');
+    if (!item) continue;
+    if (!stripped) {
+      /* 标点-only 片：能并入前一条且不超 MSG_MAX 才并；否则独立成条（不静默丢弃，TTS 侧按标点-only 跳过） */
+      if (result.length > 0 && (result[result.length - 1] + item).length <= MSG_MAX) {
+        result[result.length - 1] += item;
+      } else {
+        result.push(item);
+      }
+      continue;
+    }
+    result.push(item);
+  }
+  if (result.length === 0) { var t = s.replace(/^\s+|\s+$/g, ''); return t ? [t] : []; }
   return result;
 }
 function setTypingIndicator(el) {
@@ -997,11 +1105,14 @@ function hookPlayerEnded() {
   if (playerEndedHooked) return;
   try {
     var p = frame.contentWindow.document.getElementById('player');
-    p.addEventListener('ended', function() {
+    var onEnd = function() {
       var ap = activePlay;
       activePlay = null;
       if (ap && ap === voiceTurn && !ap.canceled) { onSegmentEnded(ap); }
-    });
+      if (replayingBar) { replayingBar.classList.remove('playing'); replayingBar = null; }
+    };
+    p.addEventListener('ended', onEnd);
+    p.addEventListener('error', onEnd);
     playerEndedHooked = true;
   } catch (e) { /* 跨源降级路径由 fallbackAudio 自带 ended */ }
 }
@@ -1011,63 +1122,145 @@ function trackBlobUrl(url) {
     try { URL.revokeObjectURL(companionVoiceUrls.shift()); } catch (e) {}
   }
 }
-function revealSegment(vt, i) {
-  if (vt.canceled) return;
+function takePending(vt, i) {
+  var el;
+  if (vt.pendingEl) {
+    el = vt.pendingEl;
+    vt.pendingEl = null;
+  } else {
+    var b2 = addBubble({ type: 'subject', text: '', noDivider: true });
+    el = b2.querySelector('.bubble-content');
+  }
+  el.innerHTML = '';
+  el.className = 'bubble-content';
+  vt.contents[i] = el;
+  var nextIdx = i + 1;
+  if (nextIdx < vt.msgs.length) {
+    var b3 = addBubble({ type: 'subject', text: '', noDivider: true });
+    vt.pendingEl = b3.querySelector('.bubble-content');
+    setTypingIndicator(vt.pendingEl);
+  } else {
+    vt.pendingEl = null;
+  }
+  return el;
+}
+function showTextMsg(vt, i) {
+  var el = takePending(vt, i);
+  el.textContent = vt.msgs[i];
   if (!vt.firstShown) {
     vt.firstShown = true;
     showEmotion(vt.emo);
   }
-  vt.revealed = i + 1;
-  vt.contentEl.textContent = vt.segments.slice(0, vt.revealed).join('');
   chat.scrollTop = chat.scrollHeight;
 }
-function revealAll(vt) {
-  vt.contentEl.textContent = vt.segments.join('');
-  vt.firstShown = true;
+function showVoiceMsg(vt, i, blob, dur) {
+  var el = takePending(vt, i);
+  el.className = 'bubble-content voice';
+  var msg = vt.msgs[i];
+  var safeMsg = String(msg || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  var durNum = (dur && !isNaN(dur) && dur > 0) ? dur : null;
+  var W = 72 + Math.min(Math.max((durNum || 1), 1), 30) * 4;
+  var D = durNum ? (String(Math.max(1, Math.round(durNum))) + '"') : '';
+  var html = '<div class="voice-bar" role="button" tabindex="0" style="width:' + W + 'px"><span class="voice-icon"><i></i><i></i><i></i></span><span class="voice-dur">' + D + '</span></div><div class="voice-text">' + safeMsg + '</div>';
+  el.innerHTML = html;
+  var bar = el.querySelector('.voice-bar');
+  bar._voiceBlob = blob;
+  voiceBars.push(bar);
+  while (voiceBars.length > VOICE_BLOB_KEEP) {
+    var oldBar = voiceBars.shift();
+    oldBar._voiceBlob = null;
+    oldBar.classList.add('expired');
+  }
+  bar.addEventListener('click', function(ev) { replayBar(bar); });
+  if (!vt.bars) vt.bars = [];
+  vt.bars[i] = bar;
+  if (!vt.firstShown) {
+    vt.firstShown = true;
+    showEmotion(vt.emo);
+  }
   chat.scrollTop = chat.scrollHeight;
-  showEmotion(vt.emo);
+  return bar;
 }
-function cancelVoiceTurn() {
-  if (!voiceTurn) return;
-  var vt = voiceTurn;
-  vt.canceled = true;
-  if (vt.textTimer) clearTimeout(vt.textTimer);
-  if (vt.safetyTimer) clearTimeout(vt.safetyTimer);
-  if (!vt.doneRevealing && vt.revealed < vt.segments.length) revealAll(vt);
-  try {
-    var p = frame.contentWindow.document.getElementById('player');
-    if (p && p.pause) p.pause();
-  } catch (e) {}
-  if (vt.fallbackAudio) { try { vt.fallbackAudio.pause(); } catch (e2) {} }
-  if (activePlay === vt) { activePlay = null; }
-  voiceTurn = null;
-}
-function onSegmentEnded(vt) {
-  if (!vt || vt !== voiceTurn || vt.canceled) return;
-  vt.playing = false;
-  vt.playIdx += 1;
-  tryAdvance(vt);
+function synthMsg(vt, i) {
+  if (vt.canceled || i >= vt.msgs.length) return;
+  if (i >= vt.voiceCount) {
+    vt.blobs[i] = 'text';
+    tryAdvance(vt);
+    synthMsg(vt, i + 1);
+    return;
+  }
+  var msg = vt.msgs[i];
+  if (msg.replace(/[\s]/g, '') === '') {
+    vt.blobs[i] = 'failed';
+    tryAdvance(vt);
+    synthMsg(vt, i + 1);
+    return;
+  }
+  var spoken = msg.replace(/[\[【（(][^\[\]【】（）()]*[\]】）)]/g, '').replace(/[\s。！？!?；;，、,：:…\.~～—\-·"'“”‘’]+/g, '');   /* H8：标签/标点-only 的条不送 TTS */
+  if (spoken === '') {
+    vt.blobs[i] = 'text';
+    tryAdvance(vt);
+    synthMsg(vt, i + 1);
+    return;
+  }
+  var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, TTS_FETCH_TIMEOUT_MS);
+  fetch(ttsBase + '/tts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: msg, lang: 'mandarin', session_id: sessionId, turn: vt.turn }),
+    signal: ctrl ? ctrl.signal : undefined
+  })
+  .then(function(r) {
+    if (!r.ok) throw new Error('tts ' + r.status);
+    var h = r.headers.get('X-Duration-Seconds');
+    var dv = parseFloat(h);
+    vt.durs[i] = (isNaN(dv)) ? null : dv;
+    return r.blob();                       /* 超时定时器要盖到 body 读完，见下一个 then */
+  })
+  .then(function(blob) {
+    clearTimeout(timer);
+    vt.blobs[i] = blob;
+    tryAdvance(vt);
+    synthMsg(vt, i + 1);
+  })
+  .catch(function(err) {
+    clearTimeout(timer);
+    vt.blobs[i] = 'failed';
+    if (!vt.failLogged) {
+      vt.failLogged = true;
+      logSession({ role: 'event', turn: vt.turn, text: 'tts_failed', detail: String((err && (err.name || err.message)) || err || '') });
+    }
+    tryAdvance(vt);
+    synthMsg(vt, i + 1);
+  });
 }
 function tryAdvance(vt) {
-  if (vt.canceled || vt.playing) return;
+  if (vt.canceled || vt.playing || vt.waiting) return;
   var i = vt.playIdx;
-  if (i >= vt.segments.length) {
-    vt.doneRevealing = true;
+  if (i >= vt.msgs.length) {
+    vt.done = true;
+    vt.pendingEl = null;
     return;
   }
   var b = vt.blobs[i];
   if (b === undefined) {
     return;
   }
-  if (b === 'failed') {
-    revealSegment(vt, i);
+  if (b === 'failed' || b === 'text') {
+    showTextMsg(vt, i);
     vt.playIdx += 1;
-    setTimeout(function() { tryAdvance(vt); }, 400);
+    vt.waiting = true;
+    setTimeout(function () { vt.waiting = false; tryAdvance(vt); }, textDelay(vt.msgs[i]));
     return;
   }
   vt.playing = true;
-  revealSegment(vt, i);
+  var bar = showVoiceMsg(vt, i, b, vt.durs[i]);
+  bar.classList.add('playing');
   playSegmentBlob(vt, b);
+}
+function textDelay(msg) {
+  return Math.min(600 + String(msg || '').length * 90, 3500);
 }
 function playSegmentBlob(vt, blob) {
   var url = URL.createObjectURL(blob);
@@ -1081,6 +1274,7 @@ function playSegmentBlob(vt, blob) {
     var pr = p.play();
     pr.catch(function() {
       activePlay = null;
+      if (vt.bars && vt.bars[vt.playIdx]) vt.bars[vt.playIdx].classList.remove('playing');
       showPlayButton(vt, url);
     });
   } catch (e) {
@@ -1093,145 +1287,320 @@ function playSegmentBlob(vt, blob) {
     try {
       pr2 = a.play();
     } catch (e2) {
+      vt.blobs[vt.playIdx] = 'failed';
+      var elIdx = vt.playIdx;
+      if (vt.bars && vt.bars[elIdx]) {
+        vt.bars[elIdx].classList.remove('playing');
+      }
+      var contentEl2 = vt.contents[elIdx];
+      if (contentEl2) {
+        contentEl2.className = 'bubble-content';
+        contentEl2.innerHTML = '';
+        contentEl2.textContent = vt.msgs[elIdx];
+      }
       vt.playing = false;
       vt.playIdx += 1;
-      setTimeout(function() { tryAdvance(vt); }, 400);
+      vt.waiting = true;
+      setTimeout(function() { vt.waiting = false; tryAdvance(vt); }, 400);
       return;
     }
     if (pr2 && pr2.catch) {
       pr2.catch(function() {
+        if (vt.bars && vt.bars[vt.playIdx]) vt.bars[vt.playIdx].classList.remove('playing');
         showPlayButton(vt, url, a);
       });
     }
   }
 }
 function showPlayButton(vt, url, fallbackAudio) {
-  if (vt.canceled) return;
-  if (!vt.playBtnShown) {
-    var btn = document.createElement('button');
-    btn.className = 'play-voice-btn';
-    btn.textContent = '▶ 播放她的声音';
-    btn.addEventListener('click', function() {
-      var ok = false;
-      try {
-        var p = frame.contentWindow.document.getElementById('player');
-        if (p) {
-          p.muted = false;
-          p.src = url;
-          activePlay = vt;
-          var pr = p.play();
-          if (pr && pr.then) {
-            pr.then(function() { btn.remove(); }).catch(function() { activePlay = null; });
-            ok = true;
-          } else {
-            ok = true;
-            btn.remove();
-          }
-        }
-      } catch (e) {}
-      if (!ok && fallbackAudio) {
-        try {
-          var pr2 = fallbackAudio.play();
-          if (pr2 && pr2.then) {
-            pr2.then(function() { btn.remove(); }).catch(function() {});
-          } else {
-            btn.remove();
-          }
+  if (vt.canceled || vt !== voiceTurn) { return; }
+  var curIdx = vt.playIdx;
+  var hostEl = vt.contents[curIdx];
+  if (!hostEl) return;
+  if (vt.playBtnShown === curIdx) return;
+  vt.playBtnShown = curIdx;
+  var btn = document.createElement('button');
+  btn.className = 'play-voice-btn';
+  btn.textContent = '▶ 播放她的声音';
+  btn.addEventListener('click', function() {
+    if (vt.canceled || vt !== voiceTurn) { return; }
+    var ok = false;
+    try {
+      var p = frame.contentWindow.document.getElementById('player');
+      if (p) {
+        p.muted = false;
+        p.src = url;
+        activePlay = vt;
+        var pr = p.play();
+        if (pr && pr.then) {
+          pr.then(function() { btn.remove(); if (vt.bars && vt.bars[vt.playIdx]) vt.bars[vt.playIdx].classList.add('playing'); }).catch(function() { activePlay = null; });
           ok = true;
-        } catch (e2) {}
+        } else {
+          ok = true;
+          btn.remove();
+          if (vt.bars && vt.bars[vt.playIdx]) vt.bars[vt.playIdx].classList.add('playing');
+        }
       }
-    });
-    vt.contentEl.appendChild(btn);
-    vt.playBtnShown = true;
+    } catch (e) {}
+    if (!ok && fallbackAudio) {
+      try {
+        var pr2 = fallbackAudio.play();
+        if (pr2 && pr2.then) {
+          pr2.then(function() { btn.remove(); if (vt.bars && vt.bars[vt.playIdx]) vt.bars[vt.playIdx].classList.add('playing'); }).catch(function() {});
+        } else {
+          btn.remove();
+          if (vt.bars && vt.bars[vt.playIdx]) vt.bars[vt.playIdx].classList.add('playing');
+        }
+        ok = true;
+      } catch (e2) {}
+    }
+  });
+  hostEl.appendChild(btn);
+}
+function onSegmentEnded(vt) {
+  if (!vt || vt !== voiceTurn || vt.canceled) return;
+  if (vt.bars && vt.bars[vt.playIdx]) {
+    vt.bars[vt.playIdx].classList.remove('playing');
+  }
+  vt.playing = false;
+  vt.playIdx += 1;
+  tryAdvance(vt);
+}
+function dumpRemaining(vt) {
+  var i = 0;
+  var idx;
+  if (vt.contents[vt.playIdx]) {
+    i = vt.playIdx;
+  } else {
+    i = vt.playIdx;
+  }
+  for (idx = i; idx < vt.msgs.length; idx++) {
+    if (!vt.contents[idx]) {
+      var parent;
+      if (vt.pendingEl) {
+        parent = vt.pendingEl;
+        vt.pendingEl = null;
+      } else {
+        var b5 = addBubble({ type: 'subject', text: '', noDivider: true });
+        parent = b5.querySelector('.bubble-content');
+      }
+      parent.className = 'bubble-content';
+      parent.innerHTML = '';
+      parent.textContent = vt.msgs[idx];
+      vt.contents[idx] = parent;
+      if (!vt.firstShown) {
+        vt.firstShown = true;
+        showEmotion(vt.emo);
+      }
+    }
+  }
+  if (vt.pendingEl) {
+    var bempty = vt.pendingEl;
+    var bdiv = bempty.parentNode;
+    if (bdiv) {
+      bdiv.parentNode.removeChild(bdiv);
+    }
+    vt.pendingEl = null;
   }
 }
-function synthSegment(vt, i) {
-  if (vt.canceled || i >= vt.segments.length) return;
-  var seg = vt.segments[i];
-  if (seg.replace(/\s/g, '') === '') {
-    vt.blobs[i] = 'failed';
-    tryAdvance(vt);
-    synthSegment(vt, i + 1);
-    return;
+function stopReplay() {
+  var wasReplaying = (replayingBar !== null);
+  if (replayingBar) { replayingBar.classList.remove('playing'); replayingBar = null; }
+  if (replayAudio) { try { replayAudio.pause(); } catch (e) {} replayAudio = null; }
+  if (wasReplaying) {
+    try { var p = frame.contentWindow.document.getElementById('player'); if (p && p.pause) p.pause(); } catch (e) {}
   }
-  fetch(ttsBase + '/tts', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: seg, lang: 'mandarin', session_id: sessionId, turn: vt.turn })
-  })
-  .then(function(r) {
-    if (!r.ok) throw new Error('tts ' + r.status);
-    return r.blob();
-  })
-  .then(function(blob) {
-    vt.blobs[i] = blob;
-    tryAdvance(vt);
-    synthSegment(vt, i + 1);
-  })
-  .catch(function(err) {
-    vt.blobs[i] = 'failed';
-    if (!vt.failLogged) {
-      vt.failLogged = true;
-      logSession({ role: 'event', turn: vt.turn, text: 'tts_failed', detail: String((err && err.message) || err || '') });
+}
+function cancelVoiceTurn() {
+  stopReplay();
+  if (!voiceTurn) return;
+  var vt = voiceTurn;
+  vt.canceled = true;
+  if (vt.textTimer) clearTimeout(vt.textTimer);
+  if (vt.safetyTimer) clearTimeout(vt.safetyTimer);
+  if (vt.bars) {
+    for (var i = 0; i < vt.bars.length; i++) {
+      if (vt.bars[i]) vt.bars[i].classList.remove('playing');
     }
-    tryAdvance(vt);
-    synthSegment(vt, i + 1);
-  });
+  }
+  for (var ci = 0; ci < vt.contents.length; ci++) {
+    if (vt.contents[ci]) {
+      var btns = vt.contents[ci].querySelectorAll('.play-voice-btn');
+      for (var bi = 0; bi < btns.length; bi++) {
+        var bEl = btns[bi];
+        if (bEl.parentNode) bEl.parentNode.removeChild(bEl);
+      }
+    }
+  }
+  dumpRemaining(vt);
+  try {
+    var p = frame.contentWindow.document.getElementById('player');
+    if (p && p.pause) p.pause();
+  } catch (e) {}
+  if (vt.fallbackAudio) { try { vt.fallbackAudio.pause(); } catch (e2) {} }
+  if (activePlay === vt) { activePlay = null; }
+  if (replayingBar) { replayingBar.classList.remove('playing'); replayingBar = null; }
+  voiceTurn = null;
 }
 function scheduleTextReveal(vt) {
   var i = 0;
   var step = function() {
     if (vt.canceled) return;
-    if (i >= vt.segments.length) {
-      vt.doneRevealing = true;
+    if (i >= vt.msgs.length) {
+      vt.done = true;
       return;
     }
-    revealSegment(vt, i);
+    showTextMsg(vt, i);
     i += 1;
-    var delay = (i === 1) ? 400 : Math.min(600 + vt.segments[i - 1].length * 90, 3500);
+    var delay = (i === 1) ? 400 : textDelay(vt.msgs[i - 1]);
     vt.textTimer = setTimeout(step, delay);
   };
   vt.textTimer = setTimeout(step, 400);
 }
+function replayBar(bar) {
+  if (!bar._voiceBlob) return;
+  if (voiceTurn && !voiceTurn.done && !voiceTurn.canceled) {
+    /* 回合进行中不做独立回放（回放会把 activePlay 置空，ended 就推进不了回合）；
+       唯一例外：当前条因自动播放被拒正等 ▶，点它本身 = 点 ▶（走 activePlay 归属路径继续回合） */
+    var cur = voiceTurn;
+    if (cur.playBtnShown === cur.playIdx && cur.bars && cur.bars[cur.playIdx] === bar && cur.contents[cur.playIdx]) {
+      var btn = cur.contents[cur.playIdx].querySelector('.play-voice-btn');
+      if (btn) { btn.click(); }
+    }
+    return;
+  }
+  var stopReplayLocal = function() {
+    stopReplay();
+  };
+  if (replayingBar === bar) {
+    stopReplayLocal();
+    return;
+  }
+  stopReplayLocal();
+  hookPlayerEnded();
+  if (replayUrl) {
+    try { URL.revokeObjectURL(replayUrl); } catch (e) {}
+  }
+  replayUrl = URL.createObjectURL(bar._voiceBlob);
+  var played = false;
+  try {
+    var p2 = frame.contentWindow.document.getElementById('player');
+    if (p2) {
+      p2.muted = false;
+      p2.src = replayUrl;
+      activePlay = null;
+      replayingBar = bar;
+      bar.classList.add('playing');
+      var pr = p2.play();
+      if (pr && pr.catch) {
+        pr.catch(function() {
+          bar.classList.remove('playing');
+          if (replayingBar === bar) replayingBar = null;
+        });
+      }
+      played = true;
+    }
+  } catch (e) {}
+  if (!played) {
+    var a = new Audio(replayUrl);
+    replayAudio = a;
+    a.addEventListener('ended', function() {
+      bar.classList.remove('playing');
+      if (replayingBar === bar) replayingBar = null;
+      if (replayAudio === a) replayAudio = null;
+    });
+    replayingBar = bar;
+    bar.classList.add('playing');
+    var pr3;
+    try {
+      pr3 = a.play();
+    } catch (e2) {
+      bar.classList.remove('playing');
+      if (replayingBar === bar) replayingBar = null;
+      if (replayAudio === a) replayAudio = null;
+      return;
+    }
+    if (pr3 && pr3.catch) {
+      pr3.catch(function() {
+        bar.classList.remove('playing');
+        if (replayingBar === bar) replayingBar = null;
+        if (replayAudio === a) replayAudio = null;
+      });
+    }
+  }
+}
 function startTurnPresentation(contentEl, finalText, turnNo, emo) {
+  stopReplay();
   cancelVoiceTurn();
-  var segments = splitSegments(finalText);
-  var mode = (ttsAvailable && finalText.length <= TTS_TOTAL_MAX && segments.length > 0) ? 'voice' : 'text';
+  var msgs = splitMessages(finalText);
+  if (msgs.length === 0) { msgs = [String(finalText || '').replace(/^\s+|\s+$/g, '') || '…']; }
+  var mode = ttsAvailable ? 'voice' : 'text';
+  var voiceCount = Math.min(msgs.length, MSG_MAX_VOICE);
   var vt = {
     turn: turnNo,
-    contentEl: contentEl,
-    fullText: finalText,
-    segments: segments,
+    msgs: msgs,
     blobs: [],
-    revealed: 0,
+    durs: [],
+    contents: [],
+    bars: [],
+    pendingEl: contentEl,
     playIdx: 0,
     playing: false,
+    waiting: false,
     canceled: false,
     firstShown: false,
-    doneRevealing: false,
+    done: false,
     failLogged: false,
-    playBtnShown: false,
+    playBtnShown: -1,
     emo: emo,
     textTimer: null,
     safetyTimer: null,
-    mode: mode
+    mode: mode,
+    voiceCount: voiceCount,
+    fallbackAudio: null
   };
   voiceTurn = vt;
+  var resultTts;
   if (mode === 'voice') {
     hookPlayerEnded();
-    synthSegment(vt, 0);
+    synthMsg(vt, 0);
+    resultTts = (voiceCount < msgs.length) ? 'partial' : 'requested';
     vt.safetyTimer = setTimeout(function() {
       if (!vt.firstShown && !vt.canceled) {
-        vt.canceled = true;
-        revealAll(vt);
+        cancelVoiceTurn();
       }
     }, 20000);
   } else {
     scheduleTextReveal(vt);
+    resultTts = 'unavailable';
   }
-  return mode;
+  return { mode: mode, tts: resultTts, count: msgs.length };
 }
-
+function loadUiPrefs() {
+  var saved = null;
+  try {
+    saved = JSON.parse(localStorage.getItem(uiPrefsKey) || 'null');
+  } catch (e) { saved = null; }
+  if (saved && saved.voiceText !== undefined) {
+    showVoiceText = (saved.voiceText !== false);
+  }
+  applyVoiceTextPref();
+}
+function applyVoiceTextPref() {
+  if (showVoiceText) {
+    chat.classList.remove('hide-voice-text');
+  } else {
+    chat.classList.add('hide-voice-text');
+  }
+  if (cfgVoiceText) cfgVoiceText.checked = showVoiceText;
+}
+function onVoiceTextToggle() {
+  showVoiceText = !!cfgVoiceText.checked;
+  applyVoiceTextPref();
+  try {
+    localStorage.setItem(uiPrefsKey, JSON.stringify({ voiceText: showVoiceText }));
+  } catch (e) {}
+}
 /* ===== init ===== */
 function init() {
   // face-frame load 接线
@@ -1253,6 +1622,7 @@ function init() {
   }
 
   loadSettings();
+  loadUiPrefs();
   probeTts();
 
   // 从 chat_context.json 载入 systemPrompt + shards
@@ -1293,6 +1663,7 @@ function init() {
   drawerCloseBtn.addEventListener('click', closeDrawer);
   saveBtn.addEventListener('click', saveSettings);
   cfgProvider.addEventListener('change', onProviderChange);
+  if (cfgVoiceText) { cfgVoiceText.addEventListener('change', onVoiceTextToggle); }
 }
 
 init();
@@ -1309,7 +1680,8 @@ window.inferProvider = inferProvider;
 window.PROVIDERS = PROVIDERS;
 window.formatTimeLabel = formatTimeLabel;
 window.buildSessionId = buildSessionId;
-window.splitSegments = splitSegments;
+window.splitMessages = splitMessages;
+window.splitSegments = splitMessages;
 
 })();
 </script>

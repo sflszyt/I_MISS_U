@@ -85,3 +85,28 @@
 - **RGBA 叠层烘焙数学**：RGB 必须取 raw 变体（非 comp 合成图）——叠加公式 base×(1-α)+RGB×α，若 RGB 用 comp 会二次混合出鬼影；烘焙后 alpha_composite 抽验中心像素 diff≤2
 - **嘴型生成 prompt 规律**（三轮实证）：首轮必夸张（大张=喊叫、圆唇=香肠嘴）；"温和克制/嘴唇厚度颜色保持原样/不露舌头"类约束词有效；但 round 精修一轮反而更厚——模型对该画风有"厚唇先验"，两轮不收敛就回用首轮最佳而不是继续抽
 - **眨眼贴片架构**：只替换双镜片内区（两矩形羽化 8），镜框 100% 底图像素——从架构上杜绝镜框漂移 artifact，三种子全部一次可用
+
+## companion 四连教训（2026-09-01/02，8B-3b～8B-9）
+- **Playwright 截图是 devicePixelRatio 像素（本机 1.5×）**：像素 diff 用 CSS 坐标裁区域会算出"目标区 0 变化"假阴性——坐标必须乘 DPR（`screenshot.width / viewport.cssWidth`）；ambient 微摆/眨眼给全脸带底噪 diff，数字之外必须再拼状态对照图人眼看。能走真实运行时就别直调函数：`page.route` mock 上游 SSE + 经 UI 真操作（情绪层 E2E 做法）
+- **PowerShell 按 CommandLine 匹配杀进程会杀掉自己**：`Get-CimInstance Win32_Process | ? { $_.CommandLine -like '*tts_server.py*' }` 命中执行它的 PowerShell 本身 → 必须加 `$_.Name -eq 'python.exe'`（重启 TTS 时自杀过一次）。Git Bash curl 发中文 body 会坏编码（服务端 400 是工具问题）→ 用 Python urllib + `ensure_ascii=False`
+- **DeepSeek 区域规格变体**：文件超 ~32k 输出上限（build_companion_page.py 50KB+）时不再全文回显，规格给每处「原文本锚点块 + 要求」，只让 DeepSeek 输出 `=== R1 ===`… 分段新文本，Claude 侧 splice 脚本精确替换；规格文件用 Write 落盘不用 heredoc（含单引号/中文/正则时 shell 反复炸）
+- **外部注入音频与内建清单混用的归属问题**：avatar.html `ended`→`playAt(cur+1)` 无条件推进，companion 灌进 `#player` 的 TTS blob 播完即接播训练用真实语音（用户真机实报）→ `blob:` 音源守卫一行。同族：分句流水线里旧回合的 iframe `ended` 会误推进新回合（Codex BLOCKER）→ `activePlay` 模块变量做 owner 校验；手点 ▶ 重播分支也要设 owner
+- **情绪关键词误报纪律**：『太好了！！！→stern』『不错→happy』实证误报 → 关键词表去标点类/单字/泛词；`emotions` 键序即优先级（sad>stern>think>happy），子串首中即返
+- **两套贴片烘焙数学并存**：Phase 1 嘴/眨眼旧脚本=内缩+blur(f/2)；情绪贴片 `bake_face_patch.py`=矩形→GaussianBlur(feather)→lighter 合并、不内缩，与 emo_review 预览同数学——"所见即所得"（叠底图 vs 用户审核合成图 max_diff=0）靠的是这个一致性
+- **存档字段空值必须补默认（withDefaults）**：多服务商抽屉"切到 DeepSeek 没预填"根因=旧存档只存了 key、其余字段为空串被当作已配置
+- **回复变长≠深度思考**：sessions 日志实据——deepseek-v4-flash 回复 90-163 字 vs 她节律中位 17 字，页面对 deepseek 已显式 `thinking:disabled`；是模型铺陈+动作描写风格。Kimi kimi-k3 官方"始终推理"只可调低不可关；切非 DeepSeek 服务商时推理默认在跑（更慢更贵不显示）
+- **分句流水线首声**：synth 时长与音频时长成正比（90 字 8.9s），整句批量合成是首声慢根因；按句切段、首段先合成先播、文字随该段语音开播同刻浮现，首声从"正比全文"降到"首段合成"。代价=沉浸感显著上升 → 8A-2b 护栏优先级上升
+
+## 8B-10 语音条分条教训（2026-09-05）
+- **"太长不出声"的根因是保护阈值本身**：`TTS_TOTAL_MAX=240` 是 8B-9 为防失控回复设的，却让 7/17 条回复整段无声。保护阈值要落在"每条消息"粒度（MSG_MAX=30 + 前 12 条出声），而不是"整段回复"粒度——粒度错了，保护就变成故障。
+- **节律统计从未进过提示词**：`build_rhythm_block` 读 `avg_length/median_length/peak_hours/...`，真实 rhythm.json 是 `mean/median/p90/buckets/top_hours/distribution`——一个键都不对，输出静默退化成只剩口头禅。写"消费统计"的代码必须用真实文件跑一次断言关键行存在（本次加了 `中位 17 字` 存在性检查）。
+- **多气泡后所有"每回合一个元素"的假设都要重审**：时间分隔线（addBubble 逐条触发）、▶ 兜底按钮（旧回合残留可劫持 player）、回放与回合互斥（cancel 早退时不清回放）、文字延时（不再是闸门）——三视角审查 + 对抗核证抓出 10 条，全部源自"一回合一气泡"变"一回合多气泡"的隐含假设。
+- **对抗核证的价值**：26 条发现里 2 条被反驳（其中 1 条 major"白名单未加 messages"是审查用的 diff 快照落后于工作区），避免了无谓返工；未核证的 14 条人工过一遍又捞出 4 条真问题（代理对硬切、纯空白 ['']、标签行送 TTS 必 400、标点类漏 …）——核证上限 12 不是"其余不重要"。
+- **Codex MCP 登录态**：`codex login status` 显示已登录 ≠ 可用（refresh token 被吊销只在调用时暴露）；远程场景用 `codex login --device-auth`（help 里没列，但错误提示会给），设备码 15 分钟过期。
+- **Playwright MCP 沙箱**：无 `Buffer`/`setTimeout`（用 `page.waitForTimeout`、ASCII-safe 字节串造 WAV）；`filename` 参数只认仓库根与 `.playwright-mcp/`；中途抛错的脚本继续在同一页面上跑成僵尸——重跑前 `browser_close`。
+
+## 8B-11 起音爆音教训（2026-09-07）
+- **模型每次开口有固有爆音**：CosyVoice2-Wu SFT e14 每句起音前 ~15 ms 高能量瞬态（RMS 2–3×、峰值 2×、重心 800 Hz），两语域、companion 片段、批量成品签名完全一致；推断源于训练片段自动切段的硬起音。出口 DSP（起音检测 + 30 ms 升余弦淡入）比改模型便宜得多，且 companion/批量统一受益。判断"是不是模型问题"的方法：同一签名跨文本/跨语域/跨调用路径都出现。
+- **区域锚点别用"到下一个 class"这种开放边界**：第二轮把 `def soften_onsets(` … `
+class ` 当锚点，吞掉了 DeepSeek 第一轮放在它后面的 `strip_brackets`，服务重启后 /tts 直接 NameError 500。规则：锚点末端用紧邻的确定文本；每轮拼接后必须跑 hunk 落区校验（本轮漏跑），再 py_compile 之外做一次"关键符号存在"断言（`grep -c '^def strip_brackets'`）。
+- **Codex 只读审核也有盲区**：它在 git/py 都不可用的环境下 ACCEPT 了缺 strip_brackets 的文件（它只看新增函数）。审核 prompt 里要明说"顺带确认文件里原有的 X/Y 函数仍在"。
