@@ -614,3 +614,24 @@ class ` 吞掉了 DeepSeek 首轮放在其后的 `strip_brackets`，重启后 /t
 - **T14-6 剩余**：T14-5 自动登录、真重启 + 隧道验收整条链（含上面那条流式穿透）
 - 提醒用户跑 `npx wrangler logout` 收回宽 scope 授权。
 - 未提交。
+
+## Session 2026-09-10（续 2：隧道整链打通 + 首测四问题诊断与修复）
+
+**隧道首次真启动，整条链端到端通了。** 但 `start_services.ps1` 的隧道启动命令一直是错的：`--config` 被放在 `run <name>` 之后，cloudflared 报 `"tunnel run" accepts only one argument` 直接起不来。该路径此前只做静态审查从未活体验证（task_plan 早有标注）。改为 `--config` 前置后实测 **4 条连接注册成功**（hkg09/hkg13，protocol http2）。**先启隧道再重启这个顺序救了一次**：若按原计划先重启，用户会在我不在场时面对一个起不来的隧道。
+
+用户真机走完整链后报四个问题。**用户裁决本轮由 Claude 直接改代码 + Codex 补审**（豁免铁律 1 的 DeepSeek 那半，审核那半保留）。
+
+- **#1 一开口先播一段无关真声 + #2 播放时口型不动 —— 同一个根因**。`unlockAudio()` 为解锁 iOS 音频塞进 iframe player 的是 **8ms 的 `data:` 静音**，播完触发 avatar 的 `ended`，而 09-01 加的守卫是黑名单 `indexOf('blob:')===0`，`data:` 漏过 → `playAt(0)` → ①播出真实录音 ②顺带把 `currentVisemeKey` 设成那条 1.44s 录音的时间轴；此后每段 TTS（3–8s）都走时间轴分支，`else { patchState='closed' }` 使**嘴在 cue 用尽后被永久钉死**。真浏览器复现事件序列 `play(data:)→ended(src 已变真声)→play(真声)`，currentTime 1.28s。
+- **#3** `#face-frame` 300px→200px。
+- **#4 长句只播前半句 —— 未定位，但服务端全部排除**：WAV 6.52s 能量包络 0.2–6.3s 连续有声；下一条用户消息在 50s 后（非打断）；blob 累计 50 条才 revoke；MP3 与 WAV 同一 pcm 缓冲 + flush + `_verify_mp3` 解码回读；本地 `/tts` `Content-Length` 与实收字节一致。**中断点恰好落在第一个逗号的停顿处**。已埋 `seg_cut` 诊断（仅在真没播完时记一条），下次复测可直接判定"元素提前停"还是"音频本身短"。
+- **修法**（改构建器，非产物）：`isPlaylistSrc()` 白名单取代黑名单守卫；`loadstart` 在非播放列表源时复位 `currentVisemeKey`/`cueIdx`。两站重建（儿子 70477→72578、爸爸 76823→77910；儿子站顺带补上了它上次构建时还没有的 T14-4 探活重试）。
+- **Codex 两轮 REJECT→ACCEPT**：两条 BLOCKER 是**第三次** CJK 注释误判（我给出 `cat -A` 字节证据 + 浏览器行为反证，第二轮它撤回）；**两条 MAJOR 成立并已修**——① `isPlaylistSrc` 不能按前缀排除 `data:`，因为**预览模式的播放列表条目本身就是 `data:audio/mpeg;base64,`**（`build_avatar_page.py:1584`），会让预览页失去续播与口型；② `seg_cut` 会在 `stopReplay`/`cancelVoiceTurn` 的正常暂停路径误报。
+- **浏览器三态实测**：解锁静音不续播 / **播放列表条目正常续播下一条**（回归验证）/ blob 不续播。
+
+**用户新提两项需求（尚未开工，仅记录）**：
+1. **架构模块化**：未来 people 下多个虚拟人、多个观看者站点。工具层早已 person-generic（08-12 基线），**真正写死的是部署层**——`start_services.ps1` 五服务端口常量、cloudflared 单 hostname ingress、单个 `wrangler.toml`、单份 `tokens.env`。缺一层站点清单（如 `deploy/sites.yaml`：person/viewer/port/hostname/lang/关系配置）让四者由清单生成。
+2. **聊天记录持久化**（reload 后不丢，且**同一站点上儿子与爸爸各自独立**）。用户裁决存储走**服务端回放**（复用现有 sessions/*.jsonl + 按身份隔离的读接口）。
+   - **前置缺陷（本次暴露）**：`VIEWER` 是**构建期常量**，爸爸站里写死 `'father'`。所以儿子在爸爸站说的话会被记成 viewer=father——本次测试正因用户勾了「本次对话不进记忆」才没进档案。**爸爸是唯一另一位 Tier-1 记忆确认人，这属档案污染而非体验问题。**
+   - 拟用 Cloudflare Access 身份（`/cdn-cgi/access/get-identity` 取登录邮箱）作运行期身份，同时修掉上述污染；儿子站（:8020 无 Access）回落构建期默认值。**待用户确认该端点返回字段后再设计。**
+
+未提交。

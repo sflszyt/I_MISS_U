@@ -45,7 +45,8 @@ TEMPLATE = r"""<!DOCTYPE html>
     flex-shrink: 0; text-align: center; padding: 8px 0 0; background: #1a1a2e;
   }
   #face-frame {
-    border: none; width: 100%; height: 300px; display: block; margin: 0 auto;
+    /* 2026-09-10 用户反馈：手机上偏大，缩 1/3（300 → 200） */
+    border: none; width: 100%; height: 200px; display: block; margin: 0 auto;
   }
   .face-note { font-size: 11px; color: #666; padding: 2px 0 8px; }
   #no-memory-banner {
@@ -1259,6 +1260,24 @@ function hookPlayerEnded() {
     };
     p.addEventListener('ended', onEnd);
     p.addEventListener('error', onEnd);
+    /* #4 诊断（2026-09-10）：语音段中途停住时留证，用于区分「元素提前停」与「音频本身就短」。
+       只在真的没播完时记一条，正常播完不产生任何记录。 */
+    p.addEventListener('pause', function() {
+      try {
+        if (p.ended) return;
+        var ap = activePlay;
+        /* 只记「本该继续播却停了」。以下都是代码主动暂停的正常路径，不记：
+           stopReplay() 在回放中暂停时 activePlay 为 null；
+           cancelVoiceTurn() 在 p.pause() 之前已置 vt.canceled、之后才清 activePlay；
+           unlockAudio() 的 8ms 静音 activePlay 亦为 null。 */
+        if (!ap || ap.canceled) return;
+        var t = p.currentTime || 0, d = p.duration || 0;
+        if (t > 0.05 && d > 0 && t < d - 0.25) {
+          logSession({ role: 'event', turn: ap.turn, text: 'seg_cut',
+                       detail: 't=' + t.toFixed(2) + ' dur=' + d.toFixed(2) });
+        }
+      } catch (e) {}
+    });
     playerEndedHooked = true;
   } catch (e) { /* 跨源降级路径由 fallbackAudio 自带 ended */ }
 }

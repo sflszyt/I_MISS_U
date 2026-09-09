@@ -685,6 +685,35 @@ function setCurrent(i) {
     cur = i;
 }
 
+function absUrl(u) {
+    var a = document.createElement('a');
+    a.href = u;
+    return a.href;
+}
+
+/* 当前音源是否为本页播放列表里的条目。
+   外部注入源一律返回 false：companion 页的 TTS（blob:）、iOS 音频解锁用的 8ms 静音（data:）。
+
+   2026-09-10 事故：原判据是「排除 blob:」，属黑名单语义。companion 的 unlockAudio
+   往本页 player 塞的是 data: URI 静音，8ms 播完即触发 ended → 漏过守卫 → playAt(0)，
+   造成两个可见故障：①一开口先播一段无关的真实录音 ②playAt 顺带把 currentVisemeKey
+   设成那条录音的时间轴，此后每段 TTS 都走时间轴分支，cue 用尽后嘴被钉死在 closed。
+   改为白名单语义：只有确实来自播放列表的音源才允许续播/套用时间轴。 */
+function isPlaylistSrc(src) {
+    if (!src) return false;
+    for (var pi = 0; pi < items.length; pi++) {
+        var it = items[pi];
+        if (!it || !it.src) continue;
+        // 先做整串相等：预览页的播放列表条目本身就是 data:audio/mpeg;base64,… 内嵌音频，
+        // 不能按前缀把 data: 一律当外部源排除（否则预览页失去续播与口型时间轴）。
+        if (it.src === src) return true;
+        // 只有相对/短路径才值得再解析成绝对 URL；内嵌 data: 已在上一行比过。
+        if (it.src.length > 512) continue;
+        if (absUrl(it.src) === src) return true;
+    }
+    return false;
+}
+
 function visemeKeyFromSrc(src) {
     if (!src) return null;
     var parts = String(src).split('/');
@@ -767,9 +796,18 @@ document.getElementById('btn-next').addEventListener('click', function () {
     playAt(to);
 });
 audio.addEventListener('ended', function () {
-    // 外部注入的 blob: 音源（companion 页的 TTS）播完不接播放列表——否则她念完话会接着播训练用的真实语音
-    if (audio.src && audio.src.indexOf('blob:') === 0) return;
+    // 只有确实来自播放列表的音源才续播下一条。外部注入源（TTS 的 blob:、
+    // iOS 解锁用的 data: 静音）一律不触发——否则她念完话会接着播训练用的真实语音。
+    if (!isPlaylistSrc(audio.src)) return;
     if (items.length > 0) playAt((cur + 1) % items.length);
+});
+audio.addEventListener('loadstart', function () {
+    // 外部注入源没有对应的 viseme 时间轴：复位 key，让口型回落到 RMS 分支。
+    // 否则上一条播放列表条目的时间轴会被套用到 TTS 上，cue 用尽即嘴闭死。
+    if (!isPlaylistSrc(audio.src)) {
+        currentVisemeKey = null;
+        cueIdx = 0;
+    }
 });
 audio.addEventListener('pause', function () {
     document.getElementById('btn-toggle').innerHTML = '\u25B6';

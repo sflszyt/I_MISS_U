@@ -561,8 +561,11 @@ function Start-TunnelService {
     $startTime = Get-Date
     $proc = $null
     try {
+        # --config 是全局标志，必须在 'tunnel' 之前。放在 'run <name>' 之后会被当成位置参数，
+        # cloudflared 报 "tunnel run accepts only one argument"（2026-09-10 实测）。
+        # 用法：cloudflared [global options] tunnel [tunnel options] run [run options] [TUNNEL]
         $proc = Start-Process -FilePath $Cloudflared `
-            -ArgumentList @('tunnel', 'run', $TunnelName, '--config', $CloudflaredConfigFile) `
+            -ArgumentList @('--config', $CloudflaredConfigFile, 'tunnel', 'run', $TunnelName) `
             -WorkingDirectory $CloudflaredConfigDir `
             -PassThru -WindowStyle Hidden `
             -RedirectStandardOutput $stdoutFile `

@@ -175,3 +175,89 @@ at init (companion.html:1809:3)
 2. **栈回溯里的行号是判断页面版本的硬证据**，比 md5 对账更直接（md5 对的是服务器，行号对的是浏览器里真正在跑的那份）。
 3. 网络日志里没有 `/sw.js` 请求**不能**证明 register 没被调用——SW 脚本请求不走页面上下文，Playwright 的 page-level 网络日志抓不到。当时差点据此下错结论。
 4. 未决口子：`http.server` 没法加响应头，要给 HTML 加 `no-cache` 得写自定义 handler（属代码改动，须走 DeepSeek + Codex）。在此之前，**爸爸设备若打开过旧页面，重建后不会自动拿到新页**（也就没有 SW、没有离线兜底），须强刷或发带 `?cb=` 的链接。
+
+## 爸爸站首测四问题：#1 与 #2 同根（解锁静音漏过 blob 守卫）· 2026-09-10
+
+首次真机端到端使用（经隧道）后用户报四个问题。诊断结论如下。
+
+### #1 开口先播一段无关的真实录音 + #2 播放时口型不动 —— **同一个根因**
+
+`companion` 为解锁 iOS 音频，往 iframe 的 `<audio id="player">` 塞一段 **8 毫秒**的静音 `data:` URI 并 `play()`：
+
+```js
+if (!p.src) { p.src = SILENT_WAV; }   // SILENT_WAV = data:audio/wav;base64,…  实测 8000Hz/64帧 = 0.008s
+p.muted = true; p.play();
+```
+
+它 8ms 就播完 → 触发 `avatar.html` 的 `ended` 处理器：
+
+```js
+if (audio.src && audio.src.indexOf('blob:') === 0) return;   // 09-01 加的守卫只认 blob:
+if (items.length > 0) playAt((cur + 1) % items.length);      // data: URI 从缝里漏过来 → playAt(0)
+```
+
+`playAt(0)` 干了两件事：**播放列表第一条真实录音开始播**（=#1），并且 `currentVisemeKey = visemeKeyFromSrc(item.src)`（=#2 的种子）。
+
+**真浏览器复现实证**（本地 :8021，同一份代码）：
+
+```
+play  → data:audio/wav;base64,…
+ended → …/data/media/voice/20201226_155929_…_mama.wav   ← 守卫没挡住，src 已被换掉
+play  → …_mama.wav      最终 paused=false, currentTime=1.28s
+```
+
+#2 的传导链：`currentVisemeKey` 被污染后不再复位（只有 `playAt` 会写它，TTS 走 blob 不经 `playAt`）。于是每段 TTS 都进入 `updateMouth` 的时间轴分支：
+
+```js
+if (speaking && hasTimeline && visemeMap && currentVisemeKey && visemeData[currentVisemeKey]) {
+    ...
+    if (cueIdx < cues.length) { …正常口型… }
+    else { patchState = 'closed'; useTimeline = true; }   // ← cue 用尽 = 嘴永久闭合
+}
+else if (speaking) { …RMS 兜底（本该走这条）… }
+```
+
+那条被误播的录音只有 1.44s，而 TTS 每段 3–8s。**约 1.4 秒后 cue 耗尽，嘴就此闭死，整段不再动。**
+
+修法（改**构建器**不改产物，否则下次重建丢失）：
+- `tools/build_avatar_page.py` 的 `ended` 守卫改为**白名单**语义——只有当前 src 确实是播放列表条目时才续播，而不是"排除 blob:"。任何外部注入源（blob:/data:/未来其它）都不该触发 `playAt`。
+- 同时在非播放列表源播放时把 `currentVisemeKey` 复位为 null，让口型回落到 RMS 分支（纵深防御：即使用户手动点过播放列表，也不该把时间轴带到 TTS 上）。
+- ⚠️ 同一 bug 存在于儿子站 `people/mama/archive_out/avatar.html` 与 `archive_dist`，同源构建器，需一并重建。
+
+### #3 手机上头像偏大
+`tools/build_companion_page.py` 的 `#face-frame { height: 300px }` → 200px（缩 1/3）。
+
+### #4 长句只播出前半句 —— **尚未定位，但服务端已完全排除**
+
+样本："我昨日下午病房里厢热得来，护士讲空调坏脱了，修了一整日"（27 字，整句作为一段送合成），用户只听到前 12 字。
+
+已排除：
+- **合成没截断**：服务端 WAV 6.52s，RMS 包络 0.2–6.3s 连续有声，无中途静音段
+- **不是被新回合打断**：该段 02:41:57 就绪，下一条用户消息在 **50 秒后**
+- **不是 blob URL 提前回收**：`trackBlobUrl` 累计到 50 条才 revoke
+- **不是 MP3 编码截断**：MP3 与 WAV 出自同一 `pcm` 缓冲 + `enc.flush()`，且 `_verify_mp3` 解码回读校验
+- **不是源站传输截断**：本地 `/tts` 实测 `Content-Length: 67008` 与实收字节一致，MPEG2 L3 / 64kbps / 24kHz
+
+值得注意：**中断点恰好落在第一个逗号处**（能量包络 2.0–2.6s 有明显低谷，正是"热得来，"的停顿）。
+
+尚存嫌疑（本地无法验证，需手机侧证据）：
+- iOS 的 `MediaElementSource` + AudioContext 中途 suspend（音频静音但 `currentTime` 继续走）
+- 经隧道/Worker 到该手机的字节投递
+- **本次测试基线不干净**：#1 的 bug 全程活跃，iframe player 状态已被污染
+
+建议：先修 #1–#3 重建后在手机上复测；同时加一条诊断——在 `pause`/`ended` 时把 `currentTime` 与 `duration` 记进会话日志，下次即可直接判断是"元素提前停"还是"音频本身短"。
+
+### 修复与验收结果（同日补记）
+
+**#1/#2 已修并实证**（改在构建器，两站重建）：`isPlaylistSrc()` 白名单取代原黑名单守卫；`loadstart` 在非播放列表源时复位 `currentVisemeKey`/`cueIdx`。
+
+**Codex 两轮：REJECT → ACCEPT。**
+
+- 它的两条 BLOCKER（称新守卫被同行 `//` 注释吞掉）**是误判**，我未采纳并给出反证：生成产物里 `if (!isPlaylistSrc(audio.src)) return;` 独占一行（`cat -A` 见注释行末为正常 LF），且真浏览器行为反证——解锁静音 ended 后 src 仍是 `data:`，没有出现修复前那条 `play(真实录音)`。**这是 Codex 读含 CJK 文件把注释后代码误判为被吞掉的第三次**（前两次见 progress 2026-08-12）。第二轮它按字节复核后主动撤回。
+- 它的两条 MAJOR **都成立，已按其意见修**：
+  1. `isPlaylistSrc` 原先无条件按前缀排除 `data:`，而 `build_avatar_page.py:1584` 的**预览模式正是用 `data:audio/mpeg;base64,` 作播放列表条目 src** → 会让预览页失去自动续播与口型时间轴。改为纯白名单：先整串相等（覆盖内嵌 data: 条目），仅 `it.src.length <= 512` 才 `absUrl()` 解析后比较。Codex 复核：常规 src 最长 75 字符，512 阈值不误伤。
+  2. `seg_cut` 诊断会在正常暂停路径误报。改为 `var ap = activePlay; if (!ap || ap.canceled) return;`——`stopReplay()` 暂停时 activePlay 为 null；`cancelVoiceTurn()` 在 pause **前**已置 `canceled`、**后**才清 activePlay；`unlockAudio()` 期间 activePlay 亦为 null。
+
+**浏览器三态实测（真实产物页，非 mock）**：解锁静音 ended → 不续播、src 仍 data:；**播放列表条目 ended → 正常续播下一条**（连发两次 ended：`…155929…` → `…160047…`，证明白名单命中且无功能退化）；TTS blob ended → 仍 blob、不续播。
+
+**遗留（非阻断）**：`avatar_preview.html` 是 2026-08-12 旧产物，不含新 `isPlaylistSrc`，将来要发预览页需重生成；`playSegmentBlob` 的 `new Audio` 降级路径没有 `seg_cut` 诊断覆盖；`archive_dist` 里的 avatar.html 仍是旧版，需重打包才会带上本修复。
