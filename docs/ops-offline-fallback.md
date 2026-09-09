@@ -70,11 +70,9 @@ grep -c "等电脑醒过来" people/mama_for_father/site/offline.html deploy/clo
 
 ## 3. 部署步骤
 
-### 步骤 1：重建爸爸站页面（加 `--offline-fallback`）
+### 步骤 1：重建爸爸站页面（加 `--offline-fallback`）— ✅ 已于 2026-09-10 执行
 
-**这一步需要 TTS token，请你自己执行——我不接触凭据。**
-
-token 在 `people/mama_for_father/config/tokens.env`。命令模板：
+token 在 `people/mama_for_father/config/tokens.env`，格式是 `TTS_TOKENS=viewer:token[,viewer2:token2]`（**页面里存的是冒号后面那截裸 token，不含 `father:` 前缀**）。实际执行的命令：
 
 ```powershell
 python tools\build_companion_page.py `
@@ -83,17 +81,19 @@ python tools\build_companion_page.py `
   --viewer father `
   --context-path data_father/chat_context.json `
   --lang wu `
+  --tts-origin same `
   --llm-proxy /v1/chat/completions `
   --intro-card `
-  --intro-builder <上次用的称呼> `
-  --tts-token <tokens.env 里爸爸那条> `
+  --intro-builder 儿子 `
+  --tts-token <tokens.env 里 father: 后面那截> `
   --offline-fallback
 ```
 
-前六个参数是从现有 `companion.html` 反推出来的（`viewer=father`、`lang=wu`、`LLM_PROXY=/v1/chat/completions`、context 在 `data_father/`、说明卡开启），**已核对**。两个待你确认：
+全部参数都是从重建前的 `companion.html` 反推 + 实测核对的：
 
-- `--intro-builder`：说明卡里对建档者的称呼。默认 `家人`，若 #24 当时用的是 `儿子` 请填 `儿子`。反推不出来（说明卡由 JS 动态生成）。
-- `--tts-token`：tokens.env 里给爸爸的那条。
+- **`--tts-origin same` 绝不能漏**。默认值 `auto` 生成的是 `location.protocol + '//' + location.hostname + ':8022'`——经隧道就成了 `https://dad.justmissingyou.com:8022`，那个端口在 Cloudflare 上不存在，**爸爸会一点声音都没有**。`same` 生成 `location.origin`，由 cloudflared ingress 把 `^/(tts|health|session)$` 路由到 :8022。（此前本文件的命令模板漏了这一条，2026-09-10 补。）
+- `--intro-builder 儿子`：**能反推**（此前本文件说"由 JS 动态生成、反推不出来"，是错的）。说明卡是构建期字符串替换，直接在 HTML 里搜 `来自X手机里的聊天记录` 即可。
+- `--tts-token`：`tokens.env` 里 `father:` 后面那截。可以从旧页面 `var TTS_TOKEN = '...'` 取，与 tokens.env 的 father 条比对一致后复用，无需人工输入。
 
 > 注意：token 会写进 HTML（页面要拿它调 TTS，设计如此），但**不要**让它进 PowerShell 历史之外的地方。这条命令本身会留在 `ConsoleHost_history.txt` 里——若在意，先 `Set-PSReadLineOption -HistorySaveStyle SaveNothing`。
 
@@ -103,7 +103,7 @@ python tools\build_companion_page.py `
 Select-String -Path people\mama_for_father\site\companion.html -Pattern 'serviceWorker'
 ```
 
-应出现两行注册代码。
+应出现两行注册代码。2026-09-10 实测：`ttsBase = location.origin`、`VIEWER='father'`、`LLM_PROXY='/v1/chat/completions'`、context 指向 `data_father/`、说明卡称呼 `儿子`、token = tokens.env 的 father 条，十项结构探针 ALL PASS；与重建前的 diff 只有两处（`probeTts` 改为返回 promise + `startTtsProbeLoop` 重试循环、SW 注册），儿子站 `people/mama/archive_out/companion.html` 字节未动。
 
 ### 步骤 2：确认三个文件都在站点根
 
@@ -113,22 +113,38 @@ Get-ChildItem people\mama_for_father\site\ | Select-Object Name, Length
 
 必须有 `companion.html`、`offline.html`、`sw.js`。`sw.js` 必须在**根目录**——它的作用域取决于自身路径，放子目录会导致拦不到 `/companion.html`。
 
-### 步骤 3：部署 Cloudflare Worker（你的账号，需你操作）
+### 步骤 3：部署 Cloudflare Worker — ✅ 已于 2026-09-10 部署
 
-1. Cloudflare Dashboard → **Workers & Pages** → **Create** → **Create Worker**
-2. 命名（如 `dad-offline`），创建后点 **Edit code**
-3. 把 `deploy/cloudflare-worker/dad-offline.js` 全文粘贴进去，**Deploy**
-4. 回到 Worker → **Settings** → **Domains & Routes** → **Add route**
-   - Route：`dad.justmissingyou.com/*`
-   - Zone：`justmissingyou.com`
+**实际走的是 wrangler，不是面板复制粘贴**（配置已入版本库 `deploy/cloudflare-worker/wrangler.toml`）：
 
-**顺序说明**：Cloudflare Access 运行在 Worker **之前**，所以未登录的人先看到 Access 登录页，根本到不了这个 Worker——这是对的，离线页不该对公众可见。
+```powershell
+npx --yes wrangler@latest login                                            # 一次性，浏览器点 Allow
+npx --yes wrangler@latest deploy --config deploy\cloudflare-worker\wrangler.toml
+```
+
+部署结果：`dad-offline`，Version ID `693b90d6-ff26-43f4-8528-d5953ec13c79`，100% 流量，触发器 `dad.justmissingyou.com/*`（zone `justmissingyou.com`），上传 4.10 KiB / gzip 1.81 KiB，Worker 启动 7 ms。
+
+> **坑：`compatibility_date` 不能填未来日期**（API 报 `code: 10021`）。Cloudflare 按 **UTC** 判定，本机 UTC+8 已经是 09-10 时那边还是 09-09。填 UTC 当天或更早。
+>
+> **坑：`wrangler login` 的 OAuth scope 远不止 Workers**——一并要走 `ssl_certs:write`、`connectivity:admin`、`email_routing:write`、`email_sending:write`、`d1:write`、`pages:write`、`containers:write` 等一长串，无法在该流程里裁剪。用完建议 `npx wrangler logout`；日常运维更适合建一个只含 `Workers Scripts:Edit` + `Workers Routes:Edit` + `Zone:Read` 的最小权限 API token 走 `CLOUDFLARE_API_TOKEN`。
+
+**顺序说明（2026-09-10 实测确认，此前只是推断）**：Cloudflare Access 运行在 Worker **之前**。未登录 `curl https://dad.justmissingyou.com/companion.html` 返回 **302** 跳 `small-rice-b952.cloudflareaccess.com` 的登录页，请求根本到不了 Worker——这是对的，离线页不该对公众可见。
+
+> **由此产生的验收前提**：要验 L1 必须先过 Access。`relationship.father.json` 的 `access.allowed_emails` 当时**只有爸爸一个邮箱**，机主自己也打不开这个站。验收前需在 Zero Trust → Access → Applications → `dad.justmissingyou.com` → Policies 里把机主邮箱也加进去（顺带以后才能帮爸爸排查问题）。
 
 **额度**：Worker 免费版 100,000 请求/天。爸爸一个人用，量级完全不成问题。
+
+**回滚**：`npx wrangler delete --config deploy\cloudflare-worker\wrangler.toml`（连路由一起删）。Worker 是整条链路的必经之地，万一它出问题，爸爸的站会整个不可用而不只是兜底失效——所以出任何异常先删它再排查。
 
 ---
 
 ## 4. 验收（三层要分别验，本地能验前两层）
+
+> ⚠️ **验收前必读：浏览器会拿旧 HTML 骗你。** :8020/:8021 是 Python `http.server`，**不发 `Cache-Control`**，浏览器按"距 Last-Modified 的 10%"做启发式缓存。2026-09-07 的 `no-cache` 补丁只加在页面内的 `fetch('data/*.json')` 上，**HTML 文档本身没有**。
+>
+> 2026-09-10 实测踩过这个坑：页面重建完毕、`curl` 拿到的 md5 与磁盘一致，但浏览器里 SW 死活不注册——栈回溯显示它跑的是**重建前**的行号（`init` 在 1809 行调 `probeTts`，而新文件里是 1843）。加 `?cb=<时间戳>` 后一次就通过。
+>
+> 所以验收时**必须**绕开缓存：地址后加 `?cb=<随便什么>`，或 Ctrl+Shift+R 强刷。**这同样适用于爸爸的设备**——他若在旧版页面上打开过站点，重建后他那边不会自动拿到新页面（也就没有 SW、没有离线兜底），需要他强刷一次或用带参数的链接。
 
 ### L3 页面内降级（不需要隧道，现在就能验）
 
@@ -161,6 +177,20 @@ powershell -ExecutionPolicy Bypass -File scripts\start_services.ps1 -Stop
 
 再启动服务后，离线页应在 **60 秒内自动跳回** `companion.html`（页面里有静默探针，每 60 秒 HEAD 一次 `/companion.html`）。
 
+**2026-09-10 用重建后的真实页面实测通过（整条 L1'/L2' + L3 链）**：
+
+| 判据 | 实测 |
+|---|---|
+| 页面自身注册 SW（非手动） | `register('/sw.js')` 被调用并 resolved，scope `http://127.0.0.1:8021/`，state `activated` |
+| 预缓存内容 | cache `imissu-dad-offline-v1`，内含 `/offline.html` |
+| 停 :8021 后导航 | 标题变 `她今天不在`，`navigator.serviceWorker.controller` 非空 |
+| 文案 | 四句逐字正确（截图人眼核对，非仅 DOM 断言） |
+| 走的是缓存页而非内联兜底 | 出现「再试一次」按钮——`inlineFallback()` 里没有这个按钮，说明命中的是 `cache.match('/offline.html')` |
+| 恢复服务后 | 自动跳回 `/companion.html`（标题「陪伴」） |
+| 页面 JS 错误 | 0 条 `pageerror` |
+
+> 本地验 L3 时会看到 `/health` 404——这是**对的**：`--tts-origin same` 让页面打 `location.origin/health`，本地直连 :8021 静态站没有这个路由，真实部署由 cloudflared ingress 转给 :8022。同理 `logSession` 打的 `/session` 本地也 404，**所以本地验收不会往 `people/mama/sessions/` 写任何测试记录**（09-10 已核实档案零污染）。
+
 ### L1/L2 Cloudflare Worker（需要隧道已启，且 Worker 已部署）
 
 ```
@@ -171,7 +201,20 @@ powershell -ExecutionPolicy Bypass -File scripts\start_services.ps1 -Stop
 
 判据：看到中文「她今天不在」，**不是** Cloudflare 的英文 Error 1033 页。
 
-> **这一层至今没有真跑过。** 隧道从未启动（启 cloudflared = 开公网入口，属外部可见动作，未经你授权不做），Worker 也还没部署。上线前必须补这一条。
+> ✅ **2026-09-10 已真跑通。** 当时隧道从未启动过，源站是真实不可达状态——正是 L1 的故障态，不需要人为制造。机主把自己邮箱加进 Access 策略后打开 `https://dad.justmissingyou.com/companion.html`，**看到的是中文「她今天不在」**。
+>
+> `wrangler tail` 同步捕获到 Worker 确实被执行（这是"页面对了"之外的独立证据）：
+>
+> ```
+> GET  https://dad.justmissingyou.com/companion.html - Ok @ 2026/9/10 02:14:25
+> HEAD https://dad.justmissingyou.com/companion.html - Ok @ 2026/9/10 02:14:25
+> GET  https://dad.justmissingyou.com/companion.html - Ok @ 2026/9/10 02:15:50
+> HEAD https://dad.justmissingyou.com/companion.html - Ok @ 2026/9/10 02:15:51
+> ```
+>
+> 顺带验证了一个容易做错的细节：紧跟 GET 的那条 HEAD 是**离线页自己的探针**。它拿到的是 Worker 返回的 **503**（`buildOfflineResponse` 对非 API 路径返 503），所以 `response.ok` 为假、页面正确地**留在原地不跳转**。若当初把兜底页写成 200，探针会立刻误判"恢复了"并把爸爸弹回一个打不开的页面。第二组 GET/HEAD 是约 85 秒后的下一轮探针（或点了「再试一次」），行为一致。
+>
+> **仍未验的是"隧道起来之后"的一面**：Worker 现在是全部流量的必经之地，正常态下它必须把 `/tts`（音频）与 `/v1/chat/completions`（SSE 流式）透明穿透。代码是 `return await fetch(request)` 直接回传，Workers 不缓冲 body，理论上没问题，但**没有实测过**。隧道首次启动后要专门确认爸爸的语音和流式回复都正常。
 
 ---
 

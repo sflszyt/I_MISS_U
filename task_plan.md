@@ -298,7 +298,17 @@
     - **真浏览器实测**：SW 注册 scope `/` active → 停 :8021 → 显示「她今天不在」→ 恢复后自动跳回 companion.html；route-mock 造冷启动 → 16s 出提示、恢复 12s 出「她的声音准备好了。」；**儿子版默认参数产出零 SW 泄漏**（diff 仅重试改动）
     - ⚠️ 文案取**温情型**（用户 09-09 裁决），Codex 两轮独立指出拟人化风险，记为对铁律 2 的**显式覆盖**，复核日与 #24 三项对齐（2026-11-28）
   - ✅ **T14-5 `docs/ops-autologon.md`**（操作步骤，用户自行执行，Claude 全程不接触密码）：Autologon GUI（禁命令行传密码）+ **登录后自动锁屏任务**（把「物理接触即进桌面」降为「看到锁屏」，服务不受影响）+ ARSO 备选（不存密码但只覆盖补丁夜）+ 撤销与残余风险
-  - ⬜ **T14-6 部署收尾**（需机主操作）：按 `docs/ops-offline-fallback.md` 重建爸爸站页面（带 `--offline-fallback`，需 TTS token）+ 部署 Cloudflare Worker + 执行 T14-5 自动登录 + **真重启验收整条链**
+  - 🔄 **T14-6 部署收尾**：
+    - ✅ **重建爸爸站页面（2026-09-10）**：`build_companion_page.py --offline-fallback` 加 `--tts-origin same` / `--intro-builder 儿子`，token 从旧页面提取并与 `tokens.env` 的 `father:` 条校验一致后复用（全程不打印明文）。75592→76823 字节，与旧页 diff 只有两处（`probeTts` 返回 promise + `startTtsProbeLoop` 24×15s 重试、SW 注册 `/sw.js`）；十项结构探针 ALL PASS；儿子站 `people/mama/archive_out/companion.html` 字节未动
+    - ✅ **L1'/L2' + L3 真浏览器实测（2026-09-10）**：页面自身注册 SW → scope `/` activated、预缓存 `/offline.html` → 停 :8021 → 显示「她今天不在」（四句逐字 + 截图人眼核对；有「再试一次」按钮证明命中缓存页而非 `inlineFallback()`）→ 恢复服务后自动跳回 companion.html；`pageerror` 0 条。本地 `/session` 404，档案零污染已核实
+    - **踩坑记录（已写进 ops 文档）**：①原命令模板**漏了 `--tts-origin same`**，按文档照抄会让 ttsBase 变成 `https://dad.justmissingyou.com:8022`（该端口在 Cloudflare 上不存在）→ 爸爸完全没有声音；②原文档称 `--intro-builder` 反推不出来，实为构建期字符串替换，HTML 里可直接搜到；③**浏览器启发式缓存**：Python `http.server` 不发 `Cache-Control`，09-07 的 `no-cache` 只加在 data fetch 上、HTML 文档没有——重建后浏览器仍跑旧 HTML（栈回溯行号实锤），验收与爸爸设备都须强刷/加 `?cb=`
+    - ✅ **部署 Cloudflare Worker（2026-09-10）**：走 wrangler 而非面板复制粘贴，配置入库 `deploy/cloudflare-worker/wrangler.toml`（`workers_dev=false`，只绑 `dad.justmissingyou.com/*`）。用户本人完成 `wrangler login` OAuth 授权（**scope 远超 Workers：含 ssl_certs/connectivity:admin/email_sending 等，建议用完 logout 或改最小权限 token**）。部署结果 `dad-offline` Version `693b90d6-ff26-43f4-8528-d5953ec13c79`，100% 流量，4.10 KiB，启动 7 ms。坑：`compatibility_date` 按 **UTC** 判定，本机 UTC+8 已 09-10 时填 09-10 被 API 拒（code 10021），改 09-09 通过
+    - ✅ **Access 在 Worker 之前已实测确认**（此前仅推断）：未登录 curl `/companion.html` 返回 302 跳 cloudflareaccess 登录页，请求到不了 Worker → 离线页不对公众可见，符合设计
+    - ✅ **L1 真实验收通过（2026-09-10）**：机主把自己邮箱加进 Access 策略（原 `allowed_emails` 只有爸爸一个，机主自己打不开站）后打开 `/companion.html`——隧道从未启动、源站真实不可达，正是 L1 故障态——**看到中文「她今天不在」而非英文 Error 1033**。`wrangler tail` 独立捕获 Worker 执行：`GET`/`HEAD /companion.html` 各两次 outcome `Ok`（02:14:25 与 02:15:50 两轮，间隔≈85s=离线页 60s 探针）。**这是文档里长期标注「至今没有真跑过」的那一层，现已关闭**
+      - 附带验证一处易错设计：紧跟 GET 的 HEAD 是离线页自身探针，拿到 Worker 返回的 **503**（`buildOfflineResponse` 对非 API 路径返 503）→ `response.ok` 假 → 正确地留在原地。若兜底页写成 200，探针会误判恢复并把爸爸弹回打不开的页面
+      - ⬜ **未验的另一面**：隧道起来后 Worker 对 `/tts`（音频）与 `/v1/chat/completions`（SSE 流式）的透明穿透。代码 `return await fetch(request)` 不缓冲 body，理论无碍但无实测，隧道首启后须专门确认
+    - ⚠️ **Worker 是整条链的必经之地**：它若异常，爸爸的站整个不可用而不只是兜底失效。回滚 = `npx wrangler delete --config deploy\cloudflare-worker\wrangler.toml`（连路由一起删）
+    - ⬜ 执行 T14-5 自动登录 + ⬜ **真重启 + 隧道验收整条链**（启 cloudflared = 开公网入口，需机主授权）
 - ⬜ T15 知情同意：大字一页 + 当面演示 + 日期写入 facets
 - ⬜ T16 8A-2b b/d/e 欠账登记 + 三个月复核日（与 2026-11-28 对齐）
 

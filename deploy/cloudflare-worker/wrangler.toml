@@ -1,0 +1,26 @@
+# T14-4 L1/L2 离线兜底 Worker（爸爸站）
+#
+# 作用：PC 关机 / cloudflared 没跑 / 隧道在但 :8021 没起时，Cloudflare 边缘
+# 直接返回中文「她今天不在」，而不是英文 Error 1033 或 502。
+# 详见 docs/ops-offline-fallback.md。
+#
+# 部署：
+#   npx wrangler deploy --config deploy/cloudflare-worker/wrangler.toml
+# （需先 npx wrangler login，或设 CLOUDFLARE_API_TOKEN）
+
+name = "dad-offline"
+main = "dad-offline.js"
+# 用 UTC 日期：本地 UTC+8 已是 09-10 时，Cloudflare 那边仍是 09-09，
+# 填未来日期会被 API 拒绝（code 10021）。
+compatibility_date = "2026-09-09"
+
+# 不开 *.workers.dev：这个页面只该出现在爸爸那条域名上，
+# Cloudflare Access 在 Worker 之前拦截，离线页因此不对公众可见。
+workers_dev = false
+
+# 绑定到爸爸站那条主机名的全部路径。
+# Worker 内部对 origin 的 fetch 不会再次触发本 Worker（Cloudflare 防自递归），
+# 所以正常流量是透明穿透，只有源站不可达时才替换成离线页。
+[[routes]]
+pattern = "dad.justmissingyou.com/*"
+zone_name = "justmissingyou.com"

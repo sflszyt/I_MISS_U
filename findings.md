@@ -154,3 +154,24 @@ class ` 当锚点，吞掉了 DeepSeek 第一轮放在它后面的 `strip_bracke
 - **Worker 自造的响应必须带 `Cache-Control: no-store`**。否则 Cloudflare 边缘会把离线页缓存住，PC 回来了还继续发"她今天不在"——这是这套东西最坏的可能故障，比不做还糟。
 - **两层的兜底页必须行为等价**。Codex 抓到 Worker 版缺了「再试一次」按钮和恢复探针：哪层生效对读者不可见，若 Worker 版没探针，PC 恢复后他会一直盯着"她今天不在"。同一份文案存在两处，改一处必须改另一处（`grep -c` 核对已写进部署文档）。
 - **Service Worker 只能拦 navigate**。`/tts` 与 `/v1/chat/completions` 一旦被缓存重放，就等于让她说出当时根本没被问到的话——这是伦理红线，不是性能选项。离线页每 60 秒的 `HEAD` 探针同理必须放行，否则会从缓存拿到"通了"而跳回一个死站。
+
+## 静态站 HTML 本身没有 no-cache —— 重建页面后浏览器仍跑旧版（2026-09-10 实锤）
+
+**现象**：爸爸站页面重建完毕，磁盘与 `curl http://127.0.0.1:8021/companion.html` 的 md5 一致，但真浏览器里 SW 死活不注册；`getRegistration()` 轮询 12 秒为 0，手动 `navigator.serviceWorker.register('/sw.js')` 却立刻成功并 activated。一度怀疑 Playwright 屏蔽 SW。
+
+**定位手法（可复用）**：`page.addInitScript` 把 `navigator.serviceWorker.register` 包一层记录调用 → **零记录**，说明页面根本没调用；再包 `window.fetch` 记录 `/health` 请求的 `new Error().stack` → 拿到
+
+```
+at probeTts (companion.html:981:23)
+at init (companion.html:1809:3)
+```
+
+而重建后的文件里 `init` 调 probeTts 在 **1843** 行（1809 是重建**前**的行号）。**行号即版本指纹**——浏览器跑的是旧 HTML。加 `?cb=<ts>` 后一次通过。
+
+**根因**：:8020/:8021 是 `python -m http.server`，**不发 `Cache-Control`**，浏览器按"距 `Last-Modified` 的 10%"做启发式缓存。2026-09-07 那次修的 `{cache:'no-cache'}` 只加在页面内 `fetch('data/*.json')` 上，**HTML 文档本身没覆盖**——09-07 修的是"页面拿到旧数据"，这次是"浏览器拿到旧页面"，是同一个坑的另一半。
+
+**教训**：
+1. 重建任何经浏览器消费的页面后，验收**必须**绕开 HTTP 缓存（`?cb=<ts>` 或强刷），否则验的是上一版，且所有 DOM 断言都会"合理地"失败并把你引向错误的根因。
+2. **栈回溯里的行号是判断页面版本的硬证据**，比 md5 对账更直接（md5 对的是服务器，行号对的是浏览器里真正在跑的那份）。
+3. 网络日志里没有 `/sw.js` 请求**不能**证明 register 没被调用——SW 脚本请求不走页面上下文，Playwright 的 page-level 网络日志抓不到。当时差点据此下错结论。
+4. 未决口子：`http.server` 没法加响应头，要给 HTML 加 `no-cache` 得写自定义 handler（属代码改动，须走 DeepSeek + Codex）。在此之前，**爸爸设备若打开过旧页面，重建后不会自动拿到新页**（也就没有 SW、没有离线兜底），须强刷或发带 `?cb=` 的链接。
