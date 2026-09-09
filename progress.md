@@ -540,3 +540,13 @@ class ` 吞掉了 DeepSeek 首轮放在其后的 `strip_brackets`，重启后 /t
 - **Phase 15 四个 Task 全部 Codex ACCEPT**。测试总计 36 例 unittest + 1 套 E2E。
 - ⏳ **剩用户真机验收**：PC/iPhone 各强刷一次（页面本身已带 no-cache，但旧 HTML 需冲一次），开新窗口看她是否接上上次的话。
 - 未提交。
+
+## Session 2026-09-09（T14-1 + T14-2：token 落盘 + 服务启动编排）
+
+用户裁决：自启方式取**开 Windows 自动登录**（已知代价：物理接触电脑即进桌面、people/ 档案敞开）；token **加 `--tokens-file`**。
+
+- **T14-1 token 落盘（DeepSeek 各 2 轮 + Codex 各 REJECT→ACCEPT）**：`tts_server.py` +61/-3、`llm_proxy.py` +52/-3，新增 `--tokens-file` 读 `people/mama_for_father/config/tokens.env` 的 `TTS_TOKENS`。三条安全要点均由 Codex 提出后补齐：文件来源的解析错误捕获 stderr 换成不含原值的统一文案（命令行来源刻意保留详细错误）、`utf-8-sig` 读、空值 fail-closed。两文件解析语义对齐（llm_proxy 原本 `item.strip()` 且跳过空项，比 tts_server 宽松 → 同一份 tokens.env 可能一个起得来一个起不来；已让宽松方变严格）。**实测生产进程命令行零 token。**
+- **T14-2 `scripts/start_services.ps1`（新建 1031 行，DeepSeek 9 轮 + Codex 3×REJECT→ACCEPT）**：五服务编排（8020 儿子站 / 8021 爸爸站 / 8022 tts / 8023 llm-proxy / cloudflared 隧道），三模式（默认启动 / `-Status` / `-Stop`）+ `-SkipTunnel` / `-Quiet`。要点：三条件 skip（端口+健康+匹配进程）、端口被非匹配进程占则 **fail-closed 不杀**、单实例 named mutex（拿不到 exit 3，异常也 fail-closed）、精确命令行匹配杀进程树（含 tts 父子孙）、超时清理、日志时间戳命名保留最近 10 组、隧道**每次重启**以确保连接状态可确认。
+- **实测**：幂等连跑两次全 skip 零重复进程；`-Stop` 8s 完成零 warn、tts 三进程全清、四端口释放；冷启动 26.9s 四服务全绿端点全 200；外来进程占 8021 → FAIL + exit 1 + **外来进程未被误杀**；持锁时等 30.2s → exit 3。
+- ⚠️ **隧道路径未活体验证**：启动 cloudflared 等于开公网入口，需机主授权，且 T14-5 自动登录与真机验收未做。"已有进程→重启→60s 注册判据"仅静态审查。另 `-Status` 的 tunnel 只是进程存在检查，**不证明入口可用**（Codex 特别点出）。
+- **剩余**：T14-3 注册登录自启任务、T14-4 冷启动/离线降级页、T14-5 自动登录操作步骤（用户自行执行，Claude 不接触密码）。

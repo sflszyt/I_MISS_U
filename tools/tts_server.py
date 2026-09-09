@@ -151,6 +151,39 @@ def parse_viewer_tokens(raw):
     return result
 
 
+def read_tokens_file(path, key):
+    """从 tokens 文件读取指定 KEY 的值。错误信息只含文件路径与 key 名，不含文件内容或 token 值。"""
+    try:
+        with open(path, 'r', encoding='utf-8-sig') as f:
+            for line in f:
+                stripped = line.strip()
+                if not stripped or stripped.startswith('#'):
+                    continue
+                if '=' not in stripped:
+                    continue
+                k, v = stripped.split('=', 1)
+                k = k.strip()
+                v = v.strip()
+                if len(v) >= 2 and v[0] == v[-1] and v[0] in ('\'', '"'):
+                    v = v[1:-1]
+                if k == key:
+                    return v
+    except FileNotFoundError:
+        sys.stderr.write(f'Error: tokens file not found: {path} (looking for key "{key}")\n')
+        sys.exit(2)
+    except IsADirectoryError:
+        sys.stderr.write(f'Error: tokens file path is a directory: {path} (looking for key "{key}")\n')
+        sys.exit(2)
+    except UnicodeDecodeError:
+        sys.stderr.write(f'Error: tokens file is not valid UTF-8: {path} (looking for key "{key}")\n')
+        sys.exit(2)
+    except OSError:
+        sys.stderr.write(f'Error: cannot read tokens file: {path} (looking for key "{key}")\n')
+        sys.exit(2)
+    sys.stderr.write(f'Error: key "{key}" not found in tokens file: {path}\n')
+    sys.exit(2)
+
+
 class SessionLog:
     def __init__(self, sessions_dir):
         self.dir = sessions_dir
@@ -580,6 +613,7 @@ def main():
     parser.add_argument('--dur-slack', type=float, default=2.0)
     parser.add_argument('--token', default='')
     parser.add_argument('--tokens', default='', help='多观看者 token，格式 viewer:token[,viewer2:token2]；与 --token 互斥')
+    parser.add_argument('--tokens-file', default='', help='从文件读取多观看者 token；文件内一行 TTS_TOKENS=viewer:token[,viewer2:token2]')
     parser.add_argument('--person', default='mama')
     parser.add_argument('--repo-root', default=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     parser.add_argument('--no-session-log', action='store_true')
@@ -587,11 +621,35 @@ def main():
     parser.add_argument('--no-sessions-ingest', action='store_true')
     args = parser.parse_args()
 
-    if args.token and args.tokens:
-        sys.stderr.write('Error: --token and --tokens are mutually exclusive\n')
+    provided_token_args = [
+        name for name, value in (
+            ('--token', args.token),
+            ('--tokens', args.tokens),
+            ('--tokens-file', args.tokens_file),
+        ) if value != ''
+    ]
+    if len(provided_token_args) > 1:
+        sys.stderr.write('Error: --token, --tokens, and --tokens-file are mutually exclusive\n')
         sys.exit(2)
 
-    viewer_tokens = parse_viewer_tokens(args.tokens)
+    if args.tokens_file:
+        token_file_value = read_tokens_file(args.tokens_file, 'TTS_TOKENS')
+        if not token_file_value.strip():
+            sys.stderr.write(f'Error: key "TTS_TOKENS" is empty in tokens file: {args.tokens_file}\n')
+            sys.exit(2)
+        original_stderr = sys.stderr
+        try:
+            sys.stderr = io.StringIO()
+            try:
+                viewer_tokens = parse_viewer_tokens(token_file_value)
+            except SystemExit:
+                sys.stderr = original_stderr
+                sys.stderr.write(f'Error: invalid TTS_TOKENS value in tokens file: {args.tokens_file}\n')
+                sys.exit(2)
+        finally:
+            sys.stderr = original_stderr
+    else:
+        viewer_tokens = parse_viewer_tokens(args.tokens)
 
     if not PERSON_RE.match(args.person):
         sys.exit('invalid --person')

@@ -286,7 +286,13 @@
 - ⬜ T12b 老人 UX 其余项：抽屉锁定 / 错误文案人话化 / TTS 周期重探 / 「她今天不在」离线页 / Access session 过期时 fetch 收到 302 跳登录页而非 401 的降级
 - ⬜ T12c A1 主屏 Web App：apple-touch-icon + manifest（#22 裁决 D1）
 - ⬜ T13 `rhythm_dad.json` 按家庭群语料重算（家庭群中位 20 字 vs 私聊 15 字）
-- ⬜ T14 运维：登录自启 + 自动登录 + Update 活动时段 + 冷启动探活重试
+- 🔄 T14 运维自启（用户 09-09 裁决：自启方式取**开 Windows 自动登录**，已告知物理安全代价；token **加 --tokens-file**）
+  - ✅ **T14-1 token 落盘**（DeepSeek 各 2 轮 + Codex 各 REJECT→ACCEPT）：`tts_server.py` +61/-3、`llm_proxy.py` +52/-3 新增 `--tokens-file`；错误不回显原值 / `utf-8-sig` / 空值 fail-closed / 两文件解析语义对齐。**实测生产进程命令行零 token**
+  - ✅ **T14-2 `scripts/start_services.ps1`**（新建 1031 行，DeepSeek 9 轮 + Codex 3×REJECT→ACCEPT）：五服务编排 + 三模式（启动/-Status/-Stop）；三条件 skip、非匹配进程占端口 fail-closed 不杀、单实例 mutex、精确命令行匹配杀进程树、超时清理、日志时间戳保留 10 组、隧道每次重启以确保连接可确认
+  - ⚠️ 隧道路径**未活体验证**（启 cloudflared = 开公网入口，需机主授权）；`-Status` 的 tunnel 仅进程存在检查，**不证明入口可用**
+  - ⬜ T14-3 注册登录自启任务
+  - ⬜ T14-4 冷启动/离线降级页（「她今天不在」）
+  - ⬜ T14-5 自动登录 + Update 活动时段操作步骤（用户自行执行，Claude 不接触密码；现 ActiveHours 9→2，重启窗口即凌晨 2-9 点）
 - ⬜ T15 知情同意：大字一页 + 当面演示 + 日期写入 facets
 - ⬜ T16 8A-2b b/d/e 欠账登记 + 三个月复核日（与 2026-11-28 对齐）
 

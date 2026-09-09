@@ -4,6 +4,7 @@
 import argparse
 import collections
 import hmac
+import io
 import json
 import os
 import re
@@ -327,6 +328,31 @@ def parse_tokens(spec, tokens_out):
         tokens_out[token] = viewer
 
 
+def read_tokens_file(path, key):
+    try:
+        with open(path, "r", encoding="utf-8-sig") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                file_key, value = line.split("=", 1)
+                file_key = file_key.strip()
+                value = value.strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+                    value = value[1:-1]
+                if file_key == key:
+                    return value
+    except FileNotFoundError:
+        fail(f'tokens file not found: {path} (looking for key "{key}")')
+    except IsADirectoryError:
+        fail(f'tokens file path is a directory: {path} (looking for key "{key}")')
+    except UnicodeDecodeError:
+        fail(f'tokens file is not valid UTF-8: {path} (looking for key "{key}")')
+    except OSError:
+        fail(f'cannot read tokens file: {path} (looking for key "{key}")')
+    fail(f'key "{key}" not found in tokens file: {path}')
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8023)
@@ -335,6 +361,7 @@ def main():
     parser.add_argument("--model", required=True)
     parser.add_argument("--key-env", default="DEEPSEEK_API_KEY")
     parser.add_argument("--tokens", default="")
+    parser.add_argument("--tokens-file", default="", help="从文件读取 viewer token；文件内一行 TTS_TOKENS=viewer:token[,viewer2:token2]")
     parser.add_argument("--rpm", type=int, default=10)
     parser.add_argument("--daily", type=int, default=200)
     parser.add_argument("--max-tokens", type=int, default=2048)
@@ -346,10 +373,32 @@ def main():
     if not api_key:
         fail(f"environment variable {args.key_env} not set")
 
+    if args.tokens and args.tokens_file:
+        fail("--tokens and --tokens-file are mutually exclusive")
+
     tokens = {}
-    parse_tokens(args.tokens, tokens)
-    if not tokens:
-        fail("no valid tokens parsed")
+    if args.tokens_file:
+        raw_tokens = read_tokens_file(args.tokens_file, "TTS_TOKENS")
+        if not raw_tokens or not raw_tokens.strip():
+            fail(f'key "TTS_TOKENS" is empty in tokens file: {args.tokens_file}')
+        for part in raw_tokens.split(","):
+            if part != part.strip() or not part:
+                fail(f"invalid TTS_TOKENS value in tokens file: {args.tokens_file}")
+        parse_failed = False
+        old_stderr = sys.stderr
+        try:
+            sys.stderr = io.StringIO()
+            parse_tokens(raw_tokens, tokens)
+        except SystemExit:
+            parse_failed = True
+        finally:
+            sys.stderr = old_stderr
+        if parse_failed or not tokens:
+            fail(f"invalid TTS_TOKENS value in tokens file: {args.tokens_file}")
+    else:
+        parse_tokens(args.tokens, tokens)
+        if not tokens:
+            fail("no valid tokens parsed")
 
     config = ProxyConfig(args, tokens, api_key)
     server = ProxyServer((args.host, args.port), ProxyHandler, config)

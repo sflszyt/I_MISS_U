@@ -110,3 +110,16 @@
 - **区域锚点别用"到下一个 class"这种开放边界**：第二轮把 `def soften_onsets(` … `
 class ` 当锚点，吞掉了 DeepSeek 第一轮放在它后面的 `strip_brackets`，服务重启后 /tts 直接 NameError 500。规则：锚点末端用紧邻的确定文本；每轮拼接后必须跑 hunk 落区校验（本轮漏跑），再 py_compile 之外做一次"关键符号存在"断言（`grep -c '^def strip_brackets'`）。
 - **Codex 只读审核也有盲区**：它在 git/py 都不可用的环境下 ACCEPT 了缺 strip_brackets 的文件（它只看新增函数）。审核 prompt 里要明说"顺带确认文件里原有的 X/Y 函数仍在"。
+
+## T14 运维自启教训（2026-09-09，start_services.ps1 十轮）
+
+- **"脚本谎报成功"是无人值守脚本的头号故障模式**：Codex 三次 REJECT 共 8 条阻断，其中 4 条都属这一类——端口被占就当服务正常（坏进程占着 8022 也报 ok）／已有隧道只看进程存在（cloudflared 卡住未退出就报 ok）／mutex 拿不到就退化无锁继续／健康检查通过但端口其实被外来服务占着。判据要三条件齐备：**端口监听 + 健康检查过 + 存在命令行匹配本服务的进程**，缺一不可 skip。爸爸打不开页面不会打电话，只会以为她不在了。
+- **PowerShell 单元素数组展开（栽了两次）**：`return $matched` 在集合只有一个元素时被展开成标量 `CimInstance`，而它**没有 `.Count` 属性** → 所有 `$x -and $x.Count -gt 0` 判断恒假。实际故障：脚本把自己刚启动的 son-site/dad-site/llm-proxy 判成"外来进程占端口"并 FAIL，而 tts 因有父子两进程返回真数组而幸免。修法 `return ,$matched`（逗号一元操作符）。同族陷阱：`Sort-Object -Unique` 结果单元素时同样展开（`Stop-MatchingProcessTree` 的 `$matching.Count` 第二次栽），一律写 `@(...).Count`。
+- **判重写错方向 = 死循环**：`$candidate.ProcessId -notin $descendants` 拿整数比对象数组，恒为真 → 同一进程无限重复入列，`do-while` 永不退出，`-Stop` 卡死 90 秒以上持续烧 CPU。**`[PSParser]::Tokenize()` 静态语法检查放行了它**——和 py_compile 一样只看语法不看语义。所有 do-while 递归都要加迭代上限兜底。
+- **修 bug 引入的静默失效比原 bug 更隐蔽**：把判重改成 `$toCheck.ProcessId` 却没同步改初始化（仍是整数数组）→ `.ProcessId` 求值 `$null` → 条件恒假 → 递归一个子进程都找不到。从"死循环卡住"变成"秒回报成功但子进程还持着端口"。**修完必须在真实进程树上跑一遍对照**（错写法找到 0 个 / 正确写法找到 2 个），不能只看代码。
+- **`param()` 必须是第一条可执行语句**：DeepSeek 把它放在文件第 490 行的 "Main" 段落，PowerShell 直接报 `param : The term 'param' is not recognized`。同样地 `[PSParser]::Tokenize()` **放行**了这个错误，只有真正执行才暴露。
+- **区域规格 vs 全文回显的分界线**：脚本涨到 943 行后全文回显开始不稳（一次 `finish=length` 推理烧光、一次 `finish=None` 流式中断截断到 570 行）。改用**函数级区域规格**——按大括号配平提取整个函数、让 DeepSeek 只输出改动的那几个函数、Claude 侧按函数边界 splice 替换——8 秒出结果且从此零截断。比 8B-11 的"行级锚点"更安全：函数边界是确定的，不会吞掉相邻定义。
+- **`$matches` 是 PowerShell 自动变量**：被 `-match` 操作符填充。当普通变量用时当前不出事（函数内用的是 `.Contains()`），但调用链里一旦出现正则就被悄悄覆盖。已改名 `$matched`。
+- **token 落到命令行 = 落到两处可读位置**：进程命令行（同用户任意进程可经 WMI 读）与计划任务 XML（`C:\Windows\System32\Tasks\` 普通用户可读）。加 `--tokens-file` 后实测生产进程命令行零 token。配套三条：文件来源的解析错误**不得回显原值**（`parse_viewer_tokens`/`parse_tokens` 都会原样打印非法输入，命令行来源无所谓、文件来源必须捕获 stderr 换成统一文案）；`utf-8-sig` 读（Windows BOM 已坑过一次）；**空值必须 fail-closed**（`TTS_TOKENS=` 空串会让鉴权静默关闭）。
+- **测试夹具用假数据会掩盖泄漏路径**：我用 `BADFORMAT_NO_COLON` 做非法值测试，看到 `Invalid --tokens entry: "BADFORMAT_NO_COLON"` 却没意识到那个位置在真实场景打印的**就是 token 本身**。Codex 一眼看出。夹具要用"长得像真凭据"的串（`SUPERSECRETTOKENVALUE123456`）才能让泄漏显形。
+- **客户端工具怪癖会把成功伪装成失败**：PowerShell 5.1 `Invoke-WebRequest` 处理二进制音频响应时抛异常，我据此报"correct token -> HTTP ERR"，而服务端日志明写 `status=200`。与 memory 里"curl --max-time 把永不结束伪装成成功"是镜像关系。**两侧证据对不上时，先怀疑测试客户端。**

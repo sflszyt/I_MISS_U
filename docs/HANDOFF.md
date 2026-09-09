@@ -1,7 +1,52 @@
 # 交接文档（HANDOFF）
 
-> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-09-09，任务 #24 走 F-乙 全线开工并端到端跑通（见 ⓪¹¹）**。上一版：2026-09-07，提交前全量刷新：#22 研究 a/b 收口（a 已裁决）+ 8B-10 语音条分条 + 8B-11 起音淡入 + #23 给爸爸六段语音**。最先看 ⓪¹⁰。（09-02 后补：进度全景核对（workflow 六路，输出未落盘）后修文档失真——四项待办移除日期更正为 09-01、⓪⁷/二章/六章过期陈述加标注、下回合列表 09-02 刷新）。
+> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-09-09，T14-1/T14-2 完成（token 落盘 + 服务启动编排，见 ⓪¹²）**。上一版：2026-09-07，提交前全量刷新：#22 研究 a/b 收口（a 已裁决）+ 8B-10 语音条分条 + 8B-11 起音淡入 + #23 给爸爸六段语音**。最先看 ⓪¹⁰。（09-02 后补：进度全景核对（workflow 六路，输出未落盘）后修文档失真——四项待办移除日期更正为 09-01、⓪⁷/二章/六章过期陈述加标注、下回合列表 09-02 刷新）。
 > 读这份之前先读 `CLAUDE.md`（铁律），再读仓库根的 `task_plan.md` / `progress.md` / `findings.md`（MVP 计划与实时状态）。研究依据在 `docs/research/`。
+
+## ⓪¹² 增补（2026-09-09：T14-1/T14-2 完成——token 落盘 + 服务启动编排，最先看这段）
+
+> 一句话：**重启后先把服务拉起来这件事，代码层已就绪并通过验收；但还没接上开机自启，也没碰隧道。**用户本会话裁决：自启方式取**开 Windows 自动登录**（已告知代价：物理接触电脑即进桌面、people/ 档案敞开）；token **加 `--tokens-file`**。
+
+### 1. 已交付
+
+| 文件 | 改动 | 验收 |
+|---|---|---|
+| `tools/tts_server.py` | `--tokens-file`，+61/-3 | DeepSeek 2 轮 → Codex REJECT→**ACCEPT** |
+| `tools/llm_proxy.py` | `--tokens-file`，+52/-3 | DeepSeek 2 轮 → Codex REJECT→**ACCEPT** |
+| `scripts/start_services.ps1` | 新建 1031 行 | DeepSeek 9 轮 → Codex 3×REJECT→**ACCEPT** |
+
+**安全目标已落地**：现在跑着的 tts/llm_proxy 命令行只有 `--tokens-file <路径>`，实测零 token 明文（之前 token 同时暴露在进程命令行与即将创建的计划任务 XML 中）。
+
+### 2. start_services.ps1 怎么用
+
+```
+scripts\start_services.ps1                启动全部（幂等，已跑的跳过）
+scripts\start_services.ps1 -Status        只看状态，永远 exit 0
+scripts\start_services.ps1 -Stop          停全部（逆序，含 tts 父子孙进程树）
+scripts\start_services.ps1 -SkipTunnel    不碰隧道（本地测试用）
+```
+
+退出码：0 全就绪 / 1 有服务失败 / 2 前置路径检查不过 / 3 拿不到单实例锁。日志在 `logs/<name>.<yyyyMMdd-HHmmss>.{out,err}.log`（保留最近 10 组）+ `logs/start_services.log`。
+
+### 3. 两个必须知道的缺口
+
+1. **隧道路径没真跑过**。启 cloudflared 等于开公网入口，属外部可见动作，未经机主授权不做；且 T14-5 自动登录与真机验收都没做。所以「已有进程→重启→60s 注册判据」这条链只有静态审查。
+2. **`-Status` 里的 tunnel 只是进程存在检查**，不证明已连上（Codex 特别点出）。运维时按 "process running" 理解，别当成「入口可用」。
+
+另：tunnel 现在**每次 start 都重启**（为确保连接状态可确认），是刻意牺牲幂等换可靠性。
+
+### 4. 下回合接着做
+
+1. **T14-3 注册登录自启任务**（计划任务或启动文件夹，配合已裁决的自动登录）
+2. **T14-4 冷启动/离线降级页**「她今天不在」
+3. **T14-5 自动登录操作步骤**——用 Sysinternals Autologon（存 LSA secrets）而非直写注册表 `DefaultPassword` 明文；**Claude 不接触密码，步骤交用户自行执行**。现 ActiveHours 9→2，重启窗口=凌晨 2-9 点
+4. 然后才是 T12b 老人 UX / T12c 主屏图标 / T13 rhythm_dad / archive_dist 重打包 / 爸爸真机验收
+
+### 5. 环境现场（本会话结束时）
+
+- **在跑**：:8020 儿子站、:8021 爸爸站、:8022 tts（e14，`--tokens-file`）、:8023 llm-proxy（持真 key，`--tokens-file`）——四者均由 `start_services.ps1` 拉起
+- **未跑**：cloudflared 隧道
+- 工程教训见 `findings.md` 末尾「T14 运维自启教训」（PowerShell 单元素数组展开、判重写错方向=死循环、区域规格 vs 全文回显分界线等）
 
 ## ⓪¹¹ 增补（2026-09-08→09：任务 #24 走 F-乙 全线开工，端到端跑通，最先看这段）
 
