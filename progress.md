@@ -1,5 +1,44 @@
 # MVP 生产进度日志
 
+## 2026-09-09 · 任务 #24 F-乙 全线开工执行记录
+
+**产出**：代码 +654 行 / 6 个既有文件 + 2 个新文件（`tools/llm_proxy.py` 366 行、`prompts/chat_system.husband.zh.md` 72 行）+ 2 份研究报告。全部走 DeepSeek 写 → Codex 审 → ACCEPT。
+
+**基础设施**：域名 `justmissingyou.com` → 命名隧道 `imissu-father` → CNAME `dad.*` → Access 邮箱 PIN（全路径 302 拦截已实测）→ ingress 三路由（`^/v1/chat/completions$`→8023 / `^/(tts|health|session)$`→8022 / 其余→8021）。`protocol: http2` 钉死（QUIC 在 Surfshark 下每 ~90 s 断）。cloudflared 加入 Surfshark Bypasser 后边缘落点 ewr→hkg。
+
+**代码**：T7 `--relationship`+三占位符 / T8 六项参数化 / T9 多 viewer token（服务端认定 viewer）/ T10b LLM 代理 / T10c 页面接代理 / T11 检索只取 sender=subject / T12a 大字说明卡。每项都验证"默认参数产出与基线逐字节相同"，儿子版全程零影响。
+
+**端到端（真 key + 真 GPU）**：页面零凭据 → 代理 → DeepSeek → 分条 → TTS(wu) → 语音条 → 会话日志（`viewer=father` 服务端认定）。回复三条上海话各带语音条。测试会话已清理并重新 ingest。
+
+**修掉的既有缺陷（非本任务范围但顺手修）**：
+- `retrieveSnippets` 不按 sender 过滤 —— 实测真实分片 4779 条中她只占 2492 条（52%），10 个查询里**4 条别人的话被标成「她真实说过的话」**喂给模型（含"整个上海都在等雨，像一个初恋的少女等待男友"这种明显不是她的句子）。两个页面生成器同修，修后归零
+- `taboo_topics` 从未进过提示词（`PIPELINE.md` 却写着它会进）
+- `prompts/chat_system.zh.md:1` 对模型说"档案由消息、语音和**照片**构成"而照片层是空的
+
+**血泪教训（详见 HANDOFF ⓪¹¹ 第 6 节）**：★ 最重要一条——`curl -N --max-time 15` 看到 SSE 块与 `[DONE]` 就判"流式通过"是**假象**（那是超时退出）；`llm_proxy` 流式响应缺 `Connection: close`，客户端实际卡 30 秒、页面永远"正在输入"，而代理日志显示 `status=200 dur_ms=1784`。Codex 两轮静态审查也没发现，只有真用浏览器跑一遍才暴露。
+
+**未完成**：T14 运维自启（上线前最后硬门槛）、T12b 老人 UX 其余项、T12c 主屏图标、T13 rhythm_dad、archive_dist 重打包、爸爸手机真机验收。
+
+
+## 2026-09-09 · 任务 #24 显式决策记录（裁决⑥ F17 要求的"知情自决覆盖"入档）
+
+**背景**：研究报告 `docs/research/dad-husband-companion.md` §4 给出 GO/NO-GO 判定框架，列出若干"任一成立即不开独立入口"的条件。用户在知晓各项后果的前提下，逐条作出裁决，其中三项构成对该框架的显式覆盖。
+
+| # | 覆盖项 | 用户裁决 | Claude 已告知的后果 |
+|---|---|---|---|
+| 1 | 8A-2b 护栏 b/d/e | **先上线，护栏后补** | 第一个非开发者受众将在无关窗道别、无限速、无使用统计的状态下使用。护栏 (c) 因"大字说明卡"裁决而提前落地 |
+| 2 | 数据范围 | **全量不裁剪** | 爸爸设备可取得母子一对一 6,835 条，含她对儿子讲的关于他的话。已由 T11「检索只取 sender=subject」缓解"被当成她的话复述"，但挡不住直接翻数据文件 |
+| 3 | 知情同意 | **跳过当面演示，直接给链接** | Claude 曾列为 §4 框架中唯一未被豁免的闸门。缓解：页面内大字说明卡（T12）仍实现，七条告知印在卡上、每次打开必须点过 |
+
+**同时裁决**：禁区 A 组四条（夫妻私密 / 病程临终 / 钱 / 她对儿子讲的关于他的负面评价）**均不设禁区**；B 组只禁「任何指向未来的话」。
+说明：不设禁区 ≠ 可编造——模板铁律 1 与追加铁律 8 不变，档案里没有的内容模型仍只能说记不清。
+
+**"记不清"措辞**：用户裁决不写死，让模型自己组织。Claude 拟的三条沪语因准确性未经验证而弃用，未进生产提示词。
+
+**复核日**：2026-11-28（与三个月复核对齐）。
+**决策人**：justin，2026-09-08/09。这是继 #23（2026-09-06 六段语音）之后，对"家人向默认 NO-GO"的第二次知情自决覆盖。
+
+
 ## Session 2026-08-09 深夜（重启恢复会话，MVP 立项）
 
 - 会话恢复：B1 v0 SFT 端到端跑通（15 epochs，~/wu-sft/v0/exp/mama_v0_llm/）
@@ -441,3 +480,63 @@
 - 修法：tts_server 出口 `soften_onsets`（起音检测 + 30 ms 升余弦淡入，不裁剪）。DeepSeek 区域规格两轮（首轮 Codex 抓出静音前缀用 thresh 而非 quiet、首次发声只认第 0 帧 → 重写为单次线性扫描 seen_voice/quiet_run/in_voice）→ Codex ACCEPT；单测 6 例通过。**事故**：第二轮区域锚点 `def soften_onsets(`…`
 class ` 吞掉了 DeepSeek 首轮放在其后的 `strip_brackets`，重启后 /tts NameError 500——从备份恢复该函数（Claude 声明），补 hunk 落区/关键符号断言纪律入 findings。恢复后重启实测：起音比 2.1–2.9 → 0.63–0.78，起音峰值 0.18 → 0.10–0.15，含 `[捂脸]` 标签文本正常合成
 - 未提交（8B-10 + 8B-11 + #22 两报告 + 文档）
+
+## Session 2026-09-07 上午（进度全景报告 + 凯西相关记录全层清除）
+
+- **全景状态报告**：Workflow 8 路读者 + 8 路核验员 + 一致性/汇编/批评（20 agent，首轮撞会话上限、恢复后 19/20 完成，修订由 Claude 手工做）→ `docs/status-2026-09-07.md`（40 行文档失真表 + 待办全景 + 风险）。要点：8A-2b 护栏未上但 companion 已真机日常使用；archive_dist 自 09-01 落后；12 提交未 push；单测/#23 脚本/e14 训练配方均不在仓库；Codex 实际可用 gpt-5.5。
+- **用户提出**：数字人在 09-04 会话里把"凯西"当作用户的老婆（用户当场纠正：已离婚，现任叫兔兔）。要求找到并删除凯西相关回忆。
+- **查明**：凯西=谢凯西（Kathy），2022–2023 记录人物。来源两路：persona.md T34/T35 两条引文进系统提示；检索源 170 条消息 + 2 条语音转写。Tier-1 卡 0 命中，8 条相关候选早已 rejected。
+- **用户四项裁决**：①全删 174 条（170 消息 + 2 转写 + 2 语音清单）②persona.md 引文名字改〔前儿媳〕（保留 T34/T35 缺点特质）③sessions 日志与 for_dad 导出里的句子涂成〔已隐去〕④"离婚/兔兔"暂不升级 Tier-1。
+- **执行（无新代码，全部现有工具 + 数据编辑，Claude 直接操作并在此声明）**：快照 → `versions/pre_kaixi_scrub_20260907/`（16 文件 + 2 WAV，26 MB）；`scrub_sensitive.py apply`（manifest 14→188）；两段原声 WAV 从 processed / archive_out / archive_dist 移入快照；persona.md 2 行；6 个 HTML/JSONL 文本涂改；candidates.jsonl 删 9 条 rejected 行 + 1 条 confirmed 卡剪掉 1 个已删 record_id（150→141，124/17，memories.md 不变）；sensitive_scan_report 601→595；重跑 build_data_bundle → extract_persona_digest → build_chat_context → build_chat_knowledge → build_archive。
+- **结果**：UIF 20909→20739；语音 125→123（转写 97+9）；prompt 24,326 字符；archive_dist 169 文件 verify=ok（顺带还清 M3 欠账：blob 守卫 + 情绪资产 + 09-06 chat_context 已进 dist）；`scrub verify` residue=0；raw 与快照目录以外名字残留 0。:8020 实时提供的 chat_context 与磁盘一致。
+- **遗留**：快照目录仍含删除前副本（用户决定何时删）；visemes.json 留 1 条指向已删 WAV 的哑条目（无害）；for_dad 音频与 sessions 音频里念出的名字无法涂改；09-04 用户纠正仍是 Tier-3。
+- 未提交。
+
+## Session 2026-09-07 下午（用户复测仍"记得凯西"→ 浏览器启发式缓存根因 + no-cache hotfix）
+
+- **现象**：16:33 新会话问"你还记得谁是凯西吗"，回复"谢凯西伐，侬女朋友呀…见过伊一面"，retrieval_used 含「语音转写 2022-10-08」（被删两段语音的日期）。
+- **根因**：companion/chat 页用裸 `fetch('data/*.json')`，:8020 是 Python http.server 不发 Cache-Control，浏览器按"距 Last-Modified 的 10%"启发式缓存。transcripts.json 原 Last-Modified 08-16 → 新鲜期约 2 天；用户 01:31 开过页面，16:33 重新加载（sessionId 在加载时生成，故确为重载）时浏览器未向服务器校验，直接用了 01:31 的旧 transcripts.json/年度分片，旧数据里的凯西转写被检索命中。服务器端当时已是新数据（curl md5 一致）。
+- **hotfix（Claude 直改并声明，7 处同一 token 机械插入，未走 DeepSeek/Codex）**：build_companion_page.py 4 处、build_chat_page.py 3 处数据 fetch 加 `{cache: 'no-cache'}`（每次条件校验，未变返回 304）。重建 companion.html（需显式 `--archive-dir people/mama/archive_out`）与 chat.html；build_archive 同步 dist verify=ok。
+- **用户侧动作**：各设备首次需强制刷新一次（PC Chrome Ctrl+Shift+R；iPhone 在地址后加 `?r=1` 或清站点数据），之后新页面自带 no-cache。
+- **残留说明**：名字已清，但"谢爸/谢妈/六人群/婚礼"等同章节其它消息仍在档案；被直接问到名字时模型可能凭"谢爸"拼出"谢凯西"并编造（Tier-3 违规，属提示遵循问题）。是否扩大删除范围或写 Tier-1 纠正卡待用户裁决。
+- 未提交。
+
+## Session 2026-09-07 下午（续：跨会话记忆立项 + 任务 #24 研究立项）
+
+- 用户裁决推进跨会话记忆（"记得昨天的聊天更有沉静感"），先于 8A-2b。brainstorming 三问定案：双方都记/她的话永久 Tier-3；"本次不记"开关 + exclude.txt；静态 sessions.json + tts_server 去抖自动刷。设计待用户过审后写 spec。
+- 用户立项 #24：爸爸以丈夫角色与她对话的网站/APP，PC 常开作服务器。研究 workflow 后台启动（5 视角 + 汇编 + 批评）。
+- 复测观察：强刷后 16:43 仍拼出"谢凯西"（引用 2022-10-08 未提名字的第三段语音 + 用户问句里的名字），16:44 改口"记不清"。数据层名字残留 0，属模型推断；跨会话记忆落地后"对话者自述：已离婚/现任兔兔"可给她正确答案。
+
+## Session 2026-09-07 夜（Phase 15 跨会话记忆：Task 1+2 落地，Codex 两轮 ACCEPT）
+
+用户裁决推进跨会话记忆并"继续"。按 brainstorming → spec → plan → 逐 Task 实施推进（铁律 1 全流程：Claude 出规格 / DeepSeek 写 / 三视角 workflow 审 / Codex 验收）。
+
+**规格与计划**：`docs/superpowers/specs/2026-09-07-cross-session-memory-design.md`（15 节）+ `docs/superpowers/plans/2026-09-07-cross-session-memory.md`（4 Task）。spec 落盘后依 #24 研究批评改为**每 viewer 一个文件** `sessions_<viewer>.json`（原设计单一文件会让爸爸设备下载到儿子全部对话原文），裁决未变。
+
+**Task 1 `tools/ingest_sessions.py`（新，Codex ACCEPT）**
+- 第二纪元摄入：sessions/*.jsonl → archive_out/data/sessions_<viewer>.json（静态、确定性、原子写、纯标准库）。
+- 审查发现 8 条全部机械核实成立并修复：REDACTED_TEXT 逐字错（`【】`→`〔〕`）；`ingest()` 缺路径校验（铁律级，新增 `validate_paths`，raw 判断不依赖目录是否存在）；`--dry-run` 缺 3 个统计键；`last_card.started_at/ended_at` 恒 null；`os.walk` 未排序；**敏感正则缺 `re.IGNORECASE`（实测 `wifi PASSWORD is hunter2` 曾明文入档，而这些内容会进系统提示发往第三方 LLM）**；非法 severity 静默降级为 low；viewer 全排除时 `excluded_sessions` 错为 0。
+- 真实数据：8 文件 146 记录 → 排除 3 次凯西复测会话 → 保留 5 次；last_card 指向 09-07；凯西 0 残留；两次运行去 generated_at 后逐字节一致。
+- `people/mama/sessions/exclude.txt` 预填三次测试会话 id。
+
+**Task 2 tts_server 自动摄入（Codex ACCEPT）**
+- `SessionsIngestScheduler` 放在 ingest_sessions.py（tts_server 有 torch 等重依赖，测试进程 import 不了）。经两轮回炉修四个并发缺陷（去抖失效 / 成败判断错 / stale timer 多跑 / 锁忙路径多跑）。
+- tts_server 六处接线 33 行：白名单加 viewer+exclude、`sessions_ingest` 属性、/health 两个新键、`_handle_session` 后触发 schedule（异常不影响响应）、`--sessions-out-dir`/`--no-sessions-ingest`、启动同步跑一次 + 横幅 `ingest=on`。
+- 服务已用新代码重启并活体验证（写入→5 秒→摄入，exclude 生效）。
+- 变异验证证明并发测试非碰巧通过。
+
+**测试首次入库**：`tests/`（36 例，标准库 unittest，因默认 Python 无 pytest）。Claude 声明式 hotfix 共 7 处，全部 1–2 行（测试夹具 mkdir/set 字面量/log 参数/out-dir 位置；实现侧补 import）。
+
+**工艺教训**：DeepSeek 首次生成测试文件被推理烧尽 token 截断（finish=length，reasoning 29047 chunks）→ 改 `DEEPSEEK_NOTHINK=1` + 60000 一次成功，之后全程用此配置。
+
+**剩余**：Task 3（companion 页：viewer/第四检索源/上次对话卡/本次不记）、Task 4（提示词纪律 + dist 排除 + 真机验收 + 文档）。未提交。
+
+## Session 2026-09-08 凌晨（Phase 15 收官：Task 3+4，四轮 Codex ACCEPT）
+
+- **Task 3 companion 页（133 行，Codex ACCEPT）**：`--viewer` 构建参数；`loadKnowledge` 加载 `sessions_<viewer>.json`；`retrieveSessions` 第四检索源（Tier-2/Tier-3 标签，排在第一纪元之后，2200 预算超出时优先丢第二纪元）；`buildSessionsCard`/`applySessionsCard` 把上次对话卡拼进 systemPrompt（**只在内存**，chat_context 与 sessions 两处触发、`sessionsCardApplied` 保证只一次）；抽屉 `#cfg-no-memory` + 聊天区 `#no-memory-banner`；`logSession` 带 viewer/exclude。
+- **E2E（Playwright MCP route-mock，仓库无 playwright 包）五组全绿**：卡片格式逐字正确；两种标签且 Tier-2 在前；所有记录带 viewer=owner；勾选开关发出 `exclude_session` 且后续轮次带 exclude、提示条可见；sessions 404 时系统提示恰好等于原文、无卡无标签无额外报错。脚本入库 `tests/e2e/companion_sessions.spec.js`（15 断言，头部注明未在 node 下跑过）。
+- **真实数据端到端**（只 mock LLM/TTS）：系统提示 24,743 字符，含第 7 条铁律；卡片显示「上次对话：2026-09-07（1 天前）。更早还有：09-04、09-02」并列出用户当时说过的四句与最后一来一回；检索命中 09-04 红包对话并正确标 `[往次数字对话 Tier-3]`。**这就是用户要的"记得昨天"效果。**
+- **Task 4**：`prompts/chat_system.zh.md` 加第 7 条铁律「往次对话纪律」→ 重建 chat_context（24,507 字符）；`build_archive.py` 加 `SESSIONS_FILE_RE` 排除 `sessions_*.json`（9 行改动），dry-run 零命中、实跑 169 文件 verify=ok、dist 内 sessions 文件数 0。
+- **Phase 15 四个 Task 全部 Codex ACCEPT**。测试总计 36 例 unittest + 1 套 E2E。
+- ⏳ **剩用户真机验收**：PC/iPhone 各强刷一次（页面本身已带 no-cache，但旧 HTML 需冲一次），开新窗口看她是否接上上次的话。
+- 未提交。

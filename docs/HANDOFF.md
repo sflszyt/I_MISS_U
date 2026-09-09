@@ -1,7 +1,88 @@
 # 交接文档（HANDOFF）
 
-> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-09-07，提交前全量刷新：#22 研究 a/b 收口（a 已裁决）+ 8B-10 语音条分条 + 8B-11 起音淡入 + #23 给爸爸六段语音**。最先看 ⓪¹⁰。（09-02 后补：进度全景核对（workflow 六路，输出未落盘）后修文档失真——四项待办移除日期更正为 09-01、⓪⁷/二章/六章过期陈述加标注、下回合列表 09-02 刷新）。
+> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-09-09，任务 #24 走 F-乙 全线开工并端到端跑通（见 ⓪¹¹）**。上一版：2026-09-07，提交前全量刷新：#22 研究 a/b 收口（a 已裁决）+ 8B-10 语音条分条 + 8B-11 起音淡入 + #23 给爸爸六段语音**。最先看 ⓪¹⁰。（09-02 后补：进度全景核对（workflow 六路，输出未落盘）后修文档失真——四项待办移除日期更正为 09-01、⓪⁷/二章/六章过期陈述加标注、下回合列表 09-02 刷新）。
 > 读这份之前先读 `CLAUDE.md`（铁律），再读仓库根的 `task_plan.md` / `progress.md` / `findings.md`（MVP 计划与实时状态）。研究依据在 `docs/research/`。
+
+## ⓪¹¹ 增补（2026-09-08→09：任务 #24 走 F-乙 全线开工，端到端跑通，最先看这段）
+
+> 一句话：**爸爸以丈夫角色对话的独立入口，从"研究报告"变成"端到端能聊的东西"**。域名 → Cloudflare 隧道 → Access → 三路由 → 独立站 + LLM 代理 + TTS token + 说明卡，全链路已用真 key + 真 GPU 跑通。**尚未上线**（隧道未启、代理未常驻），差 T14 运维自启与真机验收。
+
+### 1. 用户一次性裁决 19 项（09-08），选定 F-乙
+
+`docs/research/dad-husband-companion.md` 的 F0–F18 全部拍板，完整表格见 `task_plan.md` Phase 16。**三项构成对 §4 GO/NO-GO 框架的显式覆盖**（已按裁决⑥写入 `progress.md` 作为显式决策，含复核日 2026-11-28）：
+
+| 覆盖项 | 裁决 | 已告知的后果 |
+|---|---|---|
+| 8A-2b 护栏 b/d/e | **先上线，护栏后补** | 第一个非开发者受众将在无关窗道别/无限速/无使用统计下使用；(c) 因大字说明卡裁决而提前落地 |
+| 数据范围 | **全量不裁剪** | 爸爸设备可取得母子一对一 6,835 条；T11 检索修复缓解"被当成她的话复述"，挡不住直接翻数据文件 |
+| 知情同意 | **跳过当面演示，直接给链接** | 曾是唯一未被豁免的闸门。缓解：页面内大字说明卡仍实现，七条告知每次打开必须点过 |
+
+其余关键裁决：关系层 **A 诚实标注**；语音 **wu 域 + MSG_MAX_VOICE 12**；会话**全记**含爸爸原话；**上次对话卡开**；禁区**只禁"任何指向未来的话"**（A 组四条"都讲没事"——注意**不设禁区 ≠ 可编造**，铁律 1 与追加铁律 8 不变）；"记不清"措辞**不写死**（Claude 拟的三条未验证沪语已弃用）。
+
+### 2. 两个新研究（都 NO-GO，但各挖出一件正事）
+
+- **Phase 17 VoiceStudio**（`docs/research/voicestudio-vs-local-tts.md`）：**不能取代引擎层**。它的 CosyVoice adapter 只接受**模型目录**（`OMNIVOICE_COSYVOICE_MODEL`），无注入外部 state_dict 的钩子；我们的音色是运行时 `llm.load_state_dict(filtered, strict=False)` 打上去的补丁 → 按它的方式跑加载的是 WenetSpeech-Wu **基座不是她**。另有 SFT 分支硬编码 `spks[0]`、`LANG_TAGS` 无 `<|wuyu|>`、打包版无 CosyVoice 运行时安装路径。两条伤档案的默认行为：**AudioSeal 水印默认开**、**输出归一化到 −2.0 dBFS**。**AGPL-3.0 与 F-乙 直接相关**（服务开给他人访问会传染服务层）。可借鉴：`/ws/tts` 流式思路、`/v1/audio/speech` 契约、loopback 不鉴权三道闸。
+- **Phase 18 图片输入**（`docs/research/companion-image-input.md`）：**默认 NO-GO**。铁律 2.3 判定为纯沉浸增量（发照片不产生任何档案条目）；**现有六条铁律没有一条挡得住**——铁律 1/2 只在"档案里没有"时触发，而模型看图时它自己就是信息源。对爸爸额外风险=**污染 Tier-1 证人**（模型先编"这是 1998 年在杭州"，他之后的确认已被 Tier-3 锚定）。技术上还有三条独立否决（DeepSeek 默认模型不支持图片、Anthropic 明写拒绝指认图中人物、改动约 15 处且检索会失效）。**挖出的正事：档案照片层是空的**——`media_index.json` 零 photo、983 条图片消息只剩「[图片]」占位符，而 `tools/ingest_media.py`（773 行含 EXIF 提取）**已写好从未跑过**、微信图片 md5 就在 `packed_info_data`、`collect_wechat_video.py` 已跑通同一条链。**另发现 `prompts/chat_system.zh.md:1` 对模型说"档案由消息、语音和照片构成"而照片不存在**（本次已修）。
+
+### 3. F-乙 基础设施（已就位，未启动）
+
+- 域名 `justmissingyou.com`（用户注册）；命名隧道 `imissu-father`；CNAME `dad.justmissingyou.com`；Access 邮箱一次性 PIN + 1 个月会话，白名单记于 `people/mama_for_father/config/`（gitignore）
+- **Access 全路径拦截已实测**：`/`、`/health`、`POST /tts` 均 302 跳登录页
+- `~/.cloudflared/config.yml` 三路由（`tunnel ingress rule` 逐条验证）：`^/v1/chat/completions$`→:8023 / `^/(tts|health|session)$`→:8022 / 其余→:8021
+- **`protocol: http2` 已钉死**：QUIC 在本机 Surfshark WireGuard 下每 ~90 s 断（`no recent network activity`）
+- 用户把 cloudflared 加入 Surfshark Bypasser → 边缘落点由 `ewr`（美东）改为 `hkg`（香港）
+- **腾讯电脑管家不拦 cloudflared**（与它拦 Tailscale 的 SYSTEM 服务不同）
+- ⚠️ **暴露事件（09-08，已关闭）**：POC 期间 ingress 把 `/tts|/health|/session` 指向**正在运行的真实 tts_server**（当时 `--token` 空、零鉴权），窗口约 3–4 分钟。tts_server 访问日志被禁用（`:250-251`），**无法证明零访问**。纪律：Access 生效 + token 开启两件都完成前，隧道不长跑
+
+### 4. 代码产出（全部 DeepSeek 写 + Codex 审 ACCEPT）
+
+| 任务 | 文件 | 要点 |
+|---|---|---|
+| T7 | `build_chat_context.py` +141 | `--relationship` + 三占位符（`archive_builder_zh`/`relationship_block`/`taboo_block`）；顺带修好 `taboo_topics` 从未进提示词的既有缺陷 |
+| T8 | `build_companion_page.py` | 六项参数化：`--context-path`/`--out-name`/`--lang`/`--tts-origin`/`--tts-token`/viewer 隔离 |
+| T9 | `tts_server.py` +99 | `--tokens viewer:token`、`hmac.compare_digest`、**服务端认定 viewer**（客户端 body 里的 viewer 一律被覆盖） |
+| T10b | `llm_proxy.py` **新建 366 行** | PC 持 key、爸爸端零凭据；token 鉴权 + rpm/daily 限速 + 字段白名单 + model/max_tokens 强制覆盖 + SSE 流式；日志**绝不记 messages** |
+| T10c | `build_companion_page.py` | `--llm-proxy`（强制要求 `--tts-token`）；代理模式下 `settingsComplete` 短路、走代理分支发 `X-TTS-Token` 不发 Authorization、抽屉三项 `removeChild`。**HTML 一个字符没改** |
+| T11 | `build_companion_page.py` + `build_chat_page.py` | 检索只取 `sender=subject` |
+| T12a | `build_companion_page.py` | `--intro-card` + `--intro-builder` 大字说明卡 |
+
+新增 `prompts/chat_system.husband.zh.md`（72 行，A 诚实标注）：三条追加铁律——8「你们两个人之间的事我一概不知道，不是想不起来是档案里没有」、9「她对儿子讲起你的那些话不主动端出来，被问不否认不添油加醋、绝不编造任何一次具体争吵」、10 禁区。
+
+**每个改动都验证"默认参数产出与基线逐字节相同"**，儿子版 companion.html 全程零影响。
+
+### 5. 端到端实测（09-09，真 key + 真 GPU，本地模拟 ingress）
+
+链路：页面（零凭据）→ 代理 → DeepSeek → 分条 → TTS(wu) → 语音条 → 会话日志。
+真实回复：「还能哪能，老样子呀」「今朝呒没高烧，算是太平了」「[捂脸] 侬倒记得来问一声」——上海话、三条分发、各带语音条，第三条带小埋怨（铁律 4 要的）。
+会话落盘每条 `viewer=father`（服务端认定）、`page=companion_father`。测试会话已清理并重新 ingest。
+
+### 6. 本会话血泪教训（新增工艺红线）
+
+1. **字符串存在 ≠ 位置正确**：T8 首轮我只 grep 数 `X-TTS-Token` 出现 3 次就判通过，Codex 发现 token 分支**根本不工作**（占位符残留、`var TTS_TOKEN` 未生成、header 落在 fetch options 顶层而非 headers 内）。改用**结构级探针**（残留占位符 / 声明计数 / `headers:\s*\{[^{}]*'X-TTS-Token'[^{}]*\}` 正则 / 提取 `<script>` 跑 `node --check`）才抓到后续的 `},,` 双逗号。
+2. **`py_compile` 与静态审查发现不了运行时结构错误**：`llm_proxy` 五轮里前四轮全是致命 bug，全靠**活体测试**（真起服务打请求）才暴露——`ProxyServer` 从未设置 `proxy` 属性、`self.rfile.read(MAX_BODY+1)` 在 keep-alive 下阻塞到客户端超时。
+3. **★ 冒烟测试的假象**：`llm_proxy` 流式响应**既无 `Content-Length` 也无 `Connection: close`**，客户端收到 `[DONE]` 后仍在等 → curl **30072 ms**、页面永远卡"正在输入"，而代理日志写着 `status=200 dur_ms=1784`。**我之前用 `curl -N --max-time 15` 看到块与 `[DONE]` 就判"流式通过"，那其实是超时退出**。只有真的用浏览器跑一遍才暴露。Codex 两轮静态审查也没看出来。
+4. **占位符相邻会被正则贪婪吞掉**：`__TTS_TOKEN_LINE____LLM_PROXY_LINE__` 中间全是 `A-Z` 与 `_`，被 `__[A-Z_]+__` 当成**一个**未知占位符原样留下 → 两个都不替换、页面 JS 语法错误。解法是让占位符不相邻（不动正则）。
+5. **规格让 DeepSeek 改 HTML 结构 = 与"逐字节兼容"天然冲突**：T10c 首版因此暴涨 +458 行、出现两套重复实现。改成"纯 JS 注入、一行 HTML 不碰"后一次做对方向。
+6. **Git Bash 会把 `/llm/v1/...` 转成 `C:/Program Files/Git/llm/...`**（MSYS 路径转换），测 CLI 路径参数要加 `MSYS_NO_PATHCONV=1`。
+7. DeepSeek 连续三轮把 `/* ===== streamRequest（唯一改动…）===== */` 注释改短，最后由 Claude 用脚本原样恢复（已声明，仅此一行文本）。
+
+### 7. 环境现场（09-09 会话结束时）
+
+- **在跑**：`:8020` http.server（archive_out，儿子站）、`:8021` http.server（`people/mama_for_father/site`，爸爸站，仅 127.0.0.1）、`:8022` tts_server（**已重启并启用 `--tokens`，`token=multi(2 viewers)`**）
+- **未跑**：cloudflared 隧道、`llm_proxy`（持真 key，测完即停）
+- 两个页面已用各自 token 重新生成：儿子版 `--tts-token <owner>`；爸爸版 `--viewer father --context-path data_father/chat_context.json --lang wu --tts-origin same --tts-token <father> --intro-card --intro-builder 儿子 --llm-proxy /v1/chat/completions`
+- `people/mama_for_father/`：`config/`（relationship.father.json / tokens.env / pending_user_approval.md）+ `site/`（companion.html、avatar.html、`data` 目录联接→archive_out/data、`data_father/chat_context.json`）
+- tts_server 启动方式：`~/venvs/cosyvoice/Scripts/python.exe -X utf8 tools/tts_server.py --tokens owner:<T> ,father:<T>`（脱钩 Start-Process；**注意本机 `python` 命令缺 numpy，必须用这个 venv**）
+
+### 下回合建议顺序（09-09 刷新，覆盖下方各旧版）
+
+1. **T14 运维自启**（上线前最后硬门槛，用户已裁决"全做"）：三服务 + 隧道登录自启 + 自动登录 + Windows Update 活动时段 + 冷启动探活重试 + 「她今天不在」离线页。**补丁夜重启后不自启 = 爸爸打开白页**
+2. **T12b 老人 UX 其余项**：抽屉锁定 / 错误文案人话化 / TTS 周期重探 / **Access session 过期时 fetch 收到 302 跳登录页而非 401 的降级**（会拿到 HTML 而不是 MP3）
+3. **T12c A1 主屏图标**（apple-touch-icon + manifest）——顺带消灭一直刷的 `favicon.ico` 404
+4. T13 `rhythm_dad` 按家庭群语料重算（家庭群中位 20 字 vs 私聊 15 字）
+5. **archive_dist 重打包**（`chat.html` 的 T11 检索修复还没进离线档案）
+6. 爸爸手机真机验收（经隧道 + Access）
+7. 待用户裁决：VoiceStudio 的 P1（流式改造立项）/ P2（`/v1/audio/speech` 兼容端点）/ P3（记入 GENERALIZATION 作泛化线候选）；图片输入的 NO-GO 认可 / 时间锚用法 / **A 补档案照片层是否立项**
 
 ## ⓪¹⁰ 增补（2026-09-02→07：#22 研究 + 8B-10/8B-11 + #23，最先看这段）
 
@@ -12,6 +93,8 @@
 5. **Codex MCP**：ChatGPT 账号下必须传 `model: gpt-5.5`（5.4/5.6 被拒）；登录态失效表现为 "refresh token was revoked"，PC 上 `codex login`，远程 `codex login --device-auth`（设备码 15 分钟过期）。
 6. **服务现状**：:8020 http.server（archive_out）与 :8022 tts_server（e14，soften_onsets 已生效，session 日志开）均在跑；重启机器后需手动拉起（用户 D5 裁决：PC 常开手动拉起）。
 7. **实施队列（已裁决）**：8A-2b 护栏 → A1 主屏图标 → Phase 13 有声档案；8B-4 真机验收顺带覆盖 8B-10/11 的体验反馈。
+8. **09-07 上午两件事**：a `docs/status-2026-09-07.md` 全景状态报告（Workflow 20 agent；40 行文档失真表待逐条修）。b **凯西相关记录全层清除**（用户裁决）：`scrub_sensitive.py apply` 174 条（170 消息 + 2 语音转写 + 2 语音清单，manifest 188 行）；两段原声 WAV 移入 `versions/pre_kaixi_scrub_20260907/`（该目录=删除前完整快照，含名字，用户决定何时删）；persona.md T34/T35 引文名字→〔前儿媳〕；sessions 09-04 日志、for_dad 导出、corr_v02_p6/p7、gate_page 涂〔已隐去〕；candidates 150→141（124/17）；全链重跑，**archive_dist 已重打包 169 文件 verify=ok，M3 欠账同时还清**。UIF 现 20739、语音 123。scrub verify residue=0。用户 09-04 的纠正"已离婚/现任兔兔"仍为 Tier-3，暂不升级。 **同日下午补**：用户复测仍"记得凯西"=浏览器启发式缓存（http.server 无 Cache-Control，旧 transcripts.json 新鲜期约 2 天）→ hotfix：companion/chat 页 7 处数据 fetch 加 `{cache: 'no-cache'}`（声明直改），页面已重建；各设备需强刷一次。
+9. **Phase 15 跨会话记忆上线（09-07 夜→09-08 凌晨，用户拍板先于 8A-2b；Codex 四轮 ACCEPT）**：新开窗口后她能接上上次的话。链路＝`tools/ingest_sessions.py`（sessions/*.jsonl → `archive_out/data/sessions_<viewer>.json`，**按 viewer 分文件**，确定性+原子写+敏感省略）→ tts_server 每次写完日志**去抖 5 秒自动重算**（`--sessions-out-dir` / `--no-sessions-ingest`，`/health` 增 `sessions_ingest`、`sessions_ingest_last`）→ companion 页以 no-cache 拉自己那份，把「上次对话卡」拼进系统提示（**仅内存，不落盘**）并作为**第四检索源**（`[对话者自述 · 往次对话 Tier-2]` / `[往次数字对话 Tier-3]`，排在第一纪元之后）。抽屉新增**「本次对话不进记忆」**开关（勾选即补发 `exclude_session` 事件，整会话被排除）；另有 `people/mama/sessions/exclude.txt` 手工清单（已预填 09-07 三次凯西复测）。提示词加第 7 条铁律「往次对话纪律」（只能以「侬上趟搭我讲过」口吻引用，数字人的话永不能说成「妈妈记得」）。`build_archive` 排除 `sessions_*.json`（第二纪元不进可分发档案）。**测试首次入库** `tests/`（36 例 unittest + 1 套 E2E 15 断言，用标准库 unittest 因默认 Python 无 pytest）。构建 companion 页新增 `--viewer`（默认 owner），为 #24 爸爸场景预留。**⏳ 剩用户真机验收：PC/iPhone 各强刷一次再开新窗口，看她第一句是否提到上次日期与你说过的事。**
 
 ## ⓪⁹ 增补（2026-09-01→02：情绪层激活 + 多服务商抽屉 + 时间分隔/会话日志 + 分句语音流水线+正在输入，最先看这段）
 

@@ -1,4 +1,5 @@
 import argparse
+import hmac
 import io
 import json
 import os
@@ -14,6 +15,10 @@ import numpy as np
 import soundfile as sf
 import torch
 import lameenc
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ingest_sessions
+from ingest_sessions import SessionsIngestScheduler
 
 
 MODELS_DIR_DEFAULT = r'C:\Users\justin\CosyVoice-models\WenetSpeech-Wu-Speech-Generation'
@@ -36,9 +41,13 @@ SESSION_OPTIONAL_FIELDS = {
     'tts': (str, 32), 'page': (str, 32), 'ua': (str, 300), 'detail': (str, 500),
     'qid': (str, 64), 'aborted': (bool, None), 'retrieval_used': (list, 20),
     'messages': (int, None),
+    'viewer': (str, 32), 'exclude': (bool, None),
 }
 
 BRACKET_RE = re.compile(r'[\[【（(][^\[\]【】（）()]*[\]】）)]')
+
+VIEWER_RE = re.compile(r'^[a-z][a-z0-9_-]{0,31}$')
+TOKEN_RE = re.compile(r'^[A-Za-z0-9_-]{8,128}$')
 
 
 def strip_brackets(text):
@@ -111,6 +120,37 @@ def soften_onsets(data, sr, fade_ms=30, thresh=0.01, quiet=0.005, min_gap_ms=200
 
     return output
 
+
+def parse_viewer_tokens(raw):
+    """解析 --tokens 参数为 {token: viewer} 反查表。空串返回空 dict。非法输入打印错误并 exit(2)。"""
+    if not raw:
+        return {}
+    result = {}
+    items = raw.split(',')
+    for item in items:
+        if not item or ':' not in item:
+            sys.stderr.write(f'Invalid --tokens entry: "{item}" (expected viewer:token)\n')
+            sys.exit(2)
+        viewer, token = item.split(':', 1)
+        if not VIEWER_RE.fullmatch(viewer):
+            sys.stderr.write(
+                f'Invalid viewer in --tokens: "{viewer}" '
+                f'(must match ^[a-z][a-z0-9_-]{{0,31}}$)\n'
+            )
+            sys.exit(2)
+        if not TOKEN_RE.fullmatch(token):
+            sys.stderr.write(
+                f'Invalid token in --tokens for viewer "{viewer}": '
+                f'token must be 8-128 chars of [A-Za-z0-9_-]\n'
+            )
+            sys.exit(2)
+        if token in result:
+            sys.stderr.write(f'Duplicate token in --tokens for viewers "{result[token]}" and "{viewer}"\n')
+            sys.exit(2)
+        result[token] = viewer
+    return result
+
+
 class SessionLog:
     def __init__(self, sessions_dir):
         self.dir = sessions_dir
@@ -156,6 +196,7 @@ class TTSService:
         self.args = args
         self.lock = threading.Lock()
         self.session_log = None
+        self.sessions_ingest = None
         self._load_model()
         self.prompt_text = self._read_prompt_text(args.prompt_text)
 
@@ -240,6 +281,8 @@ class TTSService:
             'sample_rate': self.cv.sample_rate,
             'session_log': self.session_log is not None,
             'person': self.args.person,
+            'sessions_ingest': self.sessions_ingest is not None,
+            'sessions_ingest_last': (self.sessions_ingest.last_success_iso if self.sessions_ingest else None),
         }
 
 
@@ -329,12 +372,20 @@ def build_handler(service):
                 return None
 
         def _check_token(self):
+            if service.viewer_tokens:
+                token = self.headers.get('X-TTS-Token', '')
+                if TOKEN_RE.fullmatch(token):
+                    for candidate_token, candidate_viewer in service.viewer_tokens.items():
+                        if hmac.compare_digest(token, candidate_token):
+                            return True, candidate_viewer
+                self._send_json(401, {'error': 'unauthorized'}, close=True)
+                return False, None
             if service.args.token:
                 token = self.headers.get('X-TTS-Token', '')
                 if token != service.args.token:
                     self._send_json(401, {'error': 'unauthorized'}, close=True)
-                    return False
-            return True
+                    return False, None
+            return True, None
 
         def do_OPTIONS(self):
             self._send_204()
@@ -354,7 +405,8 @@ def build_handler(service):
                 self._send_json(404, {'error': 'not found'}, close=True)
 
         def _handle_tts(self):
-            if not self._check_token():
+            ok, auth_viewer = self._check_token()
+            if not ok:
                 return
 
             start_time = time.time()
@@ -422,6 +474,8 @@ def build_handler(service):
                             'duration_s': round(best_duration, 2), 'synth_s': round(synth_time, 2),
                             'file': audio_rel
                         }
+                        if auth_viewer is not None:
+                            audio_record['viewer'] = auth_viewer
                         if spoken_text != text:
                             audio_record['spoken_text'] = spoken_text
                         service.session_log.append(session_id, audio_record)
@@ -438,7 +492,8 @@ def build_handler(service):
                     pass
 
         def _handle_session(self):
-            if not self._check_token():
+            ok, auth_viewer = self._check_token()
+            if not ok:
                 return
             if service.session_log is None:
                 self._send_json(503, {'error': 'session log disabled'}, close=True)
@@ -465,6 +520,8 @@ def build_handler(service):
                     return
             record = {'role': role, 'turn': turn, 'text': text}
             for field, (ftype, maxlen) in SESSION_OPTIONAL_FIELDS.items():
+                if field == 'viewer' and auth_viewer is not None:
+                    continue
                 if field not in body:
                     continue
                 val = body[field]
@@ -486,8 +543,16 @@ def build_handler(service):
                     if not isinstance(val, ftype):
                         continue
                 record[field] = val
+            if auth_viewer is not None:
+                record['viewer'] = auth_viewer
             try:
                 rel = service.session_log.append(session_id, record)
+                try:
+                    if service.sessions_ingest is not None:
+                        service.sessions_ingest.schedule()
+                except Exception:
+                    tb = traceback.format_exc()
+                    print(tb, flush=True)
                 self._send_json(200, {'ok': True, 'file': rel})
             except Exception as e:
                 tb = traceback.format_exc()
@@ -514,10 +579,19 @@ def main():
     parser.add_argument('--sec-per-char', type=float, default=0.32)
     parser.add_argument('--dur-slack', type=float, default=2.0)
     parser.add_argument('--token', default='')
+    parser.add_argument('--tokens', default='', help='多观看者 token，格式 viewer:token[,viewer2:token2]；与 --token 互斥')
     parser.add_argument('--person', default='mama')
     parser.add_argument('--repo-root', default=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     parser.add_argument('--no-session-log', action='store_true')
+    parser.add_argument('--sessions-out-dir', default='')
+    parser.add_argument('--no-sessions-ingest', action='store_true')
     args = parser.parse_args()
+
+    if args.token and args.tokens:
+        sys.stderr.write('Error: --token and --tokens are mutually exclusive\n')
+        sys.exit(2)
+
+    viewer_tokens = parse_viewer_tokens(args.tokens)
 
     if not PERSON_RE.match(args.person):
         sys.exit('invalid --person')
@@ -525,6 +599,7 @@ def main():
     start_load = time.time()
     print('Loading model...', flush=True)
     service = TTSService(args)
+    service.viewer_tokens = viewer_tokens
     print(f'Model loaded in {time.time() - start_load:.1f}s', flush=True)
 
     sessions_dir = None
@@ -536,14 +611,31 @@ def main():
         os.makedirs(sessions_dir, exist_ok=True)
         service.session_log = SessionLog(sessions_dir)
 
+    if service.session_log is not None and not args.no_sessions_ingest:
+        person_dir = os.path.realpath(os.path.join(args.repo_root, 'people', args.person))
+        if args.sessions_out_dir:
+            out_dir = args.sessions_out_dir
+        else:
+            out_dir = os.path.join(person_dir, 'archive_out', 'data')
+        err = ingest_sessions.validate_paths(person_dir, out_dir)
+        if err is not None:
+            sys.exit(err)
+        service.sessions_ingest = SessionsIngestScheduler(person_dir, out_dir, delay_s=5.0)
+        if not service.sessions_ingest.run_now():
+            print('Warning: initial sessions ingest failed', flush=True)
+
     handler = build_handler(service)
     httpd = ThreadingHTTPServer((args.host, args.port), handler)
-    token_status = 'token=on' if args.token else 'token=off'
+    if viewer_tokens:
+        token_status = f'token=multi({len(viewer_tokens)} viewers)'
+    else:
+        token_status = 'token=on' if args.token else 'token=off'
+    ingest_status = 'on' if service.sessions_ingest is not None else 'off'
     print(
         f'TTS server ready: http://{args.host}:{args.port}  '
         f'model={os.path.basename(args.exp_dir)} e{args.epoch} '
         f'default_lang={args.default_lang} {token_status} '
-        f'sessions={sessions_dir or "off"}',
+        f'sessions={sessions_dir or "off"} ingest={ingest_status}',
         flush=True
     )
     try:

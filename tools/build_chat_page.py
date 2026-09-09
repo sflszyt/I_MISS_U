@@ -624,6 +624,7 @@ function retrieveSnippets(tokens, records, opts) {
   var results = [];
   for (var i = 0; i < records.length; i++) {
     var rec = records[i];
+    if (rec.sender !== 'subject') continue;
     if (rec.content_type !== 'text') continue;
     var txt = (rec.text || '').trim();
     if (!txt) continue;
@@ -632,13 +633,11 @@ function retrieveSnippets(tokens, records, opts) {
     results.push({
       date: String(rec.timestamp || '').substring(0, 10),
       text: txt.length > 200 ? txt.substring(0, 200) : txt,
-      score: score,
-      isSubject: rec.sender === 'subject'
+      score: score
     });
   }
   results.sort(function(a, b) {
     if (b.score !== a.score) return b.score - a.score;
-    if (a.isSubject !== b.isSubject) return a.isSubject ? -1 : 1;
     return a.text.length - b.text.length;
   });
   return results.slice(0, top).map(function(r) {
@@ -802,7 +801,7 @@ function loadShards() {
   var fetches = names.map(function(name) {
     if (shardStatus[name] === 'failed') return;
     var safeName = String(name).replace(/[^a-zA-Z0-9_/.-]/g, '_');
-    return fetch('data/' + safeName)
+    return fetch('data/' + safeName, {cache: 'no-cache'})
       .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(data) {
         shardCache[name] = Array.isArray(data) ? data : [data];
@@ -825,7 +824,7 @@ function loadKnowledge() {
   knowledgeLoading = true;
   var out = {memories: [], transcripts: []};
   var one = function(name, key) {
-    return fetch('data/' + name)
+    return fetch('data/' + name, {cache: 'no-cache'})
       .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(data) {
         if (data && Array.isArray(data.entries)) out[key] = data.entries;
@@ -1140,7 +1139,7 @@ function init() {
   probeTts();
 
   // load context
-  fetch('data/chat_context.json')
+  fetch('data/chat_context.json', {cache: 'no-cache'})
     .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
     .then(function(data) {
       systemPrompt = data.system_prompt || '';

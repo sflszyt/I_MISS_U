@@ -156,9 +156,9 @@ people/<slug>/raw+normalized          people/<slug>/sessions/
 1. **采集**（✅ 2026-09-01 已在 companion.html 落地：tts_server `POST /session` + `/tts` 另存 WAV + localStorage 排队补传；chat.html 未接）：chat.html 每轮对话落地 session 记录 `{ts, role: user|simulacrum, text, provider, model, retrieval_used[]}`。双通道：
    - 本地服务在（`session_collector`，可并入 tts_server 加 `POST /session` 端点）→ 自动写 `sessions/YYYY-MM/session_<id>.jsonl`
    - 服务不在（纯静态档案场景）→ localStorage 持久化 + 页面提供"导出对话"下载 JSONL（用户手动放回 sessions/）
-2. **摄入**：`tools/ingest_sessions.py`（构建端）：校验/去重/敏感扫描 → sessions 层规范化
+2. **摄入**（✅ 2026-09-08 落地）：`tools/ingest_sessions.py`（构建端）：校验/去重/敏感扫描 → sessions 层规范化；**按 viewer 分文件** `archive_out/data/sessions_<viewer>.json`，一个 viewer 的文件绝不含另一 viewer 的文本
 3. **记忆升级闸门** 🚪：对话页每条消息长按增加"记下来"→ 标记进 session 候选 → 闸门页裁决 → 升入 `sessions_memories.md`（**第二纪元记忆，独立文件，页面展示明确分区**："与数字妈妈的对话"）
-4. **连续性检索**：sessions 成为第四检索源（`data/sessions.json`，标签 `[往次对话 · 数字对话记录]`）——数字人记得"上次你说工作很累"，连续感来自真实对话史而非人格漂移
+4. **连续性检索**（✅ 2026-09-08 落地，companion 侧）：sessions 成为第四检索源（`data/sessions_<viewer>.json`；实际标签：对话者的话 `[对话者自述 · 往次对话 Tier-2]`、数字人的话 `[往次数字对话 Tier-3]`；另有「上次对话卡」拼进系统提示，只在内存不落盘）——数字人记得"上次你说工作很累"，连续感来自真实对话史而非人格漂移
 5. **persona 永不自动更新**：对话不改变她是谁。唯一例外路径：用户在对话中回忆起**她生前的真事**（"我想起来她其实很怕打雷"）→ 走正常记忆闸门 → 可升入第一纪元 memories.md（这是用户提供的新证言，不是模型生成）
 
 ### 5.3 风险护栏（对齐 arXiv 2603.01017）

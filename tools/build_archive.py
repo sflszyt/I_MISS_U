@@ -15,6 +15,7 @@ SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 EXTERNAL_SRC_RE = re.compile(r"""(?:src|href)\s*=\s*["'](?:https?:)?//""")
 EXTERNAL_SRCSET_RE = re.compile(r"""srcset\s*=\s*["'][^"']*(?:https?:)?//""")
 EXTERNAL_CSSURL_RE = re.compile(r"""url\(\s*["']?(?:https?:)?//""")
+SESSIONS_FILE_RE = re.compile(r"^sessions_[a-z][a-z0-9_-]{0,31}\.json$")
 
 FILE_ENCODING = "utf-8"
 CHUNK_SIZE = 1024 * 1024
@@ -133,6 +134,10 @@ class Reporter:
                 print(f"    {a}")
 
 
+def _is_sessions_file(p: Path) -> bool:
+    return SESSIONS_FILE_RE.match(p.name) is not None
+
+
 def copy_tree_whitelist(src: Path, dst: Path, reporter: Reporter) -> bool:
     """Copy whitelisted top-level files and data/ subtree; reconcile dst."""
     required = ["avatar.html", "chat.html"]
@@ -147,7 +152,7 @@ def copy_tree_whitelist(src: Path, dst: Path, reporter: Reporter) -> bool:
     data_src = src / "data"
     if data_src.is_dir():
         for p in data_src.rglob("*"):
-            if p.is_file():
+            if p.is_file() and not _is_sessions_file(p):
                 expected_files.add(str(p.relative_to(src)).replace(os.sep, "/"))
 
     generated_and_text = [
@@ -180,7 +185,7 @@ def copy_tree_whitelist(src: Path, dst: Path, reporter: Reporter) -> bool:
         reporter.copy(src / name, dst / name)
     if data_src.is_dir():
         for src_path in sorted(data_src.rglob("*")):
-            if src_path.is_file():
+            if src_path.is_file() and not _is_sessions_file(src_path):
                 rel = src_path.relative_to(src)
                 dst_path = dst / rel
                 if not reporter.dry_run:

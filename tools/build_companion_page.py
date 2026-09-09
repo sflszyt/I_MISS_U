@@ -7,6 +7,14 @@ import re
 import sys
 
 _PERSON_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$')
+_VIEWER_RE = re.compile(r'^[a-z][a-z0-9_-]{0,31}$')
+_OUT_RE = re.compile(r'^[A-Za-z0-9_.-]+\.html$')
+_TTS_TOKEN_RE = re.compile(r'^[A-Za-z0-9_-]{0,128}$')
+_CONTEXT_PATH_RE = re.compile(r'[A-Za-z0-9_][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_][A-Za-z0-9_.-]*)*\.json')
+_TTS_ORIGIN_RE = re.compile(r'https?://[A-Za-z0-9.\-]+(?::\d{1,5})?')
+_INTRO_BUILDER_RE = re.compile(r'^[一-龥]{1,6}$')
+_LLM_PROXY_RE = re.compile(r'/[A-Za-z0-9_./-]{1,120}')
+_PLACEHOLDER_RE = re.compile(r'__[A-Z_]+__')
 
 TEMPLATE = r"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -40,6 +48,10 @@ TEMPLATE = r"""<!DOCTYPE html>
     border: none; width: 100%; height: 300px; display: block; margin: 0 auto;
   }
   .face-note { font-size: 11px; color: #666; padding: 2px 0 8px; }
+  #no-memory-banner {
+    text-align: center; color: #8888aa; background: #222244;
+    font-size: 12px; padding: 4px 0; flex-shrink: 0;
+  }
   #chat {
     flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px;
   }
@@ -156,10 +168,10 @@ TEMPLATE = r"""<!DOCTYPE html>
     padding: 5px 14px; font-size: 13px; cursor: pointer;
   }
   .play-voice-btn:active { background: #3a5c96; }
-</style>
+__INTRO_CARD_CSS__</style>
 </head>
 <body>
-
+__INTRO_CARD_HTML__
 <header>
   <span class="title">陪伴</span>
   <span class="subtitle">数字档案 · 模拟对话 · 非本人</span>
@@ -171,6 +183,7 @@ TEMPLATE = r"""<!DOCTYPE html>
   <div class="face-note">合成语音 · 非本人原声</div>
 </section>
 
+<div id="no-memory-banner" hidden>本次对话不进记忆</div>
 <div id="chat"></div>
 
 <div id="input-bar">
@@ -206,6 +219,7 @@ TEMPLATE = r"""<!DOCTYPE html>
     <input id="cfg-key" type="password" placeholder="sk-...">
   </div>
   <label class="cfg-check"><input type="checkbox" id="cfg-voice-text" checked> 语音条下方显示文字</label>
+  <label class="cfg-check"><input type="checkbox" id="cfg-no-memory"> 本次对话不进记忆</label>
   <button id="save-btn">保存并开始</button>
 </div>
 
@@ -229,6 +243,7 @@ var cfgUrl = document.getElementById('cfg-url');
 var cfgModel = document.getElementById('cfg-model');
 var cfgKey = document.getElementById('cfg-key');
 var cfgVoiceText = document.getElementById('cfg-voice-text');
+var cfgNoMemory = document.getElementById('cfg-no-memory');
 var drawerCloseBtn = document.getElementById('drawer-close-btn');
 var frame = document.getElementById('face-frame');
 
@@ -243,10 +258,10 @@ var streaming = false;
 var shardsLoading = false;
 var knowledgeCache = null;
 var knowledgeLoading = false;
-var ttsBase = location.protocol + '//' + location.hostname + ':8022';
-var ttsAvailable = false;
+var ttsBase = __TTS_BASE_EXPR__;
+__TTS_TOKEN_LINE__var ttsAvailable = false;
 var sessionId = buildSessionId(new Date());
-var sessionTurn = 0;
+__LLM_PROXY_LINE__var sessionTurn = 0;
 var sessionQueueKey = storageKey + '_sessionq';
 var sessionFlushing = false;
 var sessionStarted = false;
@@ -287,6 +302,10 @@ var emotionsCfg = null;
 var lastEmotion = null;
 var emotionTimer = null;
 var emotionImg = null;
+var VIEWER = '__VIEWER__';
+var sessionsData = {last_card: null, recent_dates: [], sessions: []};
+var noMemoryEnabled = false;
+var sessionsCardApplied = false;
 
 /* ===== helpers ===== */
 function esc(s) {
@@ -368,7 +387,7 @@ function enqueueSession(record) {
 function postSession(record) {
   return fetch(ttsBase + '/session', {
     method: 'POST',
-    headers: {'Content-Type': 'application/json'},
+    __TTS_HEADERS_SESSION__,
     body: JSON.stringify(record)
   }).then(function(r) {
     if (!r.ok) { throw new Error('session ' + r.status); }
@@ -420,8 +439,10 @@ function logSession(rec) {
     ts: isoLocal(new Date()),
     provider: settings.provider || '',
     model: settings.model || '',
-    page: 'companion'
+    page: '__PAGE_TAG__',
+    viewer: VIEWER
   };
+  if (noMemoryEnabled) { record.exclude = true; }
   ['emotion', 'tts', 'messages', 'retrieval_used', 'ua', 'aborted', 'detail'].forEach(function(k) {
     if (rec[k] !== undefined) { record[k] = rec[k]; }
   });
@@ -501,7 +522,7 @@ function loadSettings() {
     settings = {url: '', model: '', key: '', provider: DEFAULT_PROVIDER, profiles: {}};
   }
 }
-function settingsComplete() { return settings && settings.url && settings.model && settings.key; }
+__SETTINGS_COMPLETE_FN__
 function withDefaults(provider, p) {
   if (!Object.prototype.hasOwnProperty.call(PROVIDERS, provider)) { provider = DEFAULT_PROVIDER; }
   var d = PROVIDERS[provider];
@@ -625,14 +646,14 @@ function retrieveSnippets(tokens, records, opts) {
   opts = opts || {}; var top = opts.top || 6; var results = [];
   for (var i = 0; i < records.length; i++) {
     var rec = records[i];
+    if (rec.sender !== 'subject') continue;
     if (rec.content_type !== 'text') continue;
     var txt = (rec.text || '').trim(); if (!txt) continue;
     var score = scoreText(tokens, txt); if (score <= 0) continue;
-    results.push({ date: String(rec.timestamp || '').substring(0, 10), text: txt.length > 200 ? txt.substring(0, 200) : txt, score: score, isSubject: rec.sender === 'subject' });
+    results.push({ date: String(rec.timestamp || '').substring(0, 10), text: txt.length > 200 ? txt.substring(0, 200) : txt, score: score });
   }
   results.sort(function(a, b) {
     if (b.score !== a.score) return b.score - a.score;
-    if (a.isSubject !== b.isSubject) return a.isSubject ? -1 : 1;
     return a.text.length - b.text.length;
   });
   return results.slice(0, top).map(function(r) { return {date: r.date, text: r.text, score: r.score}; });
@@ -664,6 +685,84 @@ function retrieveKnowledge(tokens, memories, transcripts, opts) {
   }
   trans.sort(function(a, b) { return b.score - a.score; }); trans = trans.slice(0, transTop);
   return {memories: mem, transcripts: trans};
+}
+function retrieveSessions(tokens, data, opts) {
+  opts = opts || {}; var top = opts.sessTop || 3;
+  var out = []; var sess = (data && data.sessions) || [];
+  for (var i = 0; i < sess.length; i++) {
+    var s = sess[i];
+    if (!s || s.session_id === sessionId) continue;
+    var turns = s.turns || [];
+    for (var j = 0; j < turns.length; j++) {
+      var t = turns[j];
+      var txt = String((t && t.text) || '');
+      if (!txt) continue;
+      var score = scoreText(tokens, txt);
+      if (score <= 0) continue;
+      if (txt.length > 200) txt = txt.substring(0, 200);
+      var lbl = (t.role === 'user') ? '[对话者自述 · 往次对话 Tier-2]' : '[往次数字对话 Tier-3]';
+      out.push({label: lbl, date: String(s.date || ''), text: txt, score: score});
+    }
+  }
+  out.sort(function(a, b) { return b.score - a.score; });
+  return out.slice(0, top);
+}
+function daysBetween(dateStr, today) {
+  var parts = String(dateStr || '').split('-');
+  var tparts = String(today || '').split('-');
+  if (parts.length !== 3 || tparts.length !== 3) { return -1; }
+  var d1 = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+  var d2 = new Date(parseInt(tparts[0], 10), parseInt(tparts[1], 10) - 1, parseInt(tparts[2], 10));
+  return Math.round((d2 - d1) / 86400000);
+}
+function buildSessionsCard(card, recentDates, todayStr) {
+  if (!card) return '';
+  if (!card.date) return '';
+  var n = daysBetween(card.date, todayStr);
+  var whenDesc;
+  if (n === 0) { whenDesc = '今天早些时候'; }
+  else if (n === 1) { whenDesc = '1 天前'; }
+  else { whenDesc = n + ' 天前'; }
+  var lines = [];
+  lines.push('【往次对话 · 第二纪元 · 非她生前记忆】');
+  var earlier = [];
+  if (recentDates && recentDates.length) {
+    for (var ei = 0; ei < recentDates.length; ei++) {
+      if (recentDates[ei] && recentDates[ei] !== card.date) { earlier.push(recentDates[ei]); }
+    }
+  }
+  var secondLine = '上次对话：' + card.date + '（' + whenDesc + '）';
+  if (earlier.length) {
+    var take = earlier.slice(0, 3);
+    secondLine += '。更早还有：' + take.join('、');
+  }
+  lines.push(secondLine);
+  var userLines = (card.user_lines && card.user_lines.length) ? card.user_lines : [];
+  if (userLines.length) {
+    lines.push('对话者当时说过（Tier-2，可当真，引用时说「侬上趟搭我讲过」）：');
+    for (var ul = 0; ul < userLines.length; ul++) {
+      lines.push('- ' + userLines[ul]);
+    }
+  }
+  var le = card.last_exchange;
+  if (le && le.user && le.simulacrum) {
+    lines.push('最后一来一回：对话者「' + le.user + '」／你「' + le.simulacrum + '」（你上次的话只用于前后一致，不是事实来源）');
+  }
+  if (lines.length === 1) return '';
+  return lines.join('\n');
+}
+function applySessionsCard() {
+  if (sessionsCardApplied) return;
+  if (!systemPrompt) return;
+  var card = sessionsData.last_card;
+  if (!card || card.session_id === sessionId) return;
+  var d = new Date();
+  var y = d.getFullYear(), mo = d.getMonth() + 1, da = d.getDate();
+  var todayStr = y + '-' + (mo < 10 ? '0' + mo : mo) + '-' + (da < 10 ? '0' + da : da);
+  var block = buildSessionsCard(card, sessionsData.recent_dates, todayStr);
+  if (!block) return;
+  systemPrompt = systemPrompt + '\n\n' + block;
+  sessionsCardApplied = true;
 }
 function buildRetrievalBlock(snippets) {
   if (!snippets || snippets.length === 0) return '';
@@ -737,7 +836,7 @@ function loadShards() {
   var fetches = names.map(function(name) {
     if (shardStatus[name] === 'failed') return;
     var safeName = String(name).replace(/[^a-zA-Z0-9_/.-]/g, '_');
-    return fetch('data/' + safeName)
+    return fetch('data/' + safeName, {cache: 'no-cache'})
       .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(data) { shardCache[name] = Array.isArray(data) ? data : [data]; shardStatus[name] = true; loadedCount++; })
       .catch(function() { shardStatus[name] = 'failed'; failedCount++; });
@@ -748,13 +847,25 @@ function loadKnowledge() {
   if (knowledgeLoading || knowledgeCache !== null) return Promise.resolve(knowledgeCache);
   knowledgeLoading = true; var out = {memories: [], transcripts: []};
   var one = function(name, key) {
-    return fetch('data/' + name)
+    return fetch('data/' + name, {cache: 'no-cache'})
       .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(data) { if (data && Array.isArray(data.entries)) out[key] = data.entries; })
       .catch(function() {});
   };
-  return Promise.all([one('memories.json', 'memories'), one('transcripts.json', 'transcripts')])
-    .then(function() { knowledgeCache = out; knowledgeLoading = false; return out; });
+  var loadSessions = fetch('data/sessions_' + VIEWER + '.json', {cache: 'no-cache'})
+    .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function(data) {
+      if (data && data.viewer === VIEWER) {
+        sessionsData = {
+          last_card: data.last_card || null,
+          recent_dates: (data.recent_dates && data.recent_dates.length) ? data.recent_dates : [],
+          sessions: (data.sessions && data.sessions.length) ? data.sessions : []
+        };
+      }
+    })
+    .catch(function() { /* 文件不存在或坏：功能静默关闭 */ });
+  return Promise.all([one('memories.json', 'memories'), one('transcripts.json', 'transcripts'), loadSessions])
+    .then(function() { knowledgeCache = out; knowledgeLoading = false; applySessionsCard(); return out; });
 }
 function collectAllRecords() {
   var all = []; for (var name in shardCache) { if (shardCache[name]) all = all.concat(shardCache[name]); } return all;
@@ -764,7 +875,7 @@ function collectAllRecords() {
 function streamRequest(messages, onDelta, onDone, onError) {
   if (!settingsComplete()) { onError('请先在设置中配置接口'); return; }
   controller = new AbortController(); streaming = true; sendBtn.textContent = '停止'; sendBtn.classList.add('stop');
-  var endpoint = settings.url;
+__LLM_PROXY_BRANCH__  var endpoint = settings.url;
   if (!/^https?:\/\//i.test(endpoint)) { onError('接口地址格式不正确'); return; }
   var acc = ''; var fallbackText = ''; var isAnthropic = settings.provider === 'anthropic';
   var sseState = sseCreate(isAnthropic ? 'anthropic' : 'openai'); var reqHeaders; var reqBody;
@@ -817,7 +928,7 @@ function streamRequest(messages, onDelta, onDone, onError) {
 }
 
 /* ===== probeTts ===== */
-function probeTts() { fetch(ttsBase + '/health', {method:'GET'}).then(function(r){ ttsAvailable = !!r.ok; if (ttsAvailable) { flushSessionQueue(); } }).catch(function(){ ttsAvailable = false; }); }
+function probeTts() { __TTS_FETCH_HEALTH__ }
 
 /* ===== sendMessage ===== */
 function sendMessage() {
@@ -850,7 +961,8 @@ function sendMessage() {
     var tokens = extractTokens(userText);
     var snippets = retrieveSnippets(tokens, allRecords, {top: 6});
     var kld = retrieveKnowledge(tokens, (knowledgeCache||{}).memories, (knowledgeCache||{}).transcripts, {memTop: 3, transTop: 2});
-    var combined = kld.memories.concat(snippets, kld.transcripts);
+    var sessHits = retrieveSessions(tokens, sessionsData, {sessTop: 3});
+    var combined = kld.memories.concat(snippets, kld.transcripts, sessHits);
     var retrievalBlock = buildRetrievalBlock(combined);
     var retrievalUsed = combined.map(function(x){ return (x.label || '[消息]') + ' ' + (x.date || ''); });
     var messages = buildMessages(systemPrompt, history, retrievalBlock, userText);
@@ -1207,8 +1319,8 @@ function synthMsg(vt, i) {
   var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, TTS_FETCH_TIMEOUT_MS);
   fetch(ttsBase + '/tts', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: msg, lang: 'mandarin', session_id: sessionId, turn: vt.turn }),
+    __TTS_HEADERS_TTS__,
+    body: JSON.stringify({ text: msg, lang: '__TTS_LANG__', session_id: sessionId, turn: vt.turn }),
     signal: ctrl ? ctrl.signal : undefined
   })
   .then(function(r) {
@@ -1601,7 +1713,15 @@ function onVoiceTextToggle() {
     localStorage.setItem(uiPrefsKey, JSON.stringify({ voiceText: showVoiceText }));
   } catch (e) {}
 }
-/* ===== init ===== */
+function onNoMemoryToggle() {
+  noMemoryEnabled = !!(cfgNoMemory && cfgNoMemory.checked);
+  var banner = document.getElementById('no-memory-banner');
+  if (banner) { banner.hidden = !noMemoryEnabled; }
+  if (noMemoryEnabled) {
+    logSession({role: 'event', text: 'exclude_session'});
+  }
+}
+__LLM_PROXY_HIDE_JS__/* ===== init ===== */
 function init() {
   // face-frame load 接线
   frame.addEventListener('load', function() {
@@ -1626,12 +1746,13 @@ function init() {
   probeTts();
 
   // 从 chat_context.json 载入 systemPrompt + shards
-  fetch('data/chat_context.json')
+  fetch('__CONTEXT_PATH__', {cache: 'no-cache'})
     .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
     .then(function(data) {
       systemPrompt = data.system_prompt || '';
       shards = Array.isArray(data.message_shards) ? data.message_shards : [];
       contextLoaded = true;
+      applySessionsCard();
       updateChatState();
     })
     .catch(function(err) {
@@ -1640,7 +1761,7 @@ function init() {
       sendBtn.disabled = true;
     });
 
-  fetch('data/avatar/emotions.json')
+  fetch('data/avatar/emotions.json', {cache: 'no-cache'})
     .then(function(r) { if (!r.ok) throw new Error('no emotions'); return r.json(); })
     .then(function(cfg) { emotionsCfg = cfg; })
     .catch(function() { emotionsCfg = null; /* 资产未就绪：功能静默关闭 */ });
@@ -1664,6 +1785,7 @@ function init() {
   saveBtn.addEventListener('click', saveSettings);
   cfgProvider.addEventListener('change', onProviderChange);
   if (cfgVoiceText) { cfgVoiceText.addEventListener('change', onVoiceTextToggle); }
+  if (cfgNoMemory) { cfgNoMemory.addEventListener('change', onNoMemoryToggle); }
 }
 
 init();
@@ -1682,18 +1804,200 @@ window.formatTimeLabel = formatTimeLabel;
 window.buildSessionId = buildSessionId;
 window.splitMessages = splitMessages;
 window.splitSegments = splitMessages;
-
+__INTRO_CARD_JS__
 })();
 </script>
 </body>
 </html>
 """
 
+_INTRO_CARD_CSS = """#intro-card{position:fixed;inset:0;z-index:9999;background:#faf7f2;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;}
+#intro-card .ic-box{max-width:640px;width:100%;}
+#intro-card h2{font-size:26px;line-height:1.5;margin:0 0 20px;color:#3a3330;font-weight:600;}
+#intro-card ol{font-size:20px;line-height:1.9;color:#3a3330;margin:0 0 20px;padding-left:1.3em;}
+#intro-card li{margin-bottom:12px;}
+#intro-card .ic-voice{font-size:19px;line-height:1.8;color:#5a504a;background:#f0e9df;border-radius:10px;padding:14px 16px;margin:0 0 24px;}
+#intro-card button{display:block;width:100%;min-height:56px;font-size:22px;font-weight:600;color:#fff;background:#8a7a6d;border:none;border-radius:12px;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+#intro-card button:active{background:#786a5e;}
+"""
 
-def build(person: str, archive_dir: str) -> str:
+_INTRO_CARD_HTML = """<div id="intro-card"><div class="ic-box">
+<h2>开始之前，请先看一下</h2>
+<ol>
+<li>这里跟您说话的不是她本人，是一个模拟。</li>
+<li>它说的话，不是她生前说过的话。</li>
+<li>它知道的一切，来自__INTRO_BUILDER__手机里的聊天记录，是__INTRO_BUILDER__那一边的视角。</li>
+<li>它可能会说出她当年对__INTRO_BUILDER__讲的、关于您的话。</li>
+<li>您和它说的话会被记录下来，存在这台电脑上。</li>
+<li>随时可以关掉，不想聊就不聊。</li>
+<li>这台电脑没开机的时候，这个页面打不开。</li>
+</ol>
+<p class="ic-voice">它的声音是用她的录音合成的，不是她本人在说话。</p>
+<button id="intro-ok" type="button">我知道了</button>
+</div></div>
+"""
+
+_INTRO_CARD_JS = """(function(){
+  var card = document.getElementById('intro-card');
+  var ok = document.getElementById('intro-ok');
+  if (!card || !ok) return;
+  ok.addEventListener('click', function(){ card.parentNode.removeChild(card); });
+})();
+"""
+
+
+def build(person: str, archive_dir: str, viewer: str, context_path: str = 'data/chat_context.json',
+          out_name: str = 'companion.html', lang: str = 'mandarin',
+          tts_origin: str = 'auto', tts_token: str = '',
+          intro_card: bool = False, intro_builder: str = '家人',
+          llm_proxy: str = '') -> str:
     """Render companion.html content."""
     storage_key = 'companion_' + person + '_byok'
-    html = TEMPLATE.replace('__STORAGE_KEY__', storage_key)
+    if viewer != 'owner':
+        storage_key += '_' + viewer
+
+    # TTS origin
+    if tts_origin == 'auto':
+        tts_base_expr = "location.protocol + '//' + location.hostname + ':8022'"
+    elif tts_origin == 'same':
+        tts_base_expr = 'location.origin'
+    else:
+        tts_base_expr = "'" + tts_origin + "'"
+
+    # Page tag
+    if viewer == 'owner':
+        page_tag = 'companion'
+    else:
+        page_tag = 'companion_' + viewer
+
+    # TTS token line
+    if tts_token:
+        tts_token_line = "var TTS_TOKEN = '" + tts_token + "';\n"
+        tts_headers_session = "headers: {'Content-Type': 'application/json', 'X-TTS-Token': TTS_TOKEN}"
+        tts_headers_tts = "headers: { 'Content-Type': 'application/json', 'X-TTS-Token': TTS_TOKEN }"
+        tts_fetch_health = ("fetch(ttsBase + '/health', {method:'GET', headers: {'X-TTS-Token': TTS_TOKEN}})"
+                            ".then(function(r){ ttsAvailable = !!r.ok; if (ttsAvailable) { flushSessionQueue(); } })"
+                            ".catch(function(){ ttsAvailable = false; });")
+    else:
+        tts_token_line = ''
+        tts_headers_session = "headers: {'Content-Type': 'application/json'}"
+        tts_headers_tts = "headers: { 'Content-Type': 'application/json' }"
+        tts_fetch_health = ("fetch(ttsBase + '/health', {method:'GET'})"
+                            ".then(function(r){ ttsAvailable = !!r.ok; if (ttsAvailable) { flushSessionQueue(); } })"
+                            ".catch(function(){ ttsAvailable = false; });")
+
+    # LLM proxy line (placed right after sessionId line)
+    if llm_proxy:
+        llm_proxy_line = "var LLM_PROXY = '" + llm_proxy + "';\n"
+    else:
+        llm_proxy_line = ''
+
+    # settingsComplete replacement
+    if llm_proxy:
+        settings_complete_fn = ("function settingsComplete() { if (typeof LLM_PROXY !== 'undefined' && LLM_PROXY) return true; "
+                                "return settings && settings.url && settings.model && settings.key; }")
+    else:
+        settings_complete_fn = "function settingsComplete() { return settings && settings.url && settings.model && settings.key; }"
+
+    # streamRequest proxy branch - placed BEFORE settings.url validation
+    if llm_proxy:
+        llm_proxy_branch = (
+            "  if (typeof LLM_PROXY !== 'undefined' && LLM_PROXY && typeof TTS_TOKEN !== 'undefined' && TTS_TOKEN) {\n"
+            "    var pEndpoint = location.origin + LLM_PROXY;\n"
+            "    var pHeaders = { 'Content-Type': 'application/json', 'X-TTS-Token': TTS_TOKEN };\n"
+            "    var pBody = { model: 'proxy', messages: messages, stream: true };\n"
+            "    var pSse = sseCreate('openai');\n"
+            "    var pAcc = ''; var pFallbackText = '';\n"
+            "    fetch(pEndpoint, { method: 'POST', headers: pHeaders, body: JSON.stringify(pBody), signal: controller.signal })\n"
+            "      .then(function(resp) {\n"
+            "        if (!resp.ok) { return resp.text().then(function(t) { var snippet = t.substring(0, 200); throw new Error('接口错误 ' + resp.status + '：' + snippet); }); }\n"
+            "        var reader = resp.body.getReader(); var decoder = new TextDecoder('utf-8');\n"
+            "        function readChunk() {\n"
+            "          return reader.read().then(function(result) {\n"
+            "            if (result.done) {\n"
+            "              var tail = decoder.decode(); if (tail) pFallbackText += tail;\n"
+            "              var finalDeltas = sseFeed(pSse, tail);\n"
+            "              for (var i = 0; i < finalDeltas.length; i++) { pAcc += finalDeltas[i]; onDelta(finalDeltas[i]); }\n"
+            "              finalDeltas = sseFinish(pSse);\n"
+            "              for (var j = 0; j < finalDeltas.length; j++) { pAcc += finalDeltas[j]; onDelta(finalDeltas[j]); }\n"
+            "              if (!pSse.sawData && pFallbackText && pFallbackText.trim()) {\n"
+            "                try {\n"
+            "                  var json = JSON.parse(pFallbackText);\n"
+            "                  var content = (json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content) || '';\n"
+            "                  if (!content && Array.isArray(json.content)) {\n"
+            "                    var textParts = [];\n"
+            "                    for (var p = 0; p < json.content.length; p++) { if (json.content[p] && json.content[p].type === 'text' && json.content[p].text) textParts.push(json.content[p].text); }\n"
+            "                    content = textParts.join('');\n"
+            "                  }\n"
+            "                  if (content) { pAcc += content; onDelta(content); }\n"
+            "                } catch(e) {}\n"
+            "              }\n"
+            "              onDone(pAcc, controller.signal.aborted);\n"
+            "              return;\n"
+            "            }\n"
+            "            var text = decoder.decode(result.value, {stream: true}); if (text) pFallbackText += text;\n"
+            "            var deltas = sseFeed(pSse, text);\n"
+            "            for (var k = 0; k < deltas.length; k++) { pAcc += deltas[k]; onDelta(deltas[k]); }\n"
+            "            return readChunk();\n"
+            "          });\n"
+            "        }\n"
+            "        return readChunk();\n"
+            "      })\n"
+            "      .catch(function(err) { if (err.name === 'AbortError') { onDone(pAcc, true); } else { onError(err.message || '网络错误'); } });\n"
+            "    return;\n"
+            "  }\n"
+        )
+    else:
+        llm_proxy_branch = ''
+
+    # JS to hide config UI in proxy mode
+    if llm_proxy:
+        llm_proxy_hide_js = ("(function(){\n"
+                             "  if (typeof LLM_PROXY === 'undefined' || !LLM_PROXY) return;\n"
+                             "  var ids = ['cfg-provider', 'cfg-url', 'cfg-key'];\n"
+                             "  for (var i = 0; i < ids.length; i++) {\n"
+                             "    var el = document.getElementById(ids[i]);\n"
+                             "    if (!el) continue;\n"
+                             "    var box = el.parentNode;\n"
+                             "    while (box && box.tagName !== 'DIV') { box = box.parentNode; }\n"
+                             "    if (box && box.parentNode) { box.parentNode.removeChild(box); }\n"
+                             "  }\n"
+                             "  var hint = document.getElementById('cfg-hint');\n"
+                             "  if (hint && hint.parentNode) { hint.parentNode.removeChild(hint); }\n"
+                             "})();\n")
+    else:
+        llm_proxy_hide_js = ''
+
+    # Intro card content
+    if intro_card:
+        intro_css = _INTRO_CARD_CSS
+        intro_html = _INTRO_CARD_HTML.replace('__INTRO_BUILDER__', intro_builder)
+        intro_js = _INTRO_CARD_JS
+    else:
+        intro_css = ''
+        intro_html = ''
+        intro_js = ''
+
+    mapping = {
+        '__STORAGE_KEY__': storage_key,
+        '__VIEWER__': viewer,
+        '__CONTEXT_PATH__': context_path,
+        '__TTS_LANG__': lang,
+        '__TTS_BASE_EXPR__': tts_base_expr,
+        '__PAGE_TAG__': page_tag,
+        '__TTS_TOKEN_LINE__': tts_token_line,
+        '__LLM_PROXY_LINE__': llm_proxy_line,
+        '__SETTINGS_COMPLETE_FN__': settings_complete_fn,
+        '__LLM_PROXY_BRANCH__': llm_proxy_branch,
+        '__LLM_PROXY_HIDE_JS__': llm_proxy_hide_js,
+        '__TTS_HEADERS_TTS__': tts_headers_tts,
+        '__TTS_HEADERS_SESSION__': tts_headers_session,
+        '__TTS_FETCH_HEALTH__': tts_fetch_health,
+        '__INTRO_CARD_CSS__': intro_css,
+        '__INTRO_CARD_HTML__': intro_html,
+        '__INTRO_CARD_JS__': intro_js,
+    }
+    html = _PLACEHOLDER_RE.sub(lambda m: mapping.get(m.group(0), m.group(0)), TEMPLATE)
     return html
 
 
@@ -1701,20 +2005,87 @@ def main() -> int:
     parser = argparse.ArgumentParser(description='Build companion.html page (8A-2a)')
     parser.add_argument('--person', required=True, help='Person slug')
     parser.add_argument('--archive-dir', default='archive_out', help='Archive directory (default: archive_out)')
+    parser.add_argument('--viewer', default='owner', help='Viewer identity (default: owner)')
+    parser.add_argument('--context-path', default='data/chat_context.json',
+                        help='页面加载的 context 路径，相对页面（默认 data/chat_context.json）')
+    parser.add_argument('--out-name', default='companion.html', help='输出文件名（默认 companion.html）')
+    parser.add_argument('--lang', default='mandarin', choices=['mandarin', 'wu'],
+                        help='TTS 语域（默认 mandarin）')
+    parser.add_argument('--tts-origin', default='auto',
+                        help="TTS 地址：auto=同主机:8022（默认）；same=同源（经隧道时用）；或指定完整 URL")
+    parser.add_argument('--tts-token', default='',
+                        help='TTS 服务 token，非空则页面请求带 X-TTS-Token 头')
+    parser.add_argument('--intro-card', action='store_true',
+                        help='每次打开先显示大字说明卡，点「我知道了」才进对话（老人模式）')
+    parser.add_argument('--intro-builder', default='家人',
+                        help='说明卡文案里对建档者的称呼（默认「家人」，例如「儿子」）')
+    parser.add_argument('--llm-proxy', default='',
+                        help='LLM 代理路径（同源，如 /llm/v1/chat/completions）；给定后页面固定用它、不再需要 API key')
     args = parser.parse_args()
 
-    if not _PERSON_RE.match(args.person):
+    if not _PERSON_RE.fullmatch(args.person):
         print(f'错误：--person 参数 "{args.person}" 不符合正则 ^[a-zA-Z0-9][a-zA-Z0-9_-]*$', file=sys.stderr)
         return 2
 
-    context_path = os.path.join(args.archive_dir, 'data', 'chat_context.json')
+    if not _VIEWER_RE.fullmatch(args.viewer):
+        print(f'错误：--viewer 参数 "{args.viewer}" 不符合正则 ^[a-z][a-z0-9_-]{{0,31}}$', file=sys.stderr)
+        return 2
+
+    # Validate context path (strict whitelist)
+    if not _CONTEXT_PATH_RE.fullmatch(args.context_path) or '%' in args.context_path:
+        print(f'错误：--context-path 参数 "{args.context_path}" 不符合安全路径规范', file=sys.stderr)
+        return 2
+    segments = args.context_path.split('/')
+    if any(seg in ('.', '..') for seg in segments):
+        print(f'错误：--context-path 参数 "{args.context_path}" 不能包含 "." 或 ".." 段', file=sys.stderr)
+        return 2
+
+    # Validate out-name
+    if not _OUT_RE.fullmatch(args.out_name):
+        print(f'错误：--out-name 参数 "{args.out_name}" 不符合正则 ^[A-Za-z0-9_.-]+\\.html$', file=sys.stderr)
+        return 2
+
+    # Validate tts-origin (if not auto/same, must be http(s) URL without path, query, fragment)
+    if args.tts_origin not in ('auto', 'same'):
+        if not _TTS_ORIGIN_RE.fullmatch(args.tts_origin):
+            print(f'错误：--tts-origin 参数 "{args.tts_origin}" 必须是 "http(s)://主机名(:端口)" 形式', file=sys.stderr)
+            return 2
+        if any(ch in args.tts_origin for ch in '<>\\"\'`'):
+            print(f'错误：--tts-origin 参数 "{args.tts_origin}" 不能包含特殊字符', file=sys.stderr)
+            return 2
+
+    # Validate tts-token
+    if not _TTS_TOKEN_RE.fullmatch(args.tts_token):
+        print(f'错误：--tts-token 参数不符合正则 ^[A-Za-z0-9_-]{{0,128}}$', file=sys.stderr)
+        return 2
+
+    # Validate intro-builder
+    if not _INTRO_BUILDER_RE.fullmatch(args.intro_builder):
+        print(f'错误：--intro-builder 参数 "{args.intro_builder}" 不符合正则 ^[一-龥]{{1,6}}$', file=sys.stderr)
+        return 2
+
+    # Validate llm-proxy
+    if args.llm_proxy:
+        if not _LLM_PROXY_RE.fullmatch(args.llm_proxy):
+            print(f'错误：--llm-proxy 参数 "{args.llm_proxy}" 不符合正则 ^/[A-Za-z0-9_./-]{{1,120}}$', file=sys.stderr)
+            return 2
+        if not args.tts_token:
+            print('错误：--llm-proxy 需要同时提供 --tts-token（代理必须鉴权，否则会成为开放的 LLM 中转）', file=sys.stderr)
+            return 2
+
+    context_path = os.path.join(args.archive_dir, *args.context_path.split('/'))
     if not os.path.exists(context_path):
-        print(f'错误：缺少 {context_path}（data/chat_context.json 不存在）', file=sys.stderr)
+        print(f'错误：缺少 {context_path}（{args.context_path} 不存在）', file=sys.stderr)
         return 1
 
-    html = build(args.person, args.archive_dir)
+    html = build(args.person, args.archive_dir, args.viewer,
+                 context_path=args.context_path, out_name=args.out_name,
+                 lang=args.lang, tts_origin=args.tts_origin,
+                 tts_token=args.tts_token,
+                 intro_card=args.intro_card, intro_builder=args.intro_builder,
+                 llm_proxy=args.llm_proxy)
 
-    out_path = os.path.join(args.archive_dir, 'companion.html')
+    out_path = os.path.join(args.archive_dir, args.out_name)
     tmp_path = out_path + '.tmp'
     with open(tmp_path, 'w', encoding='utf-8', newline='') as f:
         f.write(html)

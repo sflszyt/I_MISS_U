@@ -42,6 +42,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out", help="Output path (default: people/<slug>/archive_out/data/chat_context.json)")
     parser.add_argument("--max-persona-kb", type=int, default=40, help="Max persona size in KB")
     parser.add_argument("--memories-mode", choices=["index", "full"], default="index", help="记忆块模式：index=只嵌日期+标题索引（默认），full=嵌入全文（旧行为）")
+    parser.add_argument("--relationship", help="relationship.json 路径（默认：people/<slug>/persona/relationship.json）")
     return parser.parse_args()
 
 
@@ -441,6 +442,110 @@ def build_memories_index(memories_md: str) -> str:
     return "\n".join(lines)
 
 
+def build_relationship_block(relationship: dict) -> str:
+    lines: list[str] = []
+
+    # Address terms
+    address = relationship.get("address_terms")
+    if isinstance(address, dict):
+        she_to_him = address.get("she_to_him")
+        if isinstance(she_to_him, dict):
+            def extract_address_value(node: Any) -> str | None:
+                """Extract a displayable address term from a node that may be a dict or str."""
+                if isinstance(node, dict):
+                    v = node.get("value")
+                elif isinstance(node, str):
+                    v = node
+                else:
+                    return None
+                if not isinstance(v, str):
+                    return None
+                v = v.strip()
+                if not v or v.startswith("__"):
+                    return None
+                return v
+
+            primary_value = extract_address_value(she_to_him.get("primary"))
+            if primary_value is not None:
+                lines.append(f"- 你叫他：{primary_value}（默认用这个）")
+
+            intimate_value = extract_address_value(she_to_him.get("intimate"))
+            if intimate_value is not None:
+                lines.append(f"- 也可以偶尔叫他：{intimate_value}（不要每句都叫）")
+
+            usage_rule = she_to_him.get("usage_rule")
+            if isinstance(usage_rule, str) and usage_rule.strip():
+                lines.append(f"- {usage_rule.strip()}")
+
+    # Self reference
+    self_ref = relationship.get("self_reference")
+    if isinstance(self_ref, dict):
+        spoken = self_ref.get("spoken")
+        written = self_ref.get("written")
+        if isinstance(spoken, str):
+            spoken = spoken.strip()
+            if not spoken or spoken.startswith("__"):
+                spoken = ""
+        else:
+            spoken = ""
+        if isinstance(written, str):
+            written = written.strip()
+            if not written or written.startswith("__"):
+                written = ""
+        else:
+            written = ""
+
+        if spoken and written:
+            if spoken == written:
+                lines.append(f"- 你自称：{spoken}")
+            else:
+                lines.append(f"- 你自称：说话时用「{spoken}」，打字时用「{written}」")
+        elif spoken:
+            lines.append(f"- 你自称：{spoken}")
+        elif written:
+            lines.append(f"- 你自称：{written}")
+
+    if not lines:
+        return "（档案里没有关于称呼的可靠依据——不要使用任何称呼，直接说话。）"
+
+    return "\n".join(lines)
+
+
+def build_taboo_block(relationship: dict) -> str:
+    taboo = relationship.get("taboo_topics")
+    if not isinstance(taboo, list) or len(taboo) == 0:
+        return "（本次未设定额外禁提话题——上面的铁律照常生效。）"
+
+    lines: list[str] = []
+    for entry in taboo:
+        if isinstance(entry, str):
+            value = entry.strip()
+            if value:
+                lines.append(f"- {value}")
+        elif isinstance(entry, dict):
+            # Get the main topic text
+            main_text = None
+            for key in ("topic", "name", "title"):
+                val = entry.get(key)
+                if isinstance(val, str) and val.strip():
+                    main_text = val.strip()
+                    break
+
+            if not main_text:
+                continue
+
+            note = entry.get("note")
+            if isinstance(note, str) and note.strip():
+                lines.append(f"- {main_text}——{note.strip()}")
+            else:
+                lines.append(f"- {main_text}")
+
+    if not lines:
+        return "（本次未设定额外禁提话题——上面的铁律照常生效。）"
+
+    return "\n".join(lines)
+
+
 def main() -> None:
     args = parse_args()
 
@@ -472,7 +577,12 @@ def main() -> None:
     check_path(out_path, "output")
 
     # Guard every input path against resolving under raw/
-    relationship_path = person_dir / "persona" / "relationship.json"
+    if args.relationship:
+        relationship_path = Path(args.relationship)
+        if not relationship_path.is_absolute():
+            relationship_path = repo_root / relationship_path
+    else:
+        relationship_path = person_dir / "persona" / "relationship.json"
     persona_path = person_dir / "persona" / "persona.md"
     rhythm_path = person_dir / "persona" / "rhythm.json"
     memories_path = person_dir / "memories" / "memories.md"
@@ -539,6 +649,33 @@ def main() -> None:
         memories_block = memories_md
     timeline_block = build_timeline_block(timeline)
 
+    used = set(PLACEHOLDER_RE.findall(template))
+
+    # Compute new blocks only when needed
+    if "relationship_block" in used:
+        relationship_block = build_relationship_block(relationship)
+        if not relationship_block:
+            relationship_block = "（档案里没有关于称呼的可靠依据——不要使用任何称呼，直接说话。）"
+    else:
+        relationship_block = ""
+
+    if "taboo_block" in used:
+        taboo_block = build_taboo_block(relationship)
+    else:
+        taboo_block = ""
+
+    # Validate archive_builder_zh only when used
+    if "archive_builder_zh" in used:
+        builder = relationship.get("archive_builder", {})
+        if not isinstance(builder, dict):
+            fail("Template uses {{archive_builder_zh}} but relationship config has no archive_builder.zh")
+        builder_zh_value = builder.get("zh", "")
+        if not isinstance(builder_zh_value, str) or not builder_zh_value.strip() or builder_zh_value.strip().startswith("__"):
+            fail("Template uses {{archive_builder_zh}} but relationship config has no archive_builder.zh")
+        builder_zh = builder_zh_value.strip()
+    else:
+        builder_zh = ""
+
     replacements = {
         "display_name": display_name,
         "subject_relation_zh": subject_relation_zh,
@@ -548,6 +685,9 @@ def main() -> None:
         "rhythm_block": rhythm_block,
         "memories_block": memories_block,
         "timeline_block": timeline_block,
+        "relationship_block": relationship_block,
+        "taboo_block": taboo_block,
+        "archive_builder_zh": builder_zh,
     }
 
     rendered = template
