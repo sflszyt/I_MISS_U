@@ -929,6 +929,40 @@ __LLM_PROXY_BRANCH__  var endpoint = settings.url;
 
 /* ===== probeTts ===== */
 function probeTts() { __TTS_FETCH_HEALTH__ }
+function startTtsProbeLoop() {
+  var attempts = 0;
+  var maxAttempts = 24;
+  var waitingNotified = false;
+  var recoveredShown = false;
+  var gaveUpShown = false;
+  function runProbe() {
+    attempts += 1;
+    probeTts().then(function(success) {
+      if (success) {
+        if (waitingNotified && !recoveredShown) {
+          systemNotice('她的声音准备好了。');
+          recoveredShown = true;
+        }
+        return;
+      }
+      if (attempts > 1) {
+        if (!waitingNotified) {
+          systemNotice('她的声音还在准备，稍等一会儿。现在也可以先打字跟她说。');
+          waitingNotified = true;
+        }
+      }
+      if (attempts >= maxAttempts) {
+        if (waitingNotified && !gaveUpShown) {
+          systemNotice('今天听不到她的声音，但还可以打字跟她说话。');
+          gaveUpShown = true;
+        }
+        return;
+      }
+      setTimeout(runProbe, 15000);
+    });
+  }
+  runProbe();
+}
 
 /* ===== sendMessage ===== */
 function sendMessage() {
@@ -1743,7 +1777,8 @@ function init() {
 
   loadSettings();
   loadUiPrefs();
-  probeTts();
+  startTtsProbeLoop();
+  __SW_REGISTER_JS__
 
   // 从 chat_context.json 载入 systemPrompt + shards
   fetch('__CONTEXT_PATH__', {cache: 'no-cache'})
@@ -1850,7 +1885,7 @@ def build(person: str, archive_dir: str, viewer: str, context_path: str = 'data/
           out_name: str = 'companion.html', lang: str = 'mandarin',
           tts_origin: str = 'auto', tts_token: str = '',
           intro_card: bool = False, intro_builder: str = '家人',
-          llm_proxy: str = '') -> str:
+          llm_proxy: str = '', offline_fallback: bool = False) -> str:
     """Render companion.html content."""
     storage_key = 'companion_' + person + '_byok'
     if viewer != 'owner':
@@ -1875,16 +1910,16 @@ def build(person: str, archive_dir: str, viewer: str, context_path: str = 'data/
         tts_token_line = "var TTS_TOKEN = '" + tts_token + "';\n"
         tts_headers_session = "headers: {'Content-Type': 'application/json', 'X-TTS-Token': TTS_TOKEN}"
         tts_headers_tts = "headers: { 'Content-Type': 'application/json', 'X-TTS-Token': TTS_TOKEN }"
-        tts_fetch_health = ("fetch(ttsBase + '/health', {method:'GET', headers: {'X-TTS-Token': TTS_TOKEN}})"
-                            ".then(function(r){ ttsAvailable = !!r.ok; if (ttsAvailable) { flushSessionQueue(); } })"
-                            ".catch(function(){ ttsAvailable = false; });")
+        tts_fetch_health = ("return fetch(ttsBase + '/health', {method:'GET', headers: {'X-TTS-Token': TTS_TOKEN}})"
+                            ".then(function(r){ ttsAvailable = !!r.ok; if (ttsAvailable) { flushSessionQueue(); } return ttsAvailable; })"
+                            ".catch(function(){ ttsAvailable = false; return false; });")
     else:
         tts_token_line = ''
         tts_headers_session = "headers: {'Content-Type': 'application/json'}"
         tts_headers_tts = "headers: { 'Content-Type': 'application/json' }"
-        tts_fetch_health = ("fetch(ttsBase + '/health', {method:'GET'})"
-                            ".then(function(r){ ttsAvailable = !!r.ok; if (ttsAvailable) { flushSessionQueue(); } })"
-                            ".catch(function(){ ttsAvailable = false; });")
+        tts_fetch_health = ("return fetch(ttsBase + '/health', {method:'GET'})"
+                            ".then(function(r){ ttsAvailable = !!r.ok; if (ttsAvailable) { flushSessionQueue(); } return ttsAvailable; })"
+                            ".catch(function(){ ttsAvailable = false; return false; });")
 
     # LLM proxy line (placed right after sessionId line)
     if llm_proxy:
@@ -1978,6 +2013,18 @@ def build(person: str, archive_dir: str, viewer: str, context_path: str = 'data/
         intro_html = ''
         intro_js = ''
 
+    # Only register the service worker if the deployment explicitly provides it
+    if offline_fallback:
+        sw_register_js = (
+            "if ('serviceWorker' in navigator && "
+            "(location.protocol === 'https:' || location.hostname === 'localhost' || "
+            "location.hostname === '127.0.0.1')) {\n"
+            "    navigator.serviceWorker.register('/sw.js').catch(function(){});\n"
+            "  }"
+        )
+    else:
+        sw_register_js = ''
+
     mapping = {
         '__STORAGE_KEY__': storage_key,
         '__VIEWER__': viewer,
@@ -1993,6 +2040,7 @@ def build(person: str, archive_dir: str, viewer: str, context_path: str = 'data/
         '__TTS_HEADERS_TTS__': tts_headers_tts,
         '__TTS_HEADERS_SESSION__': tts_headers_session,
         '__TTS_FETCH_HEALTH__': tts_fetch_health,
+        '__SW_REGISTER_JS__': sw_register_js,
         '__INTRO_CARD_CSS__': intro_css,
         '__INTRO_CARD_HTML__': intro_html,
         '__INTRO_CARD_JS__': intro_js,
@@ -2021,6 +2069,8 @@ def main() -> int:
                         help='说明卡文案里对建档者的称呼（默认「家人」，例如「儿子」）')
     parser.add_argument('--llm-proxy', default='',
                         help='LLM 代理路径（同源，如 /llm/v1/chat/completions）；给定后页面固定用它、不再需要 API key')
+    parser.add_argument('--offline-fallback', action='store_true',
+                        help='注册 Service Worker，以便在机器不可达时显示 offline.html（仅用于随附 sw.js 和 offline.html 的部署）')
     args = parser.parse_args()
 
     if not _PERSON_RE.fullmatch(args.person):
@@ -2083,7 +2133,8 @@ def main() -> int:
                  lang=args.lang, tts_origin=args.tts_origin,
                  tts_token=args.tts_token,
                  intro_card=args.intro_card, intro_builder=args.intro_builder,
-                 llm_proxy=args.llm_proxy)
+                 llm_proxy=args.llm_proxy,
+                 offline_fallback=args.offline_fallback)
 
     out_path = os.path.join(args.archive_dir, args.out_name)
     tmp_path = out_path + '.tmp'

@@ -1,5 +1,35 @@
 # MVP 生产进度日志
 
+## 2026-09-10 · T14-3/4/5 自启任务 + 离线降级四层（T14 代码层收官）
+
+**产出**：`scripts/register_startup_task.ps1`（新建 303 行）、`people/mama_for_father/site/{offline.html,sw.js}`、`deploy/cloudflare-worker/dad-offline.js`、`tools/build_companion_page.py`（+`--offline-fallback` 与 TTS 探活重试）、`docs/ops-autologon.md`、`docs/ops-offline-fallback.md`。全部走 DeepSeek 写 → Codex 审 → ACCEPT。
+
+**T14-3 自启任务**：注册器与运行器同一文件（防两文件版本漂移）。Codex 两轮 REJECT 共 4 条阻断，全部属"把不确定当成功"：① `Start-Process -Wait` 等进程树导致挂死 494 秒（start_services 的常驻服务是它的子进程）；② 超时 `Kill()` 不验尸，僵尸持锁会把下次的 exit 3 洗成成功；③ exit 3 本身就是不确定态（mutex 异常也返回 3），且僵尸跨调用持锁使进程内标志失效 → 改为**收到 3 就跑 `-Status` 实测四服务全 `[ ok ]` 才报成功**；④ `-Status -DelaySeconds 9999` 违反"永远 exit 0"。另自查出一条更隐蔽的：把"启动成功吗"与"返回了什么"合并判断，导致**每次健康启动都被记成 launch-failed**、白烧 240 秒。端到端实测：任务计划器触发 → `LastTaskResult: 0 (all services up)`。
+
+**T14-4 离线降级四层**：没有任何一层能覆盖全部故障——PC 关机要 Cloudflare Worker、用户自己断网要 Service Worker、TTS 冷启动要页面自身。真浏览器实测走通：SW 注册 scope `/` → 停 :8021 → 渲染出「她今天不在」四句 + 按钮 → 恢复后自动跳回 companion.html；route-mock 造冷启动 → 16 s 出提示、恢复 12 s 出「她的声音准备好了。」。儿子版默认参数产出零 SW 泄漏。
+
+**T14-5**：Autologon 步骤交用户执行，Claude 全程不接触密码。额外给出**登录后自动锁屏**（把已裁决的"物理接触即进桌面"降为"看到锁屏"，服务不受影响）与 ARSO 备选。
+
+**未做（需机主操作）**：隧道仍未启（外部可见动作）；Cloudflare Worker 未部署；爸爸站页面未用 `--offline-fallback` 重建（需 TTS token）；**真重启验收整条链未做**。均登记为 T14-6。
+
+工程教训见 `findings.md` 末尾「T14-3/T14-4 自启任务与离线降级教训」。
+
+## 2026-09-10 · T14-4 文案显式决策记录（对铁律 2 的第三次知情覆盖）
+
+**背景**：离线页文案在动手前以三选项呈交用户（克制事实型 / 纯技术型 / 温情型），并在选项内直书温情型的风险。用户选定**温情型**。
+
+| 项 | 内容 |
+|---|---|
+| 采用文案 | 她今天不在 / 等电脑醒过来，她就回来了。/ 明天再来看看吧。/ 这是家里那台电脑的事，不是她走了。 |
+| 用户裁决 | 温情型（2026-09-09） |
+| Claude 已告知的后果 | 拟人化停机、可能强化「她还在某处」的错觉——正是铁律 2「克制沉浸度」所防 |
+| 独立佐证 | Codex 在**两轮**审查中各自独立地把该文案列为 blocking，理由与上述一致 |
+| 处置 | 不改文案（用户裁决优先）；记为对铁律 2 的显式覆盖，并在 `docs/ops-offline-fallback.md` 文案段落就地标注，改文案前须回看 |
+
+**已落实的边界**（未被覆盖的部分仍然生效）：页面不含她的照片/姓名/声音/任何档案内容；不出现「她在等你」式暗示；无倒计时、无「距上次对话 N 天」；`/tts` 与 `/v1/chat/completions` 永不缓存重放。
+
+**复核日**：2026-11-28（与 #24 三项覆盖对齐）。**决策人**：justin，2026-09-09。
+
 ## 2026-09-09 · 任务 #24 F-乙 全线开工执行记录
 
 **产出**：代码 +654 行 / 6 个既有文件 + 2 个新文件（`tools/llm_proxy.py` 366 行、`prompts/chat_system.husband.zh.md` 72 行）+ 2 份研究报告。全部走 DeepSeek 写 → Codex 审 → ACCEPT。

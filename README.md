@@ -32,7 +32,9 @@ StoryFile 破产时，用户为逝者录制的对话视频躺在待拍卖的服�
 | `people/<slug>/` | 每人一份档案（**gitignore，永不上传**）：raw 只读原始素材 → normalized 中间格式 → processed 修复产物 → archive_out 最终档案 |
 | `docs/research/` | 研究报告（微信导出方案、产品形态对比） |
 | `docs/HANDOFF.md` | 会话交接文档（当前状态与下一步） |
-| `scripts/` | 基础设施（模型分工调用器） |
+| `scripts/` | 基础设施：模型分工调用器 + 服务编排 `start_services.ps1` + 登录自启注册 `register_startup_task.ps1` |
+| `deploy/` | 部署产物：`cloudflare-worker/`（源站不通时的兜底页）、`dad-site/`（站点手写静态资源的源，因 `people/` 全目录 gitignore） |
+| `tests/` | 单元测试（标准库 unittest）与 e2e 规格 |
 
 ## 三条自我保护约束
 

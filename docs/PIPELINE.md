@@ -299,7 +299,7 @@ python tools\collect_wechat_video.py --person mama --db-dir ~\ck-decrypted --vid
 | 语言泛化 | ASR/TTS 链路沪语特定 | 选型矩阵参数化（粤语/川渝…各有对应底座）；普通话人物走 Fun-CosyVoice3 zero-shot 即可（免训练） |
 | relationship 模板 | 亲子已验证 | 祖孙/伴侣/挚友的 prompts 参数化（结构已支持） |
 | 闸门自动化程度 | 页面生成+回贴码解析全自动，发送/催办靠会话 | skill 内固化"生成→直发→等回贴→apply"循环 |
-| TTS/档案站服务化 | start_tts.bat / start_server.bat 手动 | 仿 TailscaleUserspace 注册计划任务（可选） |
+| TTS/档案站服务化 | ~~start_tts.bat / start_server.bat 手动~~ → **已解决（T14，2026-09-09→10）**：`scripts/start_services.ps1` 五服务编排 + `scripts/register_startup_task.ps1` 登录自启任务 | 尚未 person-generic（路径写死在脚本顶部配置段）；隧道路径未活体验证 |
 
 ### 12.4 建议推进顺序
 

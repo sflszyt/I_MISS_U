@@ -1,7 +1,67 @@
 # 交接文档（HANDOFF）
 
-> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-09-09，T14-1/T14-2 完成（token 落盘 + 服务启动编排，见 ⓪¹²）**。上一版：2026-09-07，提交前全量刷新：#22 研究 a/b 收口（a 已裁决）+ 8B-10 语音条分条 + 8B-11 起音淡入 + #23 给爸爸六段语音**。最先看 ⓪¹⁰。（09-02 后补：进度全景核对（workflow 六路，输出未落盘）后修文档失真——四项待办移除日期更正为 09-01、⓪⁷/二章/六章过期陈述加标注、下回合列表 09-02 刷新）。
+> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-09-10，T14-3/T14-4/T14-5 完成，T14 代码层收官（自启任务 + 离线降级四层 + 自动登录步骤，见 ⓪¹³）**。上一版：2026-09-09，T14-1/T14-2（token 落盘 + 服务启动编排，见 ⓪¹²）。上一版：2026-09-07，提交前全量刷新：#22 研究 a/b 收口（a 已裁决）+ 8B-10 语音条分条 + 8B-11 起音淡入 + #23 给爸爸六段语音**。最先看 ⓪¹³。（09-02 后补：进度全景核对（workflow 六路，输出未落盘）后修文档失真——四项待办移除日期更正为 09-01、⓪⁷/二章/六章过期陈述加标注、下回合列表 09-02 刷新）。
 > 读这份之前先读 `CLAUDE.md`（铁律），再读仓库根的 `task_plan.md` / `progress.md` / `findings.md`（MVP 计划与实时状态）。研究依据在 `docs/research/`。
+
+## ⓪¹³ 增补（2026-09-10：T14-3/4/5 完成，T14 代码层收官，最先看这段）
+
+> 一句话：**「补丁夜重启后爸爸打开是白页」这条链，代码层已经全部补齐并通过 Codex 验收与真浏览器实测；但四件需要机主亲自做的事一件都没做，所以现在还不能给他链接。**
+
+### 1. 已交付
+
+| 文件 | 改动 | 验收 |
+|---|---|---|
+| `scripts/register_startup_task.ps1` | 新建 303 行 | DeepSeek 6 轮 → Codex 2×REJECT→**ACCEPT** |
+| `people/mama_for_father/site/offline.html` | 新建 | Codex REJECT→**ACCEPT** |
+| `people/mama_for_father/site/sw.js` | 新建 | 同上 |
+| `deploy/cloudflare-worker/dad-offline.js` | 新建 | 同上 |
+| `tools/build_companion_page.py` | `--offline-fallback` + TTS 探活重试 | Codex **ACCEPT** |
+| `docs/ops-autologon.md` / `docs/ops-offline-fallback.md` | 新建 | 操作步骤，交机主执行 |
+
+### 2. 怎么用
+
+```
+scripts
+egister_startup_task.ps1              注册登录自启任务（幂等，-Force 原子替换）
+scripts
+egister_startup_task.ps1 -Status      看任务状态（永远 exit 0）
+scripts
+egister_startup_task.ps1 -Unregister  注销（幂等）
+scripts
+egister_startup_task.ps1 -Run         任务自己调的入口，别手工常用
+```
+
+退出码：0 成功（`-Status` 恒 0）/ 1 操作失败 / 2 参数错或缺 `start_services.ps1`。运行日志 `logs\startup_task.log`。
+
+**离线降级是四层，缺一不可**（详见 `docs/ops-offline-fallback.md`）：PC 关机 → Cloudflare Worker；用户自己断网 → Service Worker；TTS 冷启动 73 秒 → 页面内重试提示。**没有任何一层能覆盖全部。**
+
+### 3. 三个必须知道的缺口
+
+1. **隧道仍未启，Worker 未部署** → L1/L2 那层**从没真跑过**。启 cloudflared = 开公网入口，属外部可见动作，未经机主授权不做。
+2. **爸爸站页面还没用 `--offline-fallback` 重建**，所以线上那份 companion.html **既没有 SW 注册、也没有 TTS 重试**。重建需要 TTS token，命令模板在 `docs/ops-offline-fallback.md` §3 步骤 1，**交机主执行（Claude 不接触凭据）**。
+3. **真重启验收没做**。自启这条链只有"手工触发任务"级别的实证，没有"真重启一次"的实证。
+
+### 4. 一条要记住的判据
+
+Codex 两轮 REJECT 的 4 条阻断**全部是同一类**：把不确定状态当成功。最典型的是 `start_services.ps1` 返回 exit 3（"别人持有 mutex"）——它既可能是别的实例在正常干活，也可能是 mutex 获取异常，还可能是**上次没杀干净的僵尸跨调用持锁**。现在的做法是不信退出码，**收到 3 就去跑 `-Status` 实测四个服务全 `[ ok ]` 才报成功**。
+
+> 这是 T14-2「判据要三条件齐备」的延续。凡是"我推测它没问题"，都要换成"我去看了它有没有问题"——**爸爸打不开页面不会打电话，只会以为她不在了。**
+
+### 5. 文案是显式覆盖，改之前先回看
+
+离线页的「她今天不在 / 等电脑醒过来，她就回来了。」是用户 2026-09-09 在被明确告知拟人化风险后选定的**温情型**，Codex 两轮独立地把它列为 blocking。已记为对铁律 2 的显式覆盖（`progress.md` 有专节，复核日 2026-11-28）。**不要因为看着像缺陷就顺手改掉。**
+
+### 6. 下回合接着做
+
+1. **T14-6 部署收尾**（全是机主操作）：重建爸爸站页面 → 部署 Cloudflare Worker → 执行 `docs/ops-autologon.md` → **真重启验收整条链**
+2. 然后才是 T12b 老人 UX 剩余项 / T12c 主屏图标 / T13 rhythm_dad / archive_dist 重打包 / 爸爸真机验收
+
+### 7. 环境现场（本会话结束时）
+
+- **在跑**：:8020 儿子站、:8021 爸爸站、:8022 tts、:8023 llm-proxy，四者 `-Status` 全 healthy
+- **未跑**：cloudflared 隧道
+- **已注册**：计划任务 `ImissuStartServices`（登录触发 + 60s 延迟，`LastTaskResult` 尚为"未运行过"，因为还没真重启）
+- 工程教训见 `findings.md` 末尾「T14-3/T14-4 自启任务与离线降级教训」
 
 ## ⓪¹² 增补（2026-09-09：T14-1/T14-2 完成——token 落盘 + 服务启动编排，最先看这段）
 

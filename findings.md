@@ -123,3 +123,34 @@ class ` 当锚点，吞掉了 DeepSeek 第一轮放在它后面的 `strip_bracke
 - **token 落到命令行 = 落到两处可读位置**：进程命令行（同用户任意进程可经 WMI 读）与计划任务 XML（`C:\Windows\System32\Tasks\` 普通用户可读）。加 `--tokens-file` 后实测生产进程命令行零 token。配套三条：文件来源的解析错误**不得回显原值**（`parse_viewer_tokens`/`parse_tokens` 都会原样打印非法输入，命令行来源无所谓、文件来源必须捕获 stderr 换成统一文案）；`utf-8-sig` 读（Windows BOM 已坑过一次）；**空值必须 fail-closed**（`TTS_TOKENS=` 空串会让鉴权静默关闭）。
 - **测试夹具用假数据会掩盖泄漏路径**：我用 `BADFORMAT_NO_COLON` 做非法值测试，看到 `Invalid --tokens entry: "BADFORMAT_NO_COLON"` 却没意识到那个位置在真实场景打印的**就是 token 本身**。Codex 一眼看出。夹具要用"长得像真凭据"的串（`SUPERSECRETTOKENVALUE123456`）才能让泄漏显形。
 - **客户端工具怪癖会把成功伪装成失败**：PowerShell 5.1 `Invoke-WebRequest` 处理二进制音频响应时抛异常，我据此报"correct token -> HTTP ERR"，而服务端日志明写 `status=200`。与 memory 里"curl --max-time 把永不结束伪装成成功"是镜像关系。**两侧证据对不上时，先怀疑测试客户端。**
+
+## T14-3/T14-4 自启任务与离线降级教训（2026-09-09→10，DeepSeek 6 轮 + Codex 3 轮 REJECT→ACCEPT）
+
+### 无人值守脚本
+
+- **`Start-Process -Wait` 等的是进程树，不是那个进程**。`-Run` 调 `start_services.ps1` 用了 `-Wait`，挂死 494 秒——因为 start_services 拉起的四个**常驻服务**是它的子进程，永不退出。而 start_services 自己早在 3 秒后就正常退出并写好了 `Summary: 4 ok`。判据：日志时间戳显示子脚本已完成，父脚本却还在等 → 一定是等错了对象。修法 `-PassThru`（不带 `-Wait`）+ `WaitForExit($ms)`，后者只等该进程本身。
+- **把「启动成功吗」和「返回了什么」两阶段检查合并 = 每次成功都判成失败**。写成 `$proc=$null; $code=$null; try{$proc=Start-Process...}catch{$code=1}; if($null -eq $proc -or $null -eq $code){当作启动失败}`。成功路径上 `$code` 本来就还是 `$null`（要等 `WaitForExit` 后才赋值），于是**每次健康启动都被记成 `exit=launch-failed`**，重试 3 次烧掉 240 秒，最后报 exit 1——而服务全都好好跑着。两个阶段必须分开判：启动只看 `$proc`，退出码等 `WaitForExit` 之后再看。
+- **「另一个实例持锁」不等于「服务在跑」**。Codex 两轮死咬这条：`start_services.ps1` 的 exit 3 既表示别人在干活，**也表示 mutex 获取本身抛了异常**；更要命的是上一次运行留下的、杀不掉的僵尸会**跨调用**持锁，进程内的 `$hadTimeout` 标志根本看不见它。最终修法是不再信退出码——收到 3 就去跑 `-Status` 实测四个服务，全 `[ ok ]` 才报成功。这是 T14-2「判据要三条件齐备」的延续：**凡是"我推测它没问题"，都要换成"我去看了它有没有问题"**。
+- **超时后 `Kill()` 必须验尸**。`try{$proc.Kill()}catch{}` 吞掉失败又不确认，僵尸就会带着锁活下去，把下一次的 exit 3 洗成成功。要 `WaitForExit(10000)` + `Refresh()`/`HasExited` 双重确认，确认不了就立即 exit 1 且**不再重试**（重试只会一直撞到那把锁）。
+
+### PowerShell / Windows 特有
+
+- **`Write-Host "{0} {1}" -f $a,$b` 缺括号 → `-f` 被当成 `-ForegroundColor` 缩写**，报 `Cannot convert ... to ConsoleColor`。格式化表达式必须整个套括号：`Write-Host ("..." -f $a,$b)`。
+- **任务计划用 `1999-11-30` 表示「从未运行」**，不是 `DateTime::MinValue`，naive 的 MinValue 判断会放它过去，运维看到 1999 年一脸问号。用 `Year -ge 2000` 兜。
+- **`Get-ScheduledTaskInfo` 的 `LastTaskResult` 是 UInt32**，所以 `-is [int]` **恒假**，人话翻译被静默跳过，只剩裸的 `267011`。别做类型测试，直接 `[int64]` 防御性转换。配套陷阱：转换时不能拿"信息不可用"的哨兵字符串 `'-'` 去转（会落进 catch 被写成 `-1`），要用独立变量，`$null` 时不碰原值。
+- **PS 5.1 的 `Get-Content`/`Set-Content` 往返会毁掉 UTF-8 无 BOM 文件里的中文**：读时按系统 ANSI(GBK) 解码，再以 utf8 写回 = 双重编码损坏。我用它 strip markdown 围栏，把 Worker 里的四句中文全毁了（grep 归零才发现）。**碰非 ASCII 文件一律用 Python 读写**，且 `Set-Content -Encoding utf8` 在 5.1 还会写 BOM。
+- **Git Bash 会把 `/v1/chat/completions` 这种参数转成 Windows 路径**（MSYS 路径转换，变成 `C:/Program Files/Git/v1/...`）。传以 `/` 开头的非路径参数时走 PowerShell。
+
+### 与模型协作的工艺
+
+- **全文重生成会丢掉上一轮的修复**。6 轮里丢过 2 次（`[int64]` 修复被冲掉、Status 段被整段换掉），还出过一次截断（409 行的半成品，语法直接坏）。**修复轮次一多就必须换区域规格**：按大括号配平提取目标块 → 只让模型重写这一块 → 自己 splice → 跑「关键符号仍在」断言。本轮 splice 后固定检查 `hadTimeout/killConfirmed/-Force/四个模式` 是否都还在，抓住过一次相邻代码被吞。
+- **计划任务指向的是磁盘上那个文件**。生成出语法坏的版本时，任务已经注册并指着它——那一刻若重启，服务起不来。**发现坏版本要立刻回滚**，别等修好再说。所以每轮生成前先 `Copy-Item` 备份，失败即还原。
+- **测试前提错了会把正确行为误判成 bug**。我等了两轮 45 秒没见到 TTS 降级提示，以为循环没跑；实际是探活打到了 `:8022`（测试页没传 `--tts-origin`，默认 auto）并返回 200，**首探成功本就该静默**。是 network 记录（而不是 console）指出请求真正去了哪。**判断"功能没生效"之前，先确认请求实际发到了哪、回了什么。**
+- **route-mock 比停服务更适合验降级**：`page.route('**/health', r => r.abort())` 直接造出冷启动，实测 16 秒出提示、`unroute` 后 12 秒出恢复提示，全程没碰真实服务。比停 TTS 再等 73 秒冷启动便宜得多。
+
+### 三层离线降级的设计
+
+- **没有任何一层能覆盖全部故障**：PC 关机要 Cloudflare Worker（PC 上的代码够不着）；用户自己断网要 Service Worker（请求根本出不去，Worker 也够不着）；TTS 冷启动要页面自身。三层缺一，就有一类故障让爸爸看见白页或英文报错。
+- **Worker 自造的响应必须带 `Cache-Control: no-store`**。否则 Cloudflare 边缘会把离线页缓存住，PC 回来了还继续发"她今天不在"——这是这套东西最坏的可能故障，比不做还糟。
+- **两层的兜底页必须行为等价**。Codex 抓到 Worker 版缺了「再试一次」按钮和恢复探针：哪层生效对读者不可见，若 Worker 版没探针，PC 恢复后他会一直盯着"她今天不在"。同一份文案存在两处，改一处必须改另一处（`grep -c` 核对已写进部署文档）。
+- **Service Worker 只能拦 navigate**。`/tts` 与 `/v1/chat/completions` 一旦被缓存重放，就等于让她说出当时根本没被问到的话——这是伦理红线，不是性能选项。离线页每 60 秒的 `HEAD` 探针同理必须放行，否则会从缓存拿到"通了"而跳回一个死站。

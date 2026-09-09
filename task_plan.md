@@ -283,16 +283,22 @@
   - 不传 `--intro-card` 时逐字节兼容，儿子版零影响（已实测）
   - **真机视口渲染验收**（Playwright iPhone 390×844）：全屏覆盖 390×844 / `position:fixed` / `z-index:9999` / 标题 26px·正文 20px·按钮 22px·按钮高 56px（均超 ≥18px 字、≥44px 触控要求）/ `elementFromPoint(中心)` 返回卡内 LI 证明真的挡住下层 / 点击后节点移除且输入框露出 / 重新导航后再次出现
   - 附带发现：`/health` 404 恰好证明 `ttsBase=location.origin` 生效（真实部署由 cloudflared ingress 路由到 8022）；`favicon.ico` 404 提醒 A1 主屏图标（#22 裁决 D1）仍是待办
-- ⬜ T12b 老人 UX 其余项：抽屉锁定 / 错误文案人话化 / TTS 周期重探 / 「她今天不在」离线页 / Access session 过期时 fetch 收到 302 跳登录页而非 401 的降级
+- ⬜ T12b 老人 UX 其余项：抽屉锁定 / 错误文案人话化 /（~~TTS 周期重探~~、~~「她今天不在」离线页~~ 已由 T14-4 交付）/ Access session 过期时 fetch 收到 302 跳登录页而非 401 的降级
 - ⬜ T12c A1 主屏 Web App：apple-touch-icon + manifest（#22 裁决 D1）
 - ⬜ T13 `rhythm_dad.json` 按家庭群语料重算（家庭群中位 20 字 vs 私聊 15 字）
-- 🔄 T14 运维自启（用户 09-09 裁决：自启方式取**开 Windows 自动登录**，已告知物理安全代价；token **加 --tokens-file**）
+- 🔄 T14 运维自启（代码层全部完成并经 Codex ACCEPT；**剩部署与真重启验收=T14-6**。用户 09-09 裁决：自启方式取**开 Windows 自动登录**，已告知物理安全代价；token **加 --tokens-file**）
   - ✅ **T14-1 token 落盘**（DeepSeek 各 2 轮 + Codex 各 REJECT→ACCEPT）：`tts_server.py` +61/-3、`llm_proxy.py` +52/-3 新增 `--tokens-file`；错误不回显原值 / `utf-8-sig` / 空值 fail-closed / 两文件解析语义对齐。**实测生产进程命令行零 token**
   - ✅ **T14-2 `scripts/start_services.ps1`**（新建 1031 行，DeepSeek 9 轮 + Codex 3×REJECT→ACCEPT）：五服务编排 + 三模式（启动/-Status/-Stop）；三条件 skip、非匹配进程占端口 fail-closed 不杀、单实例 mutex、精确命令行匹配杀进程树、超时清理、日志时间戳保留 10 组、隧道每次重启以确保连接可确认
   - ⚠️ 隧道路径**未活体验证**（启 cloudflared = 开公网入口，需机主授权）；`-Status` 的 tunnel 仅进程存在检查，**不证明入口可用**
-  - ⬜ T14-3 注册登录自启任务
-  - ⬜ T14-4 冷启动/离线降级页（「她今天不在」）
-  - ⬜ T14-5 自动登录 + Update 活动时段操作步骤（用户自行执行，Claude 不接触密码；现 ActiveHours 9→2，重启窗口即凌晨 2-9 点）
+  - ✅ **T14-3 `scripts/register_startup_task.ps1`**（新建 303 行，DeepSeek 6 轮 + Codex 2×REJECT→ACCEPT）：注册器与任务运行器**同一文件**（`-Register`/`-Unregister`/`-Status`/`-Run`，杜绝两文件版本漂移）；登录触发 + 60s 延迟、`Interactive`+`Limited` 不存密码、`-Force` 原子替换、`ExecutionTimeLimit PT1H`、`IgnoreNew`。`-Run` 三次重试（120s 间隔），**exit 2 不重试、exit 3 不轻信**（改为跑 `-Status` 实测四服务全 `[ ok ]` 才报成功）。**端到端实测**：任务计划器触发 → `LastTaskResult: 0 (all services up)`；`-Run` 2.6–3.2s 返回
+  - ✅ **T14-4 离线降级「她今天不在」四层**（DeepSeek 5 轮 + Codex REJECT→ACCEPT）：
+    - L1/L2 `deploy/cloudflare-worker/dad-offline.js`（PC 关机/502 → 中文页，API 路径返 JSON，**自造响应带 `Cache-Control: no-store`**）**未部署，需机主操作**
+    - L1'/L2' `people/mama_for_father/site/{offline.html,sw.js}`（用户自己断网 → SW 预缓存页；只拦 navigate，`/tts` 与 `/v1/chat/completions` **永不缓存重放**）
+    - L3/L4 `build_companion_page.py` `--offline-fallback` + TTS 探活改重试（15s×24，覆盖 73s 冷启动）
+    - **真浏览器实测**：SW 注册 scope `/` active → 停 :8021 → 显示「她今天不在」→ 恢复后自动跳回 companion.html；route-mock 造冷启动 → 16s 出提示、恢复 12s 出「她的声音准备好了。」；**儿子版默认参数产出零 SW 泄漏**（diff 仅重试改动）
+    - ⚠️ 文案取**温情型**（用户 09-09 裁决），Codex 两轮独立指出拟人化风险，记为对铁律 2 的**显式覆盖**，复核日与 #24 三项对齐（2026-11-28）
+  - ✅ **T14-5 `docs/ops-autologon.md`**（操作步骤，用户自行执行，Claude 全程不接触密码）：Autologon GUI（禁命令行传密码）+ **登录后自动锁屏任务**（把「物理接触即进桌面」降为「看到锁屏」，服务不受影响）+ ARSO 备选（不存密码但只覆盖补丁夜）+ 撤销与残余风险
+  - ⬜ **T14-6 部署收尾**（需机主操作）：按 `docs/ops-offline-fallback.md` 重建爸爸站页面（带 `--offline-fallback`，需 TTS token）+ 部署 Cloudflare Worker + 执行 T14-5 自动登录 + **真重启验收整条链**
 - ⬜ T15 知情同意：大字一页 + 当面演示 + 日期写入 facets
 - ⬜ T16 8A-2b b/d/e 欠账登记 + 三个月复核日（与 2026-11-28 对齐）
 

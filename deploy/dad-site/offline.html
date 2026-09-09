@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>她今天不在</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f5f0e8;
+    --text: #3d3833;
+    --muted: #6b645c;
+    --btn-bg: #e8e0d4;
+    --btn-text: #3d3833;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #2a2622;
+      --text: #e8e0d8;
+      --muted: #b0a89e;
+      --btn-bg: #4a443c;
+      --btn-text: #f0eae2;
+    }
+  }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+  }
+  body {
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  main {
+    width: 100%;
+    max-width: 34rem;
+    margin: 0 auto;
+    padding: calc(2rem + env(safe-area-inset-top)) calc(1.5rem + env(safe-area-inset-right)) calc(2rem + env(safe-area-inset-bottom)) calc(1.5rem + env(safe-area-inset-left));
+    text-align: center;
+    box-sizing: border-box;
+  }
+  h1 {
+    font-size: clamp(2rem, 8vw, 3.5rem);
+    font-weight: 600;
+    line-height: 1.3;
+    margin: 0 0 1.5rem;
+  }
+  p {
+    font-size: clamp(1.25rem, 4.5vw, 1.5rem);
+    line-height: 1.8;
+    margin: 0.8rem 0;
+  }
+  .fine-print {
+    font-size: clamp(0.875rem, 3vw, 1rem);
+    color: var(--muted);
+    line-height: 1.6;
+    margin-top: 3rem;
+  }
+  button {
+    font-family: inherit;
+    font-size: 1.125rem;
+    line-height: 1.4;
+    color: var(--btn-text);
+    background: var(--btn-bg);
+    border: none;
+    border-radius: 0.75rem;
+    min-width: 10rem;
+    min-height: 48px;
+    padding: 0.75rem 2rem;
+    margin-top: 2.5rem;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button:active {
+    opacity: 0.8;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>她今天不在</h1>
+  <p>等电脑醒过来，她就回来了。</p>
+  <p>明天再来看看吧。</p>
+  <button type="button" onclick="location.reload()">再试一次</button>
+  <p class="fine-print">这是家里那台电脑的事，不是她走了。</p>
+</main>
+<script>
+  (function() {
+    var probe = function() {
+      if (document.visibilityState !== 'visible') {
+        return;
+      }
+      try {
+        fetch('/companion.html', { method: 'HEAD', cache: 'no-store' })
+          .then(function(response) {
+            if (response.ok) {
+              location.replace('/companion.html');
+            }
+          })
+          .catch(function() {
+            // 网络不可用，静默忽略
+          });
+      } catch (e) {
+        // 静默忽略
+      }
+    };
+    probe();
+    setInterval(probe, 60000);
+  })();
+</script>
+</body>
+</html>
