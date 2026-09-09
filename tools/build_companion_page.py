@@ -1776,16 +1776,34 @@ function onNoMemoryToggle() {
 }
 __LLM_PROXY_HIDE_JS__/* ===== init ===== */
 function init() {
-  // face-frame load 接线
-  frame.addEventListener('load', function() {
+  // face-frame 样式注入：隐藏 avatar 页自带的播放器 UI，只留脸。
+  // scale(0.67) 与 #face-frame 的 200px 高度是一对：avatar 内容原高约 292px，
+  // 缩到 ~196px 才装得下。**只改其中一个会变成裁剪而不是缩小**（2026-09-10 事故）。
+  function injectFaceCss() {
     try {
-      var doc = frame.contentWindow.document;
+      var doc = frame.contentWindow && frame.contentWindow.document;
+      if (!doc || !doc.head) return;
+      // 以「样式节点是否还在」为准，不用一次性布尔量：iframe 若重新加载，
+      // 注入的 style 会随旧文档一起消失，必须能再注入一次。
+      if (doc.getElementById('companion-face-css')) { faceReady = true; return; }
       var st = doc.createElement('style');
-      st.textContent = '.now-playing,.controls,.playlist,footer{display:none!important;} main{padding:0!important;justify-content:center;min-height:auto;} body{background:transparent!important;overflow:hidden;}';
+      st.id = 'companion-face-css';
+      st.textContent = '.now-playing,.controls,.playlist,footer{display:none!important;} main{padding:0!important;justify-content:center;min-height:auto;transform:scale(0.67);transform-origin:top center;} body{background:transparent!important;overflow:hidden;}';
       doc.head.appendChild(st);
       faceReady = true;
     } catch(e) { faceReady = false; /* 跨源等异常：降级仅播声不驱动嘴 */ }
-  });
+  }
+  // 三重保险。2026-09-10 事故：原先只挂 load 一处，iframe 若在注册监听之前就
+  // 加载完（缓存命中/快网），load 永不再触发，注入落空 —— 用户看到的不是脸，
+  // 而是 avatar 页自带的播放列表 UI，还能误点播放键放出真实录音。本地与真机均已复现。
+  frame.addEventListener('load', injectFaceCss);   // 覆盖首次加载与后续任何重载
+  injectFaceCss();                                 // 覆盖「load 已经过去了」
+  var faceCssTries = 0;                            // 覆盖「文档还没建好」
+  var faceCssTimer = setInterval(function() {
+    faceCssTries += 1;
+    injectFaceCss();
+    if (faceReady || faceCssTries >= 40) { clearInterval(faceCssTimer); }
+  }, 250);
 
   // file:// 拦截提示
   if (location.protocol === 'file:') {
