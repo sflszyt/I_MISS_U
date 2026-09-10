@@ -991,7 +991,7 @@ try {
 
     # Service 3: tts (port 8022) - must use venv python
     $ttsPatterns = @($TtsScript)
-    $ttsArgs = @('-X', 'utf8', $TtsScript, '--tokens-file', $TokensFile)
+    $ttsArgs = @('-X', 'utf8', $TtsScript, '--tokens-file', $TokensFile, '--sessions-out-dir', (Join-Path $SonSiteDir 'sessions_data'), '--sessions-per-viewer-subdir')
     Start-PortService -Name 'tts' -DisplayName 'tts' -Port $TtsPort `
         -ExePath $VenvPython `
         -ArgumentList $ttsArgs `

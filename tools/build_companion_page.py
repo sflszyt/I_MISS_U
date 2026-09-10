@@ -853,7 +853,7 @@ function loadKnowledge() {
       .then(function(data) { if (data && Array.isArray(data.entries)) out[key] = data.entries; })
       .catch(function() {});
   };
-  var loadSessions = fetch('data/sessions_' + VIEWER + '.json', {cache: 'no-cache'})
+  var loadSessions = fetch('__SESSIONS_PATH__', {cache: 'no-cache'})
     .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
     .then(function(data) {
       if (data && data.viewer === VIEWER) {
@@ -1919,11 +1919,14 @@ _INTRO_CARD_JS = """(function(){
 
 
 def build(person: str, archive_dir: str, viewer: str, context_path: str = 'data/chat_context.json',
+          sessions_path: str = '',
           out_name: str = 'companion.html', lang: str = 'mandarin',
           tts_origin: str = 'auto', tts_token: str = '',
           intro_card: bool = False, intro_builder: str = '家人',
           llm_proxy: str = '', offline_fallback: bool = False) -> str:
     """Render companion.html content."""
+    if not sessions_path:
+        sessions_path = f'data/sessions_{viewer}.json'
     storage_key = 'companion_' + person + '_byok'
     if viewer != 'owner':
         storage_key += '_' + viewer
@@ -2066,6 +2069,7 @@ def build(person: str, archive_dir: str, viewer: str, context_path: str = 'data/
         '__STORAGE_KEY__': storage_key,
         '__VIEWER__': viewer,
         '__CONTEXT_PATH__': context_path,
+        '__SESSIONS_PATH__': sessions_path,
         '__TTS_LANG__': lang,
         '__TTS_BASE_EXPR__': tts_base_expr,
         '__PAGE_TAG__': page_tag,
@@ -2091,6 +2095,8 @@ def main() -> int:
     parser.add_argument('--person', required=True, help='Person slug')
     parser.add_argument('--archive-dir', default='archive_out', help='Archive directory (default: archive_out)')
     parser.add_argument('--viewer', default='owner', help='Viewer identity (default: owner)')
+    parser.add_argument('--sessions-path', default='',
+                        help='sessions 文件路径（默认 data/sessions_<viewer>.json）')
     parser.add_argument('--context-path', default='data/chat_context.json',
                         help='页面加载的 context 路径，相对页面（默认 data/chat_context.json）')
     parser.add_argument('--out-name', default='companion.html', help='输出文件名（默认 companion.html）')
@@ -2125,6 +2131,16 @@ def main() -> int:
     segments = args.context_path.split('/')
     if any(seg in ('.', '..') for seg in segments):
         print(f'错误：--context-path 参数 "{args.context_path}" 不能包含 "." 或 ".." 段', file=sys.stderr)
+        return 2
+
+    if not args.sessions_path:
+        args.sessions_path = f'data/sessions_{args.viewer}.json'
+    if not _CONTEXT_PATH_RE.fullmatch(args.sessions_path) or '%' in args.sessions_path:
+        print(f'错误：--sessions-path 参数 "{args.sessions_path}" 不符合安全路径规范', file=sys.stderr)
+        return 2
+    sessions_segments = args.sessions_path.split('/')
+    if any(seg in ('.', '..') for seg in sessions_segments):
+        print(f'错误：--sessions-path 参数 "{args.sessions_path}" 不能包含 "." 或 ".." 段', file=sys.stderr)
         return 2
 
     # Validate out-name
@@ -2166,7 +2182,8 @@ def main() -> int:
         return 1
 
     html = build(args.person, args.archive_dir, args.viewer,
-                 context_path=args.context_path, out_name=args.out_name,
+                 context_path=args.context_path, sessions_path=args.sessions_path,
+                 out_name=args.out_name,
                  lang=args.lang, tts_origin=args.tts_origin,
                  tts_token=args.tts_token,
                  intro_card=args.intro_card, intro_builder=args.intro_builder,

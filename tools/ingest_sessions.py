@@ -628,21 +628,75 @@ def ingest(person_dir, out_dir, **opts):
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    written_files = []
-    for viewer, payload in payloads.items():
-        fname = f"sessions_{viewer}.json"
-        write_atomic_json(out_dir / fname, payload)
-        written_files.append(fname)
+    per_viewer_subdir = bool(opts.get("per_viewer_subdir", False))
 
-    # Delete stale matching files in out_dir that were not written
-    written_set = set(written_files)
+    written_files = []
+    written_viewers = set()
+    for viewer, payload in payloads.items():
+        if per_viewer_subdir:
+            viewer_dir = out_dir / viewer
+            viewer_dir.mkdir(parents=True, exist_ok=True)
+            write_atomic_json(viewer_dir / "sessions.json", payload)
+            written_files.append(f"{viewer}/sessions.json")
+        else:
+            fname = f"sessions_{viewer}.json"
+            write_atomic_json(out_dir / fname, payload)
+            written_files.append(fname)
+        written_viewers.add(viewer)
+
     deleted_files = []
-    if out_dir.exists():
-        for existing in out_dir.iterdir():
-            if existing.is_file() and OUT_NAME_RE.match(existing.name):
-                if existing.name not in written_set:
-                    existing.unlink()
-                    deleted_files.append(existing.name)
+    if per_viewer_subdir:
+        # Per-viewer layout: the only managed artifact is
+        # <out_dir>/<viewer>/sessions.json. Never remove the viewer directory
+        # itself (it may also hold e.g. <viewer>/audio/), never touch files
+        # directly inside <out_dir>, and never recurse.
+        if out_dir.exists():
+            try:
+                resolved_out_dir = out_dir.resolve()
+            except (OSError, RuntimeError):
+                # 解析不了 out_dir 就整体不清理（fail-safe：宁可不删，绝不误删）
+                resolved_out_dir = None
+            for existing in out_dir.iterdir():
+                # is_dir() / is_file() 都会跟随符号链接和 Windows 目录联接（Junction）。
+                # 必须先确认该目录解析后真实位于 out_dir 内，否则 target.unlink()
+                # 删掉的会是联接目标目录里的文件。
+                # 注意：Junction 的 is_symlink() 为 False，且 Python 3.10 没有
+                # Path.is_junction()，因此只能用 resolve() 后的父目录约束来判断。
+                if resolved_out_dir is None:
+                    continue
+                try:
+                    resolved_existing = existing.resolve()
+                except (OSError, RuntimeError):
+                    # 路径异常 / 权限不足：跳过该目录，不删不报错
+                    continue
+                # 注意：这里不能用「解析后的父目录 == 解析后的 out_dir」这种父目录约束。
+                # 同一 out_dir 内的 junction 别名（例如 out/ghost 指向 out/owner）解析后
+                # 父目录依然是 out，能够通过父目录检查；而它不在本次的 written_viewers 中，
+                # 于是会被当作 stale 执行 unlink，实际删掉的是刚刚生成的 owner/sessions.json。
+                # 因此必须改成目录身份约束：解析后的路径必须等于「out_dir 解析后 + 该目录自己的名字」，
+                # 即该目录必须是「它自己」，而不是指向别处（哪怕别处也在 out_dir 内）的别名。
+                if resolved_existing != resolved_out_dir / existing.name:
+                    continue
+                if not existing.is_dir():
+                    continue
+                if not VIEWER_RE.fullmatch(existing.name):
+                    continue
+                if existing.name in written_viewers:
+                    continue
+                target = existing / "sessions.json"
+                if not target.is_file():
+                    continue
+                target.unlink()
+                deleted_files.append(f"{existing.name}/sessions.json")
+    else:
+        # Delete stale matching files in out_dir that were not written
+        written_set = set(written_files)
+        if out_dir.exists():
+            for existing in out_dir.iterdir():
+                if existing.is_file() and OUT_NAME_RE.match(existing.name):
+                    if existing.name not in written_set:
+                        existing.unlink()
+                        deleted_files.append(existing.name)
 
     return {
         "written": written_files,
@@ -662,6 +716,15 @@ def main(argv=None):
     parser.add_argument("--card-line-chars", type=int, default=120)
     parser.add_argument("--exchange-chars", type=int, default=200)
     parser.add_argument("--dry-run", action="store_true", help="only print stats")
+    parser.add_argument(
+        "--per-viewer-subdir",
+        action="store_true",
+        default=False,
+        help=(
+            "Write each viewer's artifacts to <out-dir>/<viewer>/sessions.json "
+            "instead of <out-dir>/sessions_<viewer>.json."
+        ),
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -715,6 +778,7 @@ def main(argv=None):
         card_max_lines=args.card_max_lines,
         card_line_chars=args.card_line_chars,
         exchange_chars=args.exchange_chars,
+        per_viewer_subdir=args.per_viewer_subdir,
     )
     # Print summary to stderr
     print("written: %s" % ",".join(result["written"]), file=sys.stderr)
@@ -726,9 +790,10 @@ def main(argv=None):
 class SessionsIngestScheduler:
     """去抖调度器：会话日志频繁写入时，把多次请求合并成一次摄入。"""
 
-    def __init__(self, person_dir, out_dir, delay_s=5.0, runner=None, log=print):
+    def __init__(self, person_dir, out_dir, delay_s=5.0, runner=None, log=print, per_viewer_subdir=False):
         self._person_dir = person_dir
         self._out_dir = out_dir
+        self._per_viewer_subdir = per_viewer_subdir
         self._delay_s = max(0.0, float(delay_s))
         self._log = log if log is not None else print
         self._lock = threading.Lock()
@@ -739,7 +804,7 @@ class SessionsIngestScheduler:
         if runner is not None:
             self._runner = runner
         else:
-            self._runner = lambda: ingest(person_dir, out_dir)
+            self._runner = lambda: ingest(person_dir, out_dir, per_viewer_subdir=per_viewer_subdir)
 
     def _timed_callback(self):
         """Called by the timer thread when delay elapses."""

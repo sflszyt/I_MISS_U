@@ -155,6 +155,46 @@ class ` 当锚点，吞掉了 DeepSeek 第一轮放在它后面的 `strip_bracke
 - **两层的兜底页必须行为等价**。Codex 抓到 Worker 版缺了「再试一次」按钮和恢复探针：哪层生效对读者不可见，若 Worker 版没探针，PC 恢复后他会一直盯着"她今天不在"。同一份文案存在两处，改一处必须改另一处（`grep -c` 核对已写进部署文档）。
 - **Service Worker 只能拦 navigate**。`/tts` 与 `/v1/chat/completions` 一旦被缓存重放，就等于让她说出当时根本没被问到的话——这是伦理红线，不是性能选项。离线页每 60 秒的 `HEAD` 探针同理必须放行，否则会从缓存拿到"通了"而跳回一个死站。
 
+## 隐私隔离：分了文件却没分访问边界 · 2026-09-10
+
+**现象**：为实现「刷新后聊天记录还在」去查数据链路时，顺手测了一下爸爸站能访问什么，
+结果 `GET /data/sessions_owner.json` 返回 **HTTP 200、17KB、5 个 session**——
+儿子与逝者数字人的全部私人对话，爸爸站可直接读取。
+
+**根因不是没做隔离，而是隔离只做了一半**。`ingest_sessions.py` 特意按 `(viewer, session_id)` 分组、
+按 viewer 分文件；`chat_context` 也特意分了目录（`data_father/`）。**唯独 sessions 的两份文件
+都落在共享的 `archive_out/data/` 里**，而爸爸站的 `data` 是指向该目录的 Windows 目录联接。
+**分了文件，没分访问边界。**
+
+**为什么必须是目录而不是单文件链接**：Windows 上创建文件符号链接需要特权，实测 `ln -s` 返回
+`Operation not permitted`，且 **MSYS 会静默 fallback 成普通副本**——那会变成一份不再同步的死数据，
+比不做更危险。目录联接（Junction）无需特权，所以隔离粒度只能是目录：
+`sessions_data/<viewer>/sessions.json`，爸爸站只联接 `father` 那一个子目录。
+
+**Codex 三轮共开 4 个 BLOCKER，其中两个是我自己测不出来的**：
+1. **`build_archive.py` 会把新布局打进可分发档案**——旧排除逻辑只按文件名匹配 `sessions_<viewer>.json`，
+   而新布局的文件名就叫 `sessions.json`。（后来核实我们的实际落点在 `data/` 之外，不触发；修复保留为纵深防御。）
+2. **stale 清理跟随目录联接**——`is_dir()`/`is_file()` 都会跟随链接，删的是链接目标里的文件。
+   注意 `is_symlink()` 对 Windows Junction 返回 **False**，`Path.is_junction()` 3.12 才有（本项目 3.10），
+   所以只能用 `resolve()` 约束。
+3. **同一输出根内的别名**——这条我漏了。我只测了「联接指向 out_dir 外部」，而 `out/ghost` 联接到
+   `out/owner` 时，解析后父目录**仍然等于 out**，能通过父目录检查，于是删掉刚生成的 `owner/sessions.json`。
+   修法是把父目录约束升级为**目录身份约束**：`resolved_existing != resolved_out_dir / existing.name` 即跳过。
+   Codex 是用内存模拟文件系统跑出这条分支的。
+4. **持久启动入口会把隔离冲掉**——`start_services.ps1` 的 tts 启动参数没带新 flag，
+   机器一重启就用旧布局重写产物。**「再跑一次启动脚本」不等于重启**：脚本会跳过健康的现有进程，
+   必须确认旧进程树退出、新进程真的携带新参数。
+
+**部署顺序有竞态**（Codex 纠正）：必须**先停旧 tts** 再删旧文件，否则旧进程的去抖摄入会把刚删的文件重建。
+
+**验收实测**：爸爸站 `data/sessions_owner.json`、`data/sessions_father.json`、
+`sessions_data/owner/sessions.json`、`sessions_data/father/sessions.json` **全部 404**；
+`data_father/sessions/sessions.json` 200 且 `viewer=father`；儿子站新路径 200 且 `viewer=owner`；
+tts 启动摄入后共享 `data/` 下**没有**重新出现会话文件。两站页面重建后 diff **各只有一行变化**（sessions fetch 路径）。
+
+**教训**：**「按 viewer 分文件」不等于「按 viewer 隔离」。** 判据不是数据怎么组织的，
+而是「另一个 viewer 的 HTTP 请求能不能拿到它」——这个只能实际发请求去测。
+
 ## 502 语义冲突：llm_proxy 与 Worker 抢同一个状态码 · 2026-09-10
 
 **现象**：缓存三层刚上线，用户报「接口错误 503：{"error":"origin_unavailable"}」。时间上紧跟改动，第一反应是回滚嫌疑。

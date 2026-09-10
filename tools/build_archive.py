@@ -16,6 +16,7 @@ EXTERNAL_SRC_RE = re.compile(r"""(?:src|href)\s*=\s*["'](?:https?:)?//""")
 EXTERNAL_SRCSET_RE = re.compile(r"""srcset\s*=\s*["'][^"']*(?:https?:)?//""")
 EXTERNAL_CSSURL_RE = re.compile(r"""url\(\s*["']?(?:https?:)?//""")
 SESSIONS_FILE_RE = re.compile(r"^sessions_[a-z][a-z0-9_-]{0,31}\.json$")
+VIEWER_DIR_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
 FILE_ENCODING = "utf-8"
 CHUNK_SIZE = 1024 * 1024
@@ -134,8 +135,25 @@ class Reporter:
                 print(f"    {a}")
 
 
-def _is_sessions_file(p: Path) -> bool:
-    return SESSIONS_FILE_RE.match(p.name) is not None
+def _is_sessions_file(p: Path, data_root: Path) -> bool:
+    """会话产物一律不得进入可分发档案。
+
+    按相对 data 根的路径分段判定，同时覆盖两种布局：
+      - data/sessions_<viewer>.json        （1 段）
+      - data/<viewer>/sessions.json        （2 段）
+    data/ 下一级的、目录名合法的任何 sessions.json 一律按会话产物排除（这是有意的保守，因为该路径形式被约定保留给会话产物），
+    更深层级的任何 sessions.json 也一律不排除。
+    """
+    try:
+        parts = p.relative_to(data_root).parts
+    except ValueError:
+        # 不在 data 根之下：不参与会话产物排除判定
+        return False
+    if len(parts) == 1:
+        return SESSIONS_FILE_RE.match(parts[0]) is not None
+    if len(parts) == 2:
+        return VIEWER_DIR_RE.match(parts[0]) is not None and parts[1] == "sessions.json"
+    return False
 
 
 def copy_tree_whitelist(src: Path, dst: Path, reporter: Reporter) -> bool:
@@ -152,7 +170,7 @@ def copy_tree_whitelist(src: Path, dst: Path, reporter: Reporter) -> bool:
     data_src = src / "data"
     if data_src.is_dir():
         for p in data_src.rglob("*"):
-            if p.is_file() and not _is_sessions_file(p):
+            if p.is_file() and not _is_sessions_file(p, data_src):
                 expected_files.add(str(p.relative_to(src)).replace(os.sep, "/"))
 
     generated_and_text = [
@@ -185,7 +203,7 @@ def copy_tree_whitelist(src: Path, dst: Path, reporter: Reporter) -> bool:
         reporter.copy(src / name, dst / name)
     if data_src.is_dir():
         for src_path in sorted(data_src.rglob("*")):
-            if src_path.is_file() and not _is_sessions_file(src_path):
+            if src_path.is_file() and not _is_sessions_file(src_path, data_src):
                 rel = src_path.relative_to(src)
                 dst_path = dst / rel
                 if not reporter.dry_run:

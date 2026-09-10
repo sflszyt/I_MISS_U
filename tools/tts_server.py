@@ -619,6 +619,7 @@ def main():
     parser.add_argument('--no-session-log', action='store_true')
     parser.add_argument('--sessions-out-dir', default='')
     parser.add_argument('--no-sessions-ingest', action='store_true')
+    parser.add_argument('--sessions-per-viewer-subdir', action='store_true')
     args = parser.parse_args()
 
     provided_token_args = [
@@ -678,7 +679,9 @@ def main():
         err = ingest_sessions.validate_paths(person_dir, out_dir)
         if err is not None:
             sys.exit(err)
-        service.sessions_ingest = SessionsIngestScheduler(person_dir, out_dir, delay_s=5.0)
+        service.sessions_ingest = SessionsIngestScheduler(
+            person_dir, out_dir, delay_s=5.0,
+            per_viewer_subdir=args.sessions_per_viewer_subdir)
         if not service.sessions_ingest.run_now():
             print('Warning: initial sessions ingest failed', flush=True)
 

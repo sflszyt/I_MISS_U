@@ -1,5 +1,31 @@
 # MVP 生产进度日志
 
+## 2026-09-10 · 会话数据 viewer 隔离（修复爸爸站可读儿子私人对话）
+
+**起因**：用户要求「刷新后聊天记录还在」+「历史语音条可播放」。查数据链路时顺手测出
+爸爸站可直接 `GET /data/sessions_owner.json` → **HTTP 200、17KB、5 个 session**（儿子与数字人的全部对话）。
+ingest 特意按 viewer 分了文件，但两份都落在共享 `data/` 里，而爸爸站的 `data` 是指向它的目录联接——
+**分了文件，没分访问边界**。
+
+**改动**（DeepSeek 写 + Codex 三轮 REJECT→ACCEPT）：
+- `ingest_sessions.py` `--per-viewer-subdir`：产物写 `<out>/<viewer>/sessions.json`；stale 清理用**目录身份约束**防联接穿透
+- `tts_server.py` `--sessions-per-viewer-subdir`：透传给自动摄入调度器（漏了则爸爸再说一句话就把隔离冲掉）
+- `build_companion_page.py` `--sessions-path`：页面路径参数化，`build()` 内外双重补默认值
+- `build_archive.py`：排除逻辑改 path-aware（纵深防御）
+- `start_services.ps1`：tts 启动参数补两个新 flag（第 994 行，文件仍 1037 行全 CRLF）
+- `tests/e2e/companion_sessions.spec.js`：夹具改拦新路径（旧夹具迁移后会漏拦真实请求 = 假绿）
+
+**Codex 抓的两个我测不出来的 BLOCKER**：① 同一输出根内的联接别名（`out/ghost`→`out/owner`，
+解析后父目录仍等于 out，会删掉刚生成的 owner 产物；我只测了指向外部的情形）；
+② 持久启动入口没带新参数，**「再跑一次启动脚本」不等于重启**（脚本跳过健康进程）。
+
+**部署**（按 Codex 纠正的顺序，先停 tts 避免去抖摄入重建旧文件）：停 tts 树 → ingest 新布局 →
+建 `data_father/sessions` 联接（**只指向 father 子目录**）→ 重建两站页面 → 删四个旧文件 → 起 tts。
+
+**实测**：爸爸站四条 owner/旧路径**全 404**，自己那条 200 且 `viewer=father`；儿子站新路径 200 `viewer=owner`；
+tts 启动摄入后共享 `data/` 无残留；两站页面 diff **各只有一行变化**；36 个单测全过；
+tts 进程命令行确认携带两个新 flag。
+
 ## 2026-09-10 · 502 语义冲突修复（424 约定）+ ingress 走 IPv4
 
 缓存三层上线后用户报「接口错误 503：origin_unavailable」。**诊断结论：与缓存改动无关。** 真因是 `llm_proxy` 用 502 表示"上游 LLM 失败"，而 Worker 的 `ORIGIN_DOWN_STATUS` 用 502 表示"家里 PC 关机"——同一个码两种语义。DeepSeek 超时 11.3 秒 → 502 → Worker 把真实错误吞掉换成兜底 JSON。

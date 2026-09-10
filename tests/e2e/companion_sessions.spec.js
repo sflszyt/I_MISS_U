@@ -59,7 +59,7 @@ async function setupRoutes(page, sink, sessionsBody) {
   await page.route('**/data/memories.json', r => r.fulfill(json({ entries: [] })));
   await page.route('**/data/transcripts.json', r => r.fulfill(json({ entries: [] })));
   await page.route('**/data/avatar/emotions.json', r => r.fulfill({ status: 404, body: '' }));
-  await page.route('**/data/sessions_owner.json', r =>
+  await page.route('**/sessions_data/owner/sessions.json', r =>
     sessionsBody ? r.fulfill({ status: 200, contentType: 'application/json', body: sessionsBody })
                  : r.fulfill({ status: 404, body: '' }));
   await page.route('**/health', r => r.fulfill(json({ status: 'ok' })));
