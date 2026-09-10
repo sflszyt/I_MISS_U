@@ -85,4 +85,36 @@ self.addEventListener('fetch', function (event) {
         return cachedOffline();
       })
   );
+
+  // Background warm-up for the two big HTML entry points. The origin server
+  // sends no Cache-Control, so the browser falls back to heuristic freshness
+  // (10% of now - Last-Modified) and keeps handing back the old page after a
+  // site rebuild. A plain fetch(url, { cache: 'no-cache' }) forces a
+  // conditional request, which makes the browser's own HTTP cache layer
+  // refresh its records for these two URLs with whatever the server has now.
+  //
+  // These are ordinary fetches built from a URL string, deliberately NOT a
+  // rebuilt navigation request: the Fetch spec says that constructing a
+  // Request whose mode is 'navigate' together with a non-empty init downgrades
+  // mode to 'same-origin', which changes the redirect semantics - the SW would
+  // then follow Cloudflare Access' 302 to the login page itself and hand a
+  // redirected:true response to respondWith, the browser would throw a
+  // TypeError, and she would not be able to get into the site at all. That is
+  // also why the main chain above stays a single-argument fetch(event.request)
+  // and why event.request is never wrapped or modified.
+  //
+  // The bodies are discarded on purpose: nothing here touches Cache Storage,
+  // and her voice and the persona's replies are never cached or replayed
+  // anywhere - offline.html remains the only stored entry. Every fetch has
+  // its own .catch so an offline warm-up failure cannot turn this waitUntil
+  // into a rejection (which would spew console errors), and the joined
+  // Promise.all gets one more .catch for the same reason.
+  event.waitUntil(
+    Promise.all([
+      fetch('/companion.html', { cache: 'no-cache' })
+        .catch(function () {}),
+      fetch('/avatar.html', { cache: 'no-cache' })
+        .catch(function () {})
+    ]).catch(function () {})
+  );
 });

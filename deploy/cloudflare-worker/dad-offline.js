@@ -120,6 +120,15 @@ const ORIGIN_DOWN_STATUS = new Set([
   502, 503, 504, 521, 522, 523, 524, 530
 ]);
 
+const CACHE_CONTROL_REVALIDATE = "no-cache, must-revalidate";
+
+// These statuses are defined as body-less, and the Response constructor throws a
+// TypeError if a body is attached to one of them. "no-cache" makes conditional
+// requests (and therefore 304s) the normal case, so this path is hot, not rare.
+const NULL_BODY_STATUS = new Set([
+  101, 204, 205, 304
+]);
+
 function buildOfflineResponse(url) {
   const pathname = new URL(url).pathname;
   const status = 503;
@@ -139,14 +148,97 @@ function buildOfflineResponse(url) {
   return new Response(OFFLINE_HTML, { status: status, headers: headers });
 }
 
+// python -m http.server sends no Cache-Control, so browsers fall back to
+// heuristic freshness (10% of the Last-Modified age) and Cloudflare caches .js
+// by extension. After a rebuild both keep serving the old page, which also means
+// the fix (sw.js) can't reach the user. Only these three path classes get a
+// header; everything else stays exactly as the origin sent it.
+function pathNeedsRevalidation(pathname) {
+  if (pathname === "/" || pathname.endsWith(".html")) {
+    return true;
+  }
+  if (pathname === "/sw.js") {
+    return true;
+  }
+  if (pathname.startsWith("/data/") && pathname.endsWith(".json")) {
+    return true;
+  }
+  return false;
+}
+
+// "no-cache" rather than "no-store" on purpose: the browser keeps its copy and
+// revalidates, so avatar.html (387KB) can come back as a 304 instead of being
+// re-downloaded in full on the user's mobile data.
+function withRevalidation(response) {
+  // Headers on a fetched Response are immutable, and a Response built from the
+  // original body is the only mutable copy we get.
+  const body = NULL_BODY_STATUS.has(response.status) ? null : response.body;
+  const rewritten = new Response(body, response);
+  rewritten.headers.set("Cache-Control", CACHE_CONTROL_REVALIDATE);
+  return rewritten;
+}
+
 export default {
   async fetch(request) {
     try {
-      const response = await fetch(request);
+      // Parsed before the fetch because it decides whether the edge cache needs
+      // bypassing; a parse failure must not skip the fetch itself.
+      let pathname = "";
+      try {
+        pathname = new URL(request.url).pathname;
+      } catch (e) {
+        pathname = "";
+      }
+      const revalidate = pathNeedsRevalidation(pathname);
+
+      // A navigation is never the "load sw.js" fetch we are trying to fix, and
+      // a rebuild of it is the one thing that must not happen here.
+      const isNavigation =
+        request.mode === "navigate" ||
+        request.headers.get("Sec-Fetch-Mode") === "navigate";
+
+      // Only /sw.js gets the cf override, because .js is the only one of the
+      // three revalidated path classes that is on Cloudflare's default
+      // cache-by-extension list; .html and /data/*.json are not cached at the
+      // edge at all, so a cf override there would be pure risk for no effect.
+      // Every other request keeps the single-argument fetch(request) call:
+      // passing an init rebuilds the request via `new Request(request, init)`,
+      // which downgrades mode "navigate" to "same-origin" and changes redirect
+      // handling. Access answers a signed-out visit with a 302, and it is the
+      // untouched incoming request (redirect "manual") that lets that 302 reach
+      // the browser; rebuilding it risks a throw that lands in the outer catch
+      // and shows the offline page instead of the Access login page.
+      const edgeBypass = pathname === "/sw.js" && !isNavigation;
+      const response = edgeBypass
+        ? await fetch(request, { cf: { cacheTtl: 0 } })
+        : await fetch(request);
+
       if (ORIGIN_DOWN_STATUS.has(response.status)) {
         return buildOfflineResponse(request.url);
       }
-      return response;
+
+      // 3xx, 401 and 403 are Cloudflare Access's login flow, not cacheable
+      // content: rewriting their headers could break the round trip that gets a
+      // signed-out visitor to the login page and back, so they pass through
+      // untouched. 304 must stay out of this gate — under "no-cache" it is the
+      // ordinary answer to a revalidation, and leaving it unrewritten would drop
+      // the header on the most frequently served response of all.
+      if (
+        !revalidate ||
+        ((response.status >= 300 && response.status < 400) && response.status !== 304) ||
+        response.status === 401 ||
+        response.status === 403
+      ) {
+        return response;
+      }
+
+      // The header rewrite is cosmetic next to site availability: if it throws,
+      // hand back the untouched origin response instead of a Worker error page.
+      try {
+        return withRevalidation(response);
+      } catch (e) {
+        return response;
+      }
     } catch (e) {
       return buildOfflineResponse(request.url);
     }

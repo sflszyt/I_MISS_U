@@ -174,7 +174,12 @@ at init (companion.html:1809:3)
 1. 重建任何经浏览器消费的页面后，验收**必须**绕开 HTTP 缓存（`?cb=<ts>` 或强刷），否则验的是上一版，且所有 DOM 断言都会"合理地"失败并把你引向错误的根因。
 2. **栈回溯里的行号是判断页面版本的硬证据**，比 md5 对账更直接（md5 对的是服务器，行号对的是浏览器里真正在跑的那份）。
 3. 网络日志里没有 `/sw.js` 请求**不能**证明 register 没被调用——SW 脚本请求不走页面上下文，Playwright 的 page-level 网络日志抓不到。当时差点据此下错结论。
-4. 未决口子：`http.server` 没法加响应头，要给 HTML 加 `no-cache` 得写自定义 handler（属代码改动，须走 DeepSeek + Codex）。在此之前，**爸爸设备若打开过旧页面，重建后不会自动拿到新页**（也就没有 SW、没有离线兜底），须强刷或发带 `?cb=` 的链接。
+4. ~~未决口子~~ **已于同日收口（DeepSeek 写 + Codex 两轮 REJECT→ACCEPT）**：三层同治，爸爸不必再强刷。
+   - **源站** 新建 `tools/static_server.py`（60 行，`SimpleHTTPRequestHandler` 子类覆盖 `end_headers`）替掉 `python -m http.server`，对 HTML / `sw.js` / `data/*.json` 发 `no-cache, must-revalidate`，媒体不发。`ThreadingHTTPServer` 与 `If-Modified-Since` → 304 均保留。
+   - **边缘** Worker 出口对同样三类改写该头。
+   - **SW** 每次 navigate 用 `event.waitUntil()` 后台 `fetch(url, {cache:'no-cache'})` 预热两个 HTML，冲掉设备上的存量旧缓存——这一层才是解决"爸爸手机上已经缓存了旧页"的那一环，前两层只管新请求。
+   - **换服务器的隐藏代价**：`start_services.ps1` 靠命令行子串 AND 匹配做 fail-closed 判据，`http.server 8021` 这个模式在 **3 处**出现（健康检查 / `-Stop` / 启动）。漏改一处就会「自己起的进程被当成外来进程」→ 拒绝启动。两站共用同一脚本文件，仅靠脚本路径已无法区分，改用 `@($StaticServer, '--port 8021', $DadSiteDir)` 三元 AND。已用真实 `Start-Process` 起进程读 `Win32_Process.CommandLine` 实测：`--port 8032` 确为连续子串、负例不匹配。
+   - **踩到并绕开的雷**：`fetch(navigateRequest, {cache:'reload'})` 看似是最直接的修法，实则致命——按 Fetch 规范，用非空 init 重构造 `mode: 'navigate'` 的 Request 会把 mode 降级为 `same-origin`，redirect 语义随之改变，SW 会自己跟随 Cloudflare Access 的 302 并把 `redirected:true` 的响应交给 `respondWith`，浏览器抛 TypeError，**爸爸直接登不进站**。Codex 首轮 REJECT 抓的正是 Worker 里同源的 `fetch(request, {cf:...})`。结论：**这条链路上任何"给请求加个 init"的顺手改动都要先问一句会不会动到 navigate 语义。**
 
 ## 爸爸站首测四问题：#1 与 #2 同根（解锁静音漏过 blob 守卫）· 2026-09-10
 

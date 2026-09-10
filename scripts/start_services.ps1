@@ -51,6 +51,7 @@ $SonSiteDir    = Join-Path $RepoRoot 'people\mama\archive_out'
 $DadSiteDir    = Join-Path $RepoRoot 'people\mama_for_father\site'
 
 # Tool scripts
+$StaticServer  = Join-Path $RepoRoot 'tools\static_server.py'
 $TtsScript     = Join-Path $RepoRoot 'tools\tts_server.py'
 $LlmProxyScript= Join-Path $RepoRoot 'tools\llm_proxy.py'
 
@@ -168,12 +169,12 @@ function Test-ServiceRunningByName {
     param([string]$ServiceName)
     switch ($ServiceName) {
         'son-site' {
-            $pats = @('http.server 8020', $SonSiteDir)
+            $pats = @($StaticServer, '--port 8020', $SonSiteDir)
             $procs = Get-MatchingProcesses -ProcessName 'python.exe' -CommandLinePatterns $pats
             return ($null -ne $procs -and $procs.Count -gt 0)
         }
         'dad-site' {
-            $pats = @('http.server 8021', $DadSiteDir)
+            $pats = @($StaticServer, '--port 8021', $DadSiteDir)
             $procs = Get-MatchingProcesses -ProcessName 'python.exe' -CommandLinePatterns $pats
             return ($null -ne $procs -and $procs.Count -gt 0)
         }
@@ -790,8 +791,8 @@ function Stop-AllServices {
     Stop-ServiceByName -Name 'tunnel' -DisplayName 'tunnel' -ProcessName 'cloudflared.exe' -CommandLinePatterns @("tunnel run $TunnelName") -Port 0
     Stop-ServiceByName -Name 'llm-proxy' -DisplayName 'llm-proxy' -ProcessName 'python.exe' -CommandLinePatterns @($LlmProxyScript) -Port $LlmPort
     Stop-ServiceByName -Name 'tts' -DisplayName 'tts' -ProcessName 'python.exe' -CommandLinePatterns @($TtsScript) -Port $TtsPort
-    Stop-ServiceByName -Name 'dad-site' -DisplayName 'dad-site' -ProcessName 'python.exe' -CommandLinePatterns @('http.server 8021', $DadSiteDir) -Port $DadPort
-    Stop-ServiceByName -Name 'son-site' -DisplayName 'son-site' -ProcessName 'python.exe' -CommandLinePatterns @('http.server 8020', $SonSiteDir) -Port $SonPort
+    Stop-ServiceByName -Name 'dad-site' -DisplayName 'dad-site' -ProcessName 'python.exe' -CommandLinePatterns @($StaticServer, '--port 8021', $DadSiteDir) -Port $DadPort
+    Stop-ServiceByName -Name 'son-site' -DisplayName 'son-site' -ProcessName 'python.exe' -CommandLinePatterns @($StaticServer, '--port 8020', $SonSiteDir) -Port $SonPort
 
     Write-Output 'Stop complete.'
     Write-Log 'Stop complete.'
@@ -874,6 +875,9 @@ function Test-Preconditions {
     }
     if (-not (Test-Path $DadSiteDir)) {
         $errors += "Dad site directory not found: $DadSiteDir"
+    }
+    if (-not (Test-Path $StaticServer)) {
+        $errors += "Static server script not found: $StaticServer"
     }
     if (-not (Test-Path $TtsScript)) {
         $errors += "TTS script not found: $TtsScript"
@@ -968,19 +972,19 @@ try {
     Write-Log 'Starting services...'
 
     # Service 1: son-site (port 8020)
-    $sonPatterns = @('http.server 8020', $SonSiteDir)
+    $sonPatterns = @($StaticServer, '--port 8020', $SonSiteDir)
     Start-PortService -Name 'son-site' -DisplayName 'son-site' -Port $SonPort `
         -ExePath $SysPython `
-        -ArgumentList @('-m', 'http.server', '8020', '--directory', $SonSiteDir) `
+        -ArgumentList @($StaticServer, '--port', '8020', '--directory', $SonSiteDir) `
         -TimeoutSeconds $DefaultTimeout `
         -MatchPatterns $sonPatterns `
         -ProcessName 'python.exe'
 
     # Service 2: dad-site (port 8021)
-    $dadPatterns = @('http.server 8021', $DadSiteDir)
+    $dadPatterns = @($StaticServer, '--port 8021', $DadSiteDir)
     Start-PortService -Name 'dad-site' -DisplayName 'dad-site' -Port $DadPort `
         -ExePath $SysPython `
-        -ArgumentList @('-m', 'http.server', '8021', '--bind', '127.0.0.1', '--directory', $DadSiteDir) `
+        -ArgumentList @($StaticServer, '--port', '8021', '--bind', '127.0.0.1', '--directory', $DadSiteDir) `
         -TimeoutSeconds $DefaultTimeout `
         -MatchPatterns $dadPatterns `
         -ProcessName 'python.exe'

@@ -140,11 +140,16 @@ npx --yes wrangler@latest deploy --config deploy\cloudflare-worker\wrangler.toml
 
 ## 4. 验收（三层要分别验，本地能验前两层）
 
-> ⚠️ **验收前必读：浏览器会拿旧 HTML 骗你。** :8020/:8021 是 Python `http.server`，**不发 `Cache-Control`**，浏览器按"距 Last-Modified 的 10%"做启发式缓存。2026-09-07 的 `no-cache` 补丁只加在页面内的 `fetch('data/*.json')` 上，**HTML 文档本身没有**。
+> ✅ **2026-09-10 已修复：三层缓存治理上线，不必再强刷。** 历史上 :8020/:8021 是 Python `http.server`，不发 `Cache-Control`，浏览器按"距 Last-Modified 的 10%"做启发式缓存，重建后仍跑旧页面（下方保留原始踩坑记录备查）。
 >
-> 2026-09-10 实测踩过这个坑：页面重建完毕、`curl` 拿到的 md5 与磁盘一致，但浏览器里 SW 死活不注册——栈回溯显示它跑的是**重建前**的行号（`init` 在 1809 行调 `probeTts`，而新文件里是 1843）。加 `?cb=<时间戳>` 后一次就通过。
+> 现在三层各司其职：
+> 1. **源站** `tools/static_server.py` 取代 `python -m http.server`，对 HTML / `sw.js` / `data/*.json` 发 `Cache-Control: no-cache, must-revalidate`（媒体不发，保持原样）。
+> 2. **边缘** `deploy/cloudflare-worker/dad-offline.js` 出口对同样三类路径改写该头；`cf: {cacheTtl: 0}` 只给 `/sw.js` 且仅限非导航请求（对导航请求重构造 Request 会把 mode 从 `navigate` 降级成 `same-origin`，破坏 Access 的 302 透传，**这条错了爸爸会登不进站**）。3xx（304 除外）/401/403 一律原样透传。
+> 3. **Service Worker** `deploy/dad-site/sw.js` 在每次 navigate 时用 `event.waitUntil()` 后台 `fetch(url, {cache:'no-cache'})` 预热 `companion.html` 与 `avatar.html`，冲掉设备上此前存下的旧缓存。这是普通 fetch，**不是**重构造的导航请求，理由同上。
 >
-> 所以验收时**必须**绕开缓存：地址后加 `?cb=<随便什么>`，或 Ctrl+Shift+R 强刷。**这同样适用于爸爸的设备**——他若在旧版页面上打开过站点，重建后他那边不会自动拿到新页面（也就没有 SW、没有离线兜底），需要他强刷一次或用带参数的链接。
+> **历史踩坑记录（2026-09-10 修复前）**：页面重建完毕、`curl` 拿到的 md5 与磁盘一致，但浏览器里 SW 死活不注册——栈回溯显示它跑的是**重建前**的行号（`init` 在 1809 行调 `probeTts`，而新文件里是 1843）。加 `?cb=<时间戳>` 后一次就通过。**行号即版本指纹。**
+>
+> 修复后实测（09-10）：`companion.html` / `avatar.html` / `sw.js` / `data/*.json` 均返回 `no-cache, must-revalidate`，媒体 PNG 不带该头；`If-Modified-Since` 正确回 304——`avatar.html` 由 387125 字节降为 0 字节，省的是爸爸的移动流量。真浏览器验证 SW 预热确实发出条件请求（访问日志中 `companion.html`/`avatar.html` 各 3 次全 304：1 次真实加载 + 2 次预热，iframe 导航也会触发一轮）。
 
 ### L3 页面内降级（不需要隧道，现在就能验）
 

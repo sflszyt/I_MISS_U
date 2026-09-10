@@ -1,5 +1,28 @@
 # MVP 生产进度日志
 
+## 2026-09-10 · 静态站缓存三层同治（爸爸不必再强刷）
+
+**起因**：用户实测「静态站 HTML 没有 no-cache，重建后你和爸爸都要强刷，否则跑的还是旧页面。今晚它骗过我三次。」而爸爸不懂强刷——缓存是服务端的责任，不该由一位老人来操作。
+
+**产出**：`tools/static_server.py`（新建 60 行）、`deploy/cloudflare-worker/dad-offline.js`、`deploy/dad-site/sw.js`、`scripts/start_services.ps1`（1033→1037 行）。全部走 DeepSeek 写 → Codex 审。
+
+**三层各治一段，缺一不可**：
+- **B 源站**：`SimpleHTTPRequestHandler` 子类覆盖 `end_headers`，对 HTML / `sw.js` / `data/*.json` 发 `no-cache, must-revalidate`，媒体不发。这层根治，也终于让本地验收可信。
+- **A 边缘**：Worker 出口对同样三类改写该头；`cf:{cacheTtl:0}` 只给 `/sw.js` 且限非导航。**代码已完成但未部署**——wrangler 未登录，需用户走一次浏览器 OAuth。B 层上线后 Cloudflare 会尊重 origin 的 `no-cache`，A 层降级为防御性冗余，不紧急。
+- **C SW**：每次 navigate 用 `event.waitUntil()` 后台 `fetch(url, {cache:'no-cache'})` 预热两个 HTML。**只有这层能冲掉爸爸手机上已存的旧缓存**，前两层只管新请求——鸡生蛋是这么破的。
+
+**Codex 首轮 REJECT 抓到的 BLOCKER（本次最有价值的发现）**：`fetch(request, {cf:...})` 传非空 init 会走 `new Request(request, init)`，按 Fetch 规范把 `mode: 'navigate'` 降级成 `same-origin`，redirect 语义随之改变，Cloudflare Access 的 302 不再原样透传，可能落进外层 catch 返回离线页而非登录页——**爸爸登不进站，比看到旧页面严重得多**。修法：`cf` 收窄到 `/sw.js` 且非导航，其余保持单参数 `fetch(request)`；另加放行闸门，3xx（304 除外）/401/403 一律不改写。同一个雷在 C 层设计阶段已先行绕开（预热用普通 fetch 而非重构造导航请求）。
+
+**换服务器的隐藏代价**：`start_services.ps1` 靠命令行子串 AND 匹配做 fail-closed 判据，`http.server 8021` 在 3 处出现（健康检查 / `-Stop` / 启动），漏改一处就会「自己起的进程被当成外来进程」→ 拒绝启动。两站共用同一脚本文件后仅靠路径无法区分，改用 `@($StaticServer, '--port 8021', $DadSiteDir)` 三元 AND。全文回显工艺产出 20 行改动、零漂移。
+
+**实测**（活体，非静态检查）：
+- 真实 `Start-Process` 起进程读 `Win32_Process.CommandLine`：`--port 8032` 确为连续子串、负例不匹配，fail-closed 判据成立。
+- 生产切换：手工杀旧进程（新脚本的 `-Stop` 已匹配不到旧命令行）→ 新脚本 `-SkipTunnel` 起，son/dad 各 2.3 s，tts/llm-proxy 正确 skip（未触发 300 s 冷启动），隧道不动，**中断约 5 秒**。幂等连跑第二次 5 项全 skip、无重复进程。
+- 两站头逐项核对：四类路径拿到 `no-cache, must-revalidate`，媒体 PNG 不带头，`:8020` 的 `sw.js` 404（儿子站零 SW 泄漏，符合预期）。
+- **304 省流量实证**：`avatar.html` 387125 字节 → 0 字节。
+- 真浏览器：SW scope `/` activated、controller 非空；访问日志见 `companion.html`/`avatar.html` 各 3 次全 304 = 1 次真实加载 + 2 次预热（iframe 导航的 mode 也是 navigate，故多触发一轮）。多出的 2 个 304 仅几百字节，且属原有「navigate 即处理」的既有判定，未为此改动已过审的 SW 主链路。
+- `/health` 404 是本地已知正确现象（真实部署由 cloudflared 转 :8022），非本次引入。
+
 ## 2026-09-10 · T14-3/4/5 自启任务 + 离线降级四层（T14 代码层收官）
 
 **产出**：`scripts/register_startup_task.ps1`（新建 303 行）、`people/mama_for_father/site/{offline.html,sw.js}`、`deploy/cloudflare-worker/dad-offline.js`、`tools/build_companion_page.py`（+`--offline-fallback` 与 TTS 探活重试）、`docs/ops-autologon.md`、`docs/ops-offline-fallback.md`。全部走 DeepSeek 写 → Codex 审 → ACCEPT。
