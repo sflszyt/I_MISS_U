@@ -1,5 +1,7 @@
 # 跨会话记忆（Phase 15）设计规格
 
+> ⚠️ **2026-09-10/11 更新（读者注意）**：会话产物已从共享 `archive_out/data/sessions_<viewer>.json` 迁至 `archive_out/sessions_data/<viewer>/sessions.json`（修复爸爸站可读儿子对话的泄漏），并新增该 viewer 的历史语音条 `<viewer>/audio/`；审核通道已改为 CLI（codex 0.154.0 移除 mcp-server）。本文保留原始设计记录，现行路径与流程以 `docs/HANDOFF.md` ⓪¹⁵ 为准。
+
 > 日期：2026-09-07 · 状态：用户已批准设计（brainstorming 三问 + 整体设计通过）· 实施工艺：DeepSeek 写 / Codex 审 / Claude 编排（CLAUDE.md 铁律 1）
 > 上游设计：docs/GENERALIZATION.md 轴五 5.1（两个纪元永不合流）、5.2 步骤 ②摄入 与 ④连续性检索。本规格只落这两步；步骤 ③记忆升级闸门 后置。
 

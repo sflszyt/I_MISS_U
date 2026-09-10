@@ -189,7 +189,7 @@
 - ✅ Task 3 companion 页：`--viewer`、第四检索源（Tier-2/Tier-3 标签）、上次对话卡注入系统提示、抽屉「本次不记」开关
 - ✅ Task 4 提示词第 7 条铁律「往次对话纪律」+ build_archive 排除 `sessions_*.json` + 文档
 - 测试首次入库 `tests/`：36 例 unittest + 1 套 E2E（15 断言）
-- ⏳ 剩：用户真机验收（PC/iPhone 各强刷一次）
+- ⏳ 剩：用户真机验收（~~PC/iPhone 各强刷一次~~ 09-10 起静态站已发 no-cache，不必再强刷）
 - 用户三项裁决（09-07）：双方都记、她的话永久 Tier-3；页面"本次不记"开关 + sessions/exclude.txt；静态 sessions.json + tts_server 自动刷。规格见 docs/superpowers/specs/2026-09-07-cross-session-memory-design.md（待写）。
 
 ### Phase 16：任务 #24——爸爸以丈夫角色对话（F-乙 公网 https 独立站）— status: **in_progress**（2026-09-07 立项研究 → 2026-09-08 用户裁决 F-乙 开工）
@@ -292,7 +292,7 @@
   - ⚠️ 隧道路径**未活体验证**（启 cloudflared = 开公网入口，需机主授权）；`-Status` 的 tunnel 仅进程存在检查，**不证明入口可用**
   - ✅ **T14-3 `scripts/register_startup_task.ps1`**（新建 303 行，DeepSeek 6 轮 + Codex 2×REJECT→ACCEPT）：注册器与任务运行器**同一文件**（`-Register`/`-Unregister`/`-Status`/`-Run`，杜绝两文件版本漂移）；登录触发 + 60s 延迟、`Interactive`+`Limited` 不存密码、`-Force` 原子替换、`ExecutionTimeLimit PT1H`、`IgnoreNew`。`-Run` 三次重试（120s 间隔），**exit 2 不重试、exit 3 不轻信**（改为跑 `-Status` 实测四服务全 `[ ok ]` 才报成功）。**端到端实测**：任务计划器触发 → `LastTaskResult: 0 (all services up)`；`-Run` 2.6–3.2s 返回
   - ✅ **T14-4 离线降级「她今天不在」四层**（DeepSeek 5 轮 + Codex REJECT→ACCEPT）：
-    - L1/L2 `deploy/cloudflare-worker/dad-offline.js`（PC 关机/502 → 中文页，API 路径返 JSON，**自造响应带 `Cache-Control: no-store`**）**未部署，需机主操作**
+    - L1/L2 `deploy/cloudflare-worker/dad-offline.js`（PC 关机/502 → 中文页，API 路径返 JSON，**自造响应带 `Cache-Control: no-store`**）**（09-10 已部署 v693b90d6；同日新增的出口缓存头版本待 `wrangler login` 后部署）**
     - L1'/L2' `people/mama_for_father/site/{offline.html,sw.js}`（用户自己断网 → SW 预缓存页；只拦 navigate，`/tts` 与 `/v1/chat/completions` **永不缓存重放**）
     - L3/L4 `build_companion_page.py` `--offline-fallback` + TTS 探活改重试（15s×24，覆盖 73s 冷启动）
     - **真浏览器实测**：SW 注册 scope `/` active → 停 :8021 → 显示「她今天不在」→ 恢复后自动跳回 companion.html；route-mock 造冷启动 → 16s 出提示、恢复 12s 出「她的声音准备好了。」；**儿子版默认参数产出零 SW 泄漏**（diff 仅重试改动）
@@ -326,9 +326,11 @@
 - ⬜ **修法三（降级为可选）**：ASR 回读 CER 校验。仓库有现成配方（`gsv_pipeline.py` 用 funasr + `iic/SenseVoiceSmall`），但**对上海话的可靠性未验证**，可能误报连连并使每段延迟翻倍
 - ⚠️ **必须先 A/B 盲测**：参考变短 = 音色信息变少，而音色是 M1 关口核心。现役为 SFT 微调模型、音色主要烘在权重里，判断风险不大，但**只能由用户耳朵裁决，不能由推理代替**。做法同当年选 epoch：同一批翻车文本 × 长/短参考 → 自包含 HTML 试听页 → SendUserFile
 
-### Phase 20：运行期身份 + 聊天记录持久化（2026-09-10 用户立项）— status: **待设计**
+### Phase 20：运行期身份 + 聊天记录持久化（2026-09-10 用户立项）— status: **聊天记录持久化 ✅ 已上线（09-11）；运行期身份 待设计**
 
 > 用户需求：reload 后聊天记录不丢（像微信）；**且同一站点上儿子与爸爸各自独立**。
+
+- ✅ **聊天记录持久化 + 历史语音条（09-11，`36cbe32`）**：sessions 打开即加载，`replayHistory()` 回放全部保留会话（孤立发言跳过、不进模型上下文）；按段文本精确配对 `simulacrum_audio`，音频复制进 `sessions_data/<viewer>/audio/`，点击 fetch→Blob→复用 `replayBar`。**目前按站点隔离**，下面的身份方案落地前「同站点按人独立」仍未实现
 
 - **前置缺陷（本轮暴露，比体验问题严重）**：`VIEWER` 是**构建期常量**，爸爸站写死 `'father'`。儿子在爸爸站说的话会被记成 viewer=father。本轮测试仅因用户勾了「本次对话不进记忆」才没进档案。**爸爸是唯一另一位 Tier-1 记忆确认人 → 属档案污染**
 - **方向已定**：身份判定放**服务端**，用 Access 转发的 `Cf-Access-Jwt-Assertion` 头，而**不是**让页面 fetch `/cdn-cgi/access/get-identity` 后自述——后者只是把"写死的谎"换成"查过的话"，服务端依然在信客户端。`get-identity` 仅用于页面显示
@@ -345,6 +347,14 @@
 - 排序建议：**排在 Phase 19、20 之后**——20 的接口形状会决定 21 的清单字段
 - ⬜ T15 知情同意：大字一页 + 当面演示 + 日期写入 facets
 - ⬜ T16 8A-2b b/d/e 欠账登记 + 三个月复核日（与 2026-11-28 对齐）
+
+### Phase 22：爸爸站运维加固 + 刷新后历史回放（2026-09-10→11 通宵）— status: **complete（全部部署并验收）**
+
+- ✅ **静态站缓存三层同治**（`55a6a24`）：`tools/static_server.py` 替掉 `python -m http.server`（no-cache + 304）；SW 后台预热；Worker 出口改写代码就位（⬜ 待 `wrangler login` 部署，已降为冗余）
+- ✅ **502→424 语义冲突**（`4ce7c39`）：llm_proxy 上游失败改 424，响应不带上游 body；ingress 改 `127.0.0.1`
+- ✅ **会话数据 viewer 隔离**（`d3d7fb4`）：爸爸站曾可直读 `data/sessions_owner.json`；迁至 `sessions_data/<viewer>/` + 爸爸站只联接 father 子目录；Codex 三轮
+- ✅ **刷新后历史回放 + 历史语音条点播**（`36cbe32`）：见 Phase 20；Codex 页面 3 轮、数据层 6 轮（约 14 个 BLOCKER，五个是 Windows 大小写）
+- ⬜ 真 iPhone「刷新后第一下点历史语音条」实测；⬜ 被杀残留随机 `.tmp` 清理（NIT）
 
 ### Phase 17：VoiceStudio 能否取代本地 TTS（2026-09-08 用户立项）— status: **research complete**（09-08 收口）
 > 用户指令："立项：研究下这个项目是否能取代我的本地 tts https://github.com/debpalash/VoiceStudio"
@@ -388,6 +398,10 @@
 - 2026-09-08 用户裁决 #24 全部 19 个点并选定 F-乙 路线开工（详见 Phase 16 裁决表）；同日立项 Phase 17（VoiceStudio 评估）；追加指令：爸爸相关产物一律进 `people/mama_for_father/`，儿子视角部分零改动
 - 2026-09-07：用户裁决清除"凯西"相关记录（第三方前配偶，数字人误当现任）：全删 174 条派生层记录（raw 不动）+ persona 引文名字改〔前儿媳〕+ 日志/导出涂改 + 暂不写"兔兔"Tier-1 卡。快照 `versions/pre_kaixi_scrub_20260907/`。执行见 progress 09-07 上午段。
 
+- 2026-09-10 用户裁决：缓存三层全做（源站 + Worker + SW，不加版本自检）；502 语义冲突与 ingress IPv4 两个都修
+- 2026-09-10 用户裁决：聊天记录回放顺序「隔离 → 文字回放 → 音频回放」；回放全部保留会话、孤立发言跳过、回放不进模型上下文
+- 2026-09-10 用户裁决：Codex 额度用尽时等恢复再终审（不跳过铁律 1）；随后改用 `gpt-5.6-sol` 审核（astra 用量太重），删除 Claude Code 的 codex MCP 配置（codex 0.154.0 已移除 mcp-server）；CLAUDE.md 铁律 1 的 Codex 行保持原文不改
+
 ## Errors Encountered
 | Error | Attempt | Resolution |
 |-------|---------|------------|
@@ -395,3 +409,9 @@
 | 纸片人贴片 `style.display=''` 被类规则回落吃掉，从未渲染（08-25） | 1 | 显式 display='block' + computed style/截图 diff 验收铁律（findings） |
 | Playwright 截图 DPR 1.5× 致像素 diff 假阴性（09-01） | 1 | CSS 坐标乘 DPR + 人眼对照图 |
 | PowerShell 按 CommandLine 杀 tts_server 时杀掉自己（09-01） | 1 | 过滤加 Name='python.exe' |
+| 缓存治理首版 `fetch(request, init)` 会降级 navigate、破坏 Access 302（09-10） | 1 | 改为普通 fetch(url) 预热 + cf 选项只给非导航的 /sw.js（Codex 抓） |
+| 以为 503 是自己的 IPv4 改动引起（09-10） | 1 | 实测旧 http.server --bind 127.0.0.1 同样只绑 IPv4；真因是 502 语义冲突 |
+| codex MCP 404 → 实为 Surfshark 拦 WebSocket + 模型名过时 + MCP 进程停在旧版（09-10） | 5 | Bypasser 加 node.exe；codex 0.154.0 移除 mcp-server，改走 CLI |
+| DeepSeek 替换对臆造多行签名锚点（09-10） | 2 | 逐对统计出现次数定位；只修锚点，新增内容取自它自己的 OLD→NEW 差异 |
+| 验收脚本从 offline.html 清 localStorage 与其自动跳转竞态（09-11） | 1 | 改在不会跳转的同源 JSON 页上清理 |
+| 超长内联 Bash 命令（多重 heredoc + 引号）解析失败（09-11） | 1 | 改为 Write 工具写脚本文件后执行 |

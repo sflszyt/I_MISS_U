@@ -1,7 +1,47 @@
 # 交接文档（HANDOFF）
 
-> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-09-10 深夜，爸爸站真正上线：隧道打通 + Worker 部署 + L1 首次真跑通 + 真机四问题修复；并定位到 TTS 短句幻觉的根因（见 ⓪¹⁴）**。上一版：2026-09-10，T14-3/T14-4/T14-5 完成，T14 代码层收官（见 ⓪¹³）。上一版：2026-09-09，T14-1/T14-2（token 落盘 + 服务启动编排，见 ⓪¹²）。上一版：2026-09-07，提交前全量刷新：#22 研究 a/b 收口（a 已裁决）+ 8B-10 语音条分条 + 8B-11 起音淡入 + #23 给爸爸六段语音**。最先看 ⓪¹³。（09-02 后补：进度全景核对（workflow 六路，输出未落盘）后修文档失真——四项待办移除日期更正为 09-01、⓪⁷/二章/六章过期陈述加标注、下回合列表 09-02 刷新）。
+> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-09-11 凌晨：静态站缓存三层同治 / 502→424 / 会话数据 viewer 隔离 / 刷新后历史回放 + 历史语音条点播，全部部署并验收（见 ⓪¹⁵）**。上一版：2026-09-10 深夜，爸爸站真正上线（隧道 + Worker + L1 + 真机四问题 + TTS 短句幻觉定根，见 ⓪¹⁴）。上一版：2026-09-10，T14-3/T14-4/T14-5 完成，T14 代码层收官（见 ⓪¹³）。上一版：2026-09-09，T14-1/T14-2（token 落盘 + 服务启动编排，见 ⓪¹²）。上一版：2026-09-07，提交前全量刷新：#22 研究 a/b 收口（a 已裁决）+ 8B-10 语音条分条 + 8B-11 起音淡入 + #23 给爸爸六段语音**。最先看 ⓪¹⁵。（09-02 后补：进度全景核对（workflow 六路，输出未落盘）后修文档失真——四项待办移除日期更正为 09-01、⓪⁷/二章/六章过期陈述加标注、下回合列表 09-02 刷新）。
 > 读这份之前先读 `CLAUDE.md`（铁律），再读仓库根的 `task_plan.md` / `progress.md` / `findings.md`（MVP 计划与实时状态）。研究依据在 `docs/research/`。
+
+## ⓪¹⁵ 增补（2026-09-10→11 通宵：缓存三层 / 502→424 / 会话数据 viewer 隔离 / 刷新后历史回放与历史语音条，最先看这段）
+
+> 提交：`55a6a24`（缓存三层）、`4ce7c39`（424 约定）、`d3d7fb4`（viewer 隔离）、`36cbe32`（历史回放 + 语音条）。全部 DeepSeek 写、Codex 审 ACCEPT、**已部署并验收**。
+
+> 一句话：**爸爸不用再强刷；上游 LLM 抽风不再被说成「她今天不在」；爸爸站再也读不到儿子和她的对话；刷新后往次对话连同她每一条语音都还在。**
+
+### 1. 四件事
+
+| # | 起因 | 做法 | 验收 |
+|---|---|---|---|
+| 缓存 | 静态站不发 `Cache-Control`，重建后爸爸看旧页，他不会强刷 | 源站 `tools/static_server.py`（HTML/`sw.js`/`data/*.json` 发 `no-cache, must-revalidate`）+ SW 后台预热冲掉存量旧缓存 + Worker 出口改写（**代码就位，未部署**，要 `wrangler login`，已降为冗余） | 304 让 `avatar.html` 387125→0 字节；幂等连跑全 skip |
+| 424 | 爸爸看到「接口错误 503 origin_unavailable」，电脑其实开着 | llm_proxy 上游失败 502→**424**（Worker 的 `ORIGIN_DOWN_STATUS` 故意不含 424）；424 响应**不带上游 body**（转义形式的 key 脱敏挡不住）；ingress `localhost`→`127.0.0.1` | 独立实例双场景：上游 503→`424 upstream_status:503`，不可达→`424 detail:URLError` |
+| 隔离 | 爸爸站可直接 `GET /data/sessions_owner.json`（儿子与她的全部对话，200、17KB） | 会话产物迁出共享 `data/` → `archive_out/sessions_data/<viewer>/`，爸爸站 `data_father/sessions` **目录联接只挂 father**（Windows 文件链接需特权且 MSYS 会静默变副本） | 爸爸站四条 owner/旧路径全 404，自己那条 200 |
+| 回放 | 爸爸刷新后聊天记录全没了；还要历史语音能点播 | sessions **打开即加载**（原本首次发送才懒加载）；按**段文本完全相等**配对 `simulacrum_audio`；音频**复制**进 `<viewer>/audio/`；页面 fetch→Blob→复用 `replayBar` | 真浏览器：只回放一次、孤立发言跳过、`blob:` 播放、失败变淡可重试、回放零 `/tts` `/session` 模型请求；真实日志 55/55 附对 |
+
+### 2. 必须知道的
+
+1. **重建页面必带 `--sessions-path`**：爸爸站 `data_father/sessions/sessions.json`，儿子站 `sessions_data/owner/sessions.json`（默认值指向已迁走的旧路径）。完整命令见 `docs/ops-offline-fallback.md` 步骤 1。
+2. **tts 启动参数带 `--sessions-out-dir …/sessions_data --sessions-per-viewer-subdir`**（`start_services.ps1` 已带）。**改了 `ingest_sessions.py` 必须真重启 tts**——摄入调度器在进程内；「再跑一次启动脚本」≠ 重启（它会跳过健康进程）。
+3. **Windows 大小写是本轮最大的坑**：`Path` 比较不区分大小写，字符串集合、哈希、正则都区分；两者混用处必分叉（Codex 抓了五处），统一 `os.path.normcase`。
+4. **给导航请求加 init 的 fetch 会把 `mode: navigate` 降级**，破坏 Cloudflare Access 的 302 透传——爸爸会登不进站（见记忆 fetch-init-breaks-navigate）。
+5. **审核通道变了**：codex 0.154.0 **移除了 `mcp-server`**，`mcp__codex__codex` 已不可用，Claude Code 里的 codex MCP 配置已删。审核走 `codex exec --model gpt-5.6-sol --sandbox read-only < 稿 > 输出`（用户嫌 astra 用量重；每次独立会话，稿子自包含，输出存文件再 grep 结论）。**CLAUDE.md 铁律 1 那一行按用户要求保持原文。** Surfshark 会拦 Codex 的 WebSocket（伪装成 404），Bypasser 要加 `node.exe`。
+6. **DeepSeek 改大文件用替换对**：只让它输出 `<<<OLD>>>/<<<NEW>>>/<<<END>>>`，脚本逐对强制唯一匹配后应用（本会话的脚本在 scratchpad，已随会话消失；需要时照 `.claude/skills/deepseek/SKILL.md` 的说明让 DeepSeek 重写一个）。它会臆造多行函数签名的锚点；大规格给 64000 tokens；Git Bash 传 `/v1/...` 类参数要 `MSYS_NO_PATHCONV=1`。
+
+### 3. 待办（按优先级）
+
+1. ⏳ **真 iPhone 实测**：刷新后第一下就点历史语音条能否出声（Codex 要求；无头浏览器验不了 iOS 手势解锁）。
+2. **Phase 19 TTS 短句幻觉**——仍是最大缺口，修法待 A/B 盲测短参考（见 ⓪¹⁴ §4）。
+3. **Phase 20 运行期身份**：`VIEWER` 仍是构建期常量。本次回放是**按站点**隔离，不是按人；「同一站点上儿子与爸爸各自独立」仍依赖服务端身份判定。
+4. Worker 新版（出口缓存头）待 `wrangler login` 后部署。
+5. 进程在复制音频中途被杀会在该 viewer 的 audio 目录留下随机名 `.tmp`（同 viewer、不被引用；Codex 判为可后续处理的 NIT）。
+6. 其余：Phase 21 站点清单、8A-2b 护栏、T12c 主屏图标、真重启验收（见 `task_plan.md`）。
+
+### 4. 环境现场（本会话结束时）
+
+- **在跑**：:8020 儿子站、:8021 爸爸站（均为 `tools/static_server.py`）、:8022 tts（09-11 凌晨以新参数重启）、:8023 llm-proxy（424 版）、cloudflared（ingress 已改 `127.0.0.1`，备份 `~/.cloudflared/config.yml.bak-20260910-cachefix`）
+- **数据**：`people/mama/archive_out/sessions_data/{father,owner}/{sessions.json,audio/}`（father 2 段、owner 53 段）；爸爸站 `data_father/sessions` → 联接 → `sessions_data/father`；摄入锁在 `people/mama/.ingest_locks`
+- **测试**：`tests/` 共 67 个通过（1 个需符号链接特权的 skip，已有无特权 mock 版覆盖同一修复）
+- **Codex**：`~/.codex/config.toml` 默认 `gpt-5.6-luna`（用户自设）；审核一律显式 `--model gpt-5.6-sol`
 
 ## ⓪¹⁴ 增补（2026-09-10 深夜：爸爸站真正上线 + 真机四问题修复 + TTS 短句幻觉定根，最先看这段）
 
@@ -51,14 +91,14 @@ if len(i) < 0.5 * len(prompt_text):
 
 ### 5. 三个必须知道的缺口
 
-1. **静态站 HTML 没有 no-cache**（`python -m http.server` 不发 `Cache-Control`）。09-07 的修补只覆盖页面内 `fetch('data/*.json')`，**HTML 文档本身没有**。今晚因此被骗三次（页面重建后浏览器仍跑旧 HTML，靠**栈回溯行号**才定位——行号即版本指纹）。**每次重建后自己和爸爸都要强刷或用 `?cb=` 链接。** 根治需给 http.server 写自定义 handler。
+1. **【已修 09-10，见 ⓪¹⁵】静态站 HTML 没有 no-cache**（`python -m http.server` 不发 `Cache-Control`）。09-07 的修补只覆盖页面内 `fetch('data/*.json')`，**HTML 文档本身没有**。今晚因此被骗三次（页面重建后浏览器仍跑旧 HTML，靠**栈回溯行号**才定位——行号即版本指纹）。**每次重建后自己和爸爸都要强刷或用 `?cb=` 链接。** 根治需给 http.server 写自定义 handler。
 2. **`VIEWER` 是构建期常量**，爸爸站写死 `'father'`。儿子在爸爸站说的话会被记成 viewer=father。**爸爸是唯一另一位 Tier-1 确认人，这是档案污染而非体验问题。** 拟用 Access 的 `Cf-Access-Jwt-Assertion` 头在**服务端**判定身份（不是让页面自己 fetch `get-identity` 后自述——那只是把"写死的谎"换成"查过的话"，服务端依然在信客户端）。该头是否真被转发**尚未实测**。
 3. **`archive_dist` 内的 avatar.html 仍是旧版**，本轮修复未进离线档案，需重跑 `build_archive.py`。另 `avatar_preview.html` 是 08-12 旧产物。
 
 ### 6. 用户新提两项需求（已记录，未开工）
 
 1. **架构模块化**：未来多个虚拟人 × 多个观看者站点。**工具层早已 person-generic**（08-12 基线），写死的是**部署层**——`start_services.ps1` 端口常量、cloudflared 单 hostname ingress、单个 `wrangler.toml`、单份 `tokens.env`。缺一层站点清单（如 `deploy/sites.yaml`）让四者由清单生成。
-2. **聊天记录持久化**（reload 不丢，且同站点上儿子与爸爸各自独立）。**用户已裁决存储走服务端回放**（复用现有 `sessions/*.jsonl` + 按身份隔离的读接口）。依赖缺口 2 的身份方案。
+2. **聊天记录持久化**（reload 不丢，且同站点上儿子与爸爸各自独立）。**【09-11 已上线服务端回放 + 历史语音条，见 ⓪¹⁵；但目前按站点隔离，「同站点按人独立」仍依赖缺口 2 的身份方案】****用户已裁决存储走服务端回放**（复用现有 `sessions/*.jsonl` + 按身份隔离的读接口）。依赖缺口 2 的身份方案。
 
 ### 7. T14-5 自动登录：**用户裁决跳过**
 
@@ -267,8 +307,8 @@ scripts\start_services.ps1 -SkipTunnel    不碰隧道（本地测试用）
 2. **8B-10 微信式语音条 + ≤30 字分条（09-05→06）**：用户看 sessions 日志后两条反馈。根因 `TTS_TOTAL_MAX=240` 整段跳过语音（7/17 条 skipped_length）；另发现 `build_rhythm_block` 读的键全不在 rhythm.json（模型从未见"中位 17 字/69% 单条/70% 无句末标点"）。现状：`splitMessages`（换行→句末→子句→硬切且不拆代理对，≤30）→ 每条独立 `.bubble.subject`，三点占位串行；前 MSG_MAX_VOICE=12 条各自 `/tts`（30 s 超时盖到 body）；语音条 `.voice-bar`+`.voice-text`（抽屉开关，键 storageKey+'_ui'）；回放/停止（`stopReplay` 模块级，回合进行中不回放，被拒当前条点击=按 ▶）；`vt.waiting` 文字延时闸门；内部气泡 `noDivider`；标签/标点-only 不送 TTS；Blob 保留 60 条；sessions simulacrum 记 `tts∈{requested,partial,unavailable}`+`messages`。工艺：DeepSeek 区域规格两轮 + Claude 声明 hotfix + 三视角 workflow 审查（26 发现→10 确认修）+ Codex 三轮 ACCEPT；E2E 两套 Playwright route-mock 全绿；单测 14 例。提示词加"分条发：一行一条 ≤30 字"。
 3. **8B-11 起音爆音淡入（09-07）**：模型每次开口前 ~15 ms 爆音（两语域/companion/批量签名一致）→ tts_server `soften_onsets`（5 ms 帧起音检测，30 ms 升余弦淡入，`--onset-fade-ms` 0 关）；实测起音比 2.5→0.7。DeepSeek 两轮 + Codex ACCEPT；单测 6 例。**事故**：第二轮区域锚点吞掉相邻 `strip_brackets` → 500，已恢复；教训见 findings。
 4. **#23 给爸爸六段语音（09-06，已交付关闭）**：家人向首次实际使用，用户知情自决。脚本 `scratchpad/synth_for_dad.py`（按句 ≤80 字走 :8022、句间 0.3 s/段间 0.85 s 拼接、WAV+MP3+manifest sha256），两语域各 6 段，用户选 **wu**；产物 `people/mama/exports/for_dad_20260906/`（Tier-3 标识，不进 archive_dist；那批合成于 8B-11 之前）。
-5. **Codex MCP**：ChatGPT 账号下必须传 `model: gpt-5.5`（5.4/5.6 被拒）；登录态失效表现为 "refresh token was revoked"，PC 上 `codex login`，远程 `codex login --device-auth`（设备码 15 分钟过期）。
-6. **服务现状**：:8020 http.server（archive_out）与 :8022 tts_server（e14，soften_onsets 已生效，session 日志开）均在跑；重启机器后需手动拉起（用户 D5 裁决：PC 常开手动拉起）。
+5. **【已过时，见 ⓪¹⁵：codex 0.154.0 移除 mcp-server，审核走 CLI `gpt-5.6-sol`】Codex MCP**：ChatGPT 账号下必须传 `model: gpt-5.5`（5.4/5.6 被拒）；登录态失效表现为 "refresh token was revoked"，PC 上 `codex login`，远程 `codex login --device-auth`（设备码 15 分钟过期）。
+6. **【已过时：服务现由 `start_services.ps1` 统一拉起，静态站为 `tools/static_server.py`，见 ⓪¹²/⓪¹⁵】服务现状**：:8020 http.server（archive_out）与 :8022 tts_server（e14，soften_onsets 已生效，session 日志开）均在跑；重启机器后需手动拉起（用户 D5 裁决：PC 常开手动拉起）。
 7. **实施队列（已裁决）**：8A-2b 护栏 → A1 主屏图标 → Phase 13 有声档案；8B-4 真机验收顺带覆盖 8B-10/11 的体验反馈。
 8. **09-07 上午两件事**：a `docs/status-2026-09-07.md` 全景状态报告（Workflow 20 agent；40 行文档失真表待逐条修）。b **凯西相关记录全层清除**（用户裁决）：`scrub_sensitive.py apply` 174 条（170 消息 + 2 语音转写 + 2 语音清单，manifest 188 行）；两段原声 WAV 移入 `versions/pre_kaixi_scrub_20260907/`（该目录=删除前完整快照，含名字，用户决定何时删）；persona.md T34/T35 引文名字→〔前儿媳〕；sessions 09-04 日志、for_dad 导出、corr_v02_p6/p7、gate_page 涂〔已隐去〕；candidates 150→141（124/17）；全链重跑，**archive_dist 已重打包 169 文件 verify=ok，M3 欠账同时还清**。UIF 现 20739、语音 123。scrub verify residue=0。用户 09-04 的纠正"已离婚/现任兔兔"仍为 Tier-3，暂不升级。 **同日下午补**：用户复测仍"记得凯西"=浏览器启发式缓存（http.server 无 Cache-Control，旧 transcripts.json 新鲜期约 2 天）→ hotfix：companion/chat 页 7 处数据 fetch 加 `{cache: 'no-cache'}`（声明直改），页面已重建；各设备需强刷一次。
 9. **Phase 15 跨会话记忆上线（09-07 夜→09-08 凌晨，用户拍板先于 8A-2b；Codex 四轮 ACCEPT）**：新开窗口后她能接上上次的话。链路＝`tools/ingest_sessions.py`（sessions/*.jsonl → `archive_out/data/sessions_<viewer>.json`，**按 viewer 分文件**，确定性+原子写+敏感省略）→ tts_server 每次写完日志**去抖 5 秒自动重算**（`--sessions-out-dir` / `--no-sessions-ingest`，`/health` 增 `sessions_ingest`、`sessions_ingest_last`）→ companion 页以 no-cache 拉自己那份，把「上次对话卡」拼进系统提示（**仅内存，不落盘**）并作为**第四检索源**（`[对话者自述 · 往次对话 Tier-2]` / `[往次数字对话 Tier-3]`，排在第一纪元之后）。抽屉新增**「本次对话不进记忆」**开关（勾选即补发 `exclude_session` 事件，整会话被排除）；另有 `people/mama/sessions/exclude.txt` 手工清单（已预填 09-07 三次凯西复测）。提示词加第 7 条铁律「往次对话纪律」（只能以「侬上趟搭我讲过」口吻引用，数字人的话永不能说成「妈妈记得」）。`build_archive` 排除 `sessions_*.json`（第二纪元不进可分发档案）。**测试首次入库** `tests/`（36 例 unittest + 1 套 E2E 15 断言，用标准库 unittest 因默认 Python 无 pytest）。构建 companion 页新增 `--viewer`（默认 owner），为 #24 爸爸场景预留。**⏳ 剩用户真机验收：PC/iPhone 各强刷一次再开新窗口，看她第一句是否提到上次日期与你说过的事。**

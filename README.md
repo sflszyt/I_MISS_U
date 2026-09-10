@@ -27,7 +27,7 @@ StoryFile 破产时，用户为逝者录制的对话视频躺在待拍卖的服�
 | 目录 | 内容 |
 |---|---|
 | `schema/` | 统一中间格式（UIF）JSON Schema——所有数据源适配器的合同 |
-| `tools/` | 通用工具：媒体清点、silk 解码、备份审计（后续：源解析器、音频修复链、TTS 批处理、档案编译器） |
+| `tools/` | 通用工具：源解析、音频修复与 TTS 服务（`tts_server`）、档案编译（`build_archive`）、companion/avatar 页面构建、会话摄入（`ingest_sessions`）、静态站服务（`static_server`，发 no-cache）、LLM 代理（`llm_proxy`）等 |
 | `prompts/` | 人格/记忆构建模板（关系层参数化：亲子/祖孙/伴侣/挚友…） |
 | `people/<slug>/` | 每人一份档案（**gitignore，永不上传**）：raw 只读原始素材 → normalized 中间格式 → processed 修复产物 → archive_out 最终档案 |
 | `docs/research/` | 研究报告（微信导出方案、产品形态对比） |
@@ -48,7 +48,7 @@ StoryFile 破产时，用户为逝者录制的对话视频躺在待拍卖的服�
 
 Claude 编排 · DeepSeek V4 Flash 写码 · Codex GPT-5.6 审核验收。`people/*/raw/` 只读；`people/` 永不进版本库。详见 `CLAUDE.md`。
 
-## 里程碑（2026-08-27 更新）
+## 里程碑（2026-09-11 更新）
 
 - [x] **Phase 1** 地基：铁律 / 骨架 / UIF Schema / 研究报告 / 首批工具（Codex 全部 ACCEPT）
 - [x] **M0** 素材归集：微信全量落地（UIF 20909 消息 + 语音 125 WAV + 视频 215 个；敏感凭据批 14 条已从派生层清除；备份关口经用户豁免）
@@ -58,5 +58,8 @@ Claude 编排 · DeepSeek V4 Flash 写码 · Codex GPT-5.6 审核验收。`peopl
 - [x] **M2-确认** 人工闸门首轮收口：**Tier-1 记忆册诞生**（memories.md 124 条，用户 150 卡全裁决）；persona.md Q1-Q13 全部裁决（46 论断带溯源，含缺点与冲突面 9 条）
 - [x] **M3 MVP 已交付（2026-08-16）**：`archive_dist/` 自包含离线档案（sha256 manifest 对账，拷走即用：双击 start_server → 卡通人 / BYOK 对话 / 文字层四件）
 - [x] **M4 卡通数字人（Phase 1 完成 2026-08-27）**：照片→暖手绘头像全本地生成链 + **viseme 音素时间轴口型**（Rhubarb 逐条预计算，四态嘴型贴片；恒定底图架构根治闪烁）+ **眨眼 + 头部微摆**整脸微活 + BYOK 对话页（真流式 SSE + 客户端检索 + Tier 纪律 system prompt）。下一步（可选）：talking-head 预渲染 MP4"特别版"
+- [x] **M4 桌面陪伴 companion**：iframe 组合脸 + 检索式对话 + 她的声音，三平台兼容；情绪表情层、多服务商抽屉、微信式 ≤30 字语音条、跨会话记忆（上次对话卡 + 第四检索源）
+- [x] **爸爸站上线（2026-09-10）**：命名隧道 + Cloudflare Access + Worker 离线兜底 + LLM 代理（PC 持 key）；09-10→11 补齐静态站缓存治理、424 约定、会话数据按 viewer 隔离、**刷新后历史回放 + 历史语音条点播**
+- [ ] 进行中：TTS 短句幻觉（参考音频过长，待 A/B 盲测短参考）、运行期身份、8A-2b 伦理护栏
 
 当前实时状态见 `docs/HANDOFF.md` 顶部与 `task_plan.md`；技术管道全景见 `docs/PIPELINE.md`。

@@ -97,6 +97,7 @@ python tools\build_companion_page.py `
   页面会去读一个已经不存在的旧路径（跨会话记忆静默失效），更糟的是它标志着共享目录里又出现了
   viewer 私有数据。爸爸站取值固定为 `data_father/sessions/sessions.json`（经 `data_father/sessions`
   这条**只指向 father 子目录**的联接读取），儿子站是 `sessions_data/owner/sessions.json`。
+- **历史语音条（2026-09-11）**：爸爸的历史语音在 `sessions_data/father/audio/`，由 tts_server 进程内的摄入调度器自动维护（`start_services.ps1` 已给 tts 带上 `--sessions-out-dir <儿子站目录>/sessions_data --sessions-per-viewer-subdir`）。**改了 `tools/ingest_sessions.py` 必须真重启 tts**（停整棵进程树再起）——调度器在进程内，重跑启动脚本会跳过健康进程。手工补跑：`python tools/ingest_sessions.py --person mama --out-dir people/mama/archive_out/sessions_data --per-viewer-subdir`。
 - **`--tts-origin same` 绝不能漏**。默认值 `auto` 生成的是 `location.protocol + '//' + location.hostname + ':8022'`——经隧道就成了 `https://dad.justmissingyou.com:8022`，那个端口在 Cloudflare 上不存在，**爸爸会一点声音都没有**。`same` 生成 `location.origin`，由 cloudflared ingress 把 `^/(tts|health|session)$` 路由到 :8022。（此前本文件的命令模板漏了这一条，2026-09-10 补。）
 - `--intro-builder 儿子`：**能反推**（此前本文件说"由 JS 动态生成、反推不出来"，是错的）。说明卡是构建期字符串替换，直接在 HTML 里搜 `来自X手机里的聊天记录` 即可。
 - `--tts-token`：`tokens.env` 里 `father:` 后面那截。可以从旧页面 `var TTS_TOKEN = '...'` 取，与 tokens.env 的 father 条比对一致后复用，无需人工输入。

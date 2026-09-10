@@ -27,7 +27,7 @@
 2. **Tier 分级 + 人工闸门**：Tier-1 家人确认 / Tier-2 可溯源 / Tier-3 模型生成禁作事实；AI 新学到的一切默认 Tier-3。
 3. **raw/ 神圣不可侵犯**：只读、永不修改、gitignore、永不出机；一切处理输出到新目录。
 
-**工程方法论（三模型分工）**：Claude 统筹/规格/验收编排，DeepSeek V4 Flash 写实质代码（`scripts/deepseek_call.py`，必带 `DEEPSEEK_NOTHINK=1`，≥32k tokens），Codex GPT-5.6 审核验收（MCP，REJECT 回炉至 ACCEPT）。Claude 直写仅限：一次性探针、声明的 1-3 行 hotfix、纯数据拼装、判断类文书——每次须声明。
+**工程方法论（三模型分工）**：Claude 统筹/规格/验收编排，DeepSeek V4 Flash 写实质代码（`scripts/deepseek_call.py`，必带 `DEEPSEEK_NOTHINK=1`，≥32k tokens，大规格 64000；大文件只让它输出 OLD/NEW 替换对、脚本强制唯一匹配后应用），Codex 审核验收（REJECT 回炉至 ACCEPT；codex 0.154.0 起 MCP 不可用，经 CLI `codex exec --model gpt-5.6-sol --sandbox read-only`，稿子自包含、输出存文件）。Claude 直写仅限：一次性探针、声明的 1-3 行 hotfix、纯数据拼装、判断类文书——每次须声明。
 
 ---
 

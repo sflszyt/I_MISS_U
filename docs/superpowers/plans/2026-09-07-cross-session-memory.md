@@ -1,5 +1,7 @@
 # 跨会话记忆（Phase 15）实施计划
 
+> ⚠️ **2026-09-10/11 更新（读者注意）**：会话产物已从共享 `archive_out/data/sessions_<viewer>.json` 迁至 `archive_out/sessions_data/<viewer>/sessions.json`（修复爸爸站可读儿子对话的泄漏），并新增该 viewer 的历史语音条 `<viewer>/audio/`；审核通道已改为 CLI（codex 0.154.0 移除 mcp-server）。本文保留原始设计记录，现行路径与流程以 `docs/HANDOFF.md` ⓪¹⁵ 为准。
+
 > **For agentic workers:** 本项目铁律 1 规定代码由 DeepSeek V4 Flash 编写、Codex 审核、Claude 编排（见 CLAUDE.md）。因此本计划不走 superpowers:subagent-driven-development，而是每个 Task = "Claude 出规格 → DeepSeek 写全文件 → Claude 机械核验（diff/编译/测试）→ 三视角 workflow 审查 → Codex 审核验收 → 不通过回炉"。Claude 只允许 1–2 行声明式 hotfix。步骤用 `- [ ]` 勾选跟踪。
 
 **Goal:** 新开窗口后 companion 页的她能接上上次的话：sessions 日志经构建端摄入为按 viewer 分文件的静态 JSON，页面把"上次对话卡"拼进系统提示并把往次对话作为第四检索源，全部第二纪元、永不写回第一纪元。
