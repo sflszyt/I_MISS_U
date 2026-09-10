@@ -90,6 +90,7 @@ TEMPLATE = r"""<!DOCTYPE html>
     -webkit-tap-highlight-color: transparent;
   }
   .voice-bar:active { background: #3b5188; }
+  .voice-bar.expired { opacity: 0.45; }
   .voice-icon {
     position: relative; width: 16px; height: 16px; flex-shrink: 0;
   }
@@ -304,9 +305,14 @@ var lastEmotion = null;
 var emotionTimer = null;
 var emotionImg = null;
 var VIEWER = '__VIEWER__';
+var SESSIONS_PATH = '__SESSIONS_PATH__';
+var SESSIONS_BASE = SESSIONS_PATH.substring(0, SESSIONS_PATH.lastIndexOf('/') + 1);
 var sessionsData = {last_card: null, recent_dates: [], sessions: []};
 var noMemoryEnabled = false;
 var sessionsCardApplied = false;
+var historyReplayed = false;      /* 往次记录是否已经回放进聊天区 */
+var sessionsLoaded = false;       /* sessions 数据是否已落地（无论成功失败） */
+var sessionsDataPromise = null;   /* loadSessionsData 的记忆化 Promise，绝不重复 fetch */
 
 /* ===== helpers ===== */
 function esc(s) {
@@ -589,7 +595,7 @@ function applyProviderHints(provider) {
   var hintEl = document.getElementById('cfg-hint');
   if (hintEl) { hintEl.textContent = d.hint || ''; }
 }
-function clearChat() { chat.innerHTML = ''; }
+function clearChat() { chat.innerHTML = ''; historyReplayed = false; lastMessageTs = null; }
 function addBubble(opts) {
   if (!opts.noDivider && (opts.type === 'user' || opts.type === 'subject')) { maybeAddTimeDivider(Date.now()); }
   var div = document.createElement('div');
@@ -608,9 +614,155 @@ function systemNotice(msg) { addBubble({type:'notice', text: msg}); }
 function updateChatState() {
   if (!settingsComplete()) { confNotice(); return; }
   if (!contextLoaded) { clearChat(); addBubble({type:'center', text:'档案加载中，请稍候…'}); sendBtn.disabled = true; return; }
+  maybeReplayHistory();
   if (chat.children.length === 0) { addBubble({type:'center', text:'开始对话吧...'}); }
   sendBtn.disabled = false; sendBtn.textContent = '发送'; streaming = false;
   if (controller) { try { controller.abort(); } catch(e) {} controller = null; }
+}
+
+/* ===== 历史回放：刷新后仍能看到（并点播）之前说过的话 ===== */
+function removeStartPlaceholder() {
+  /* 居中状态提示有三处（文字与下面三处 addBubble 逐字相同）：
+     '开始对话吧...'（无历史时）、'点右上角 ⚙ 配置接口后开始对话'（儿子站未配 key）、
+     '档案加载中，请稍候…'（档案未就绪）。保存设置后回放发生时它们都会留在历史上方，全部移除。 */
+  var CENTER_TEXTS = ['开始对话吧...', '点右上角 ⚙ 配置接口后开始对话', '档案加载中，请稍候…'];
+  var removed = false;
+  var i = chat.children.length - 1;   /* 倒序遍历：边删边遍历不会跳元素 */
+  for (; i >= 0; i--) {
+    var el = chat.children[i];
+    if (el.className !== 'bubble center') continue;
+    for (var j = 0; j < CENTER_TEXTS.length; j++) {
+      if (el.textContent === CENTER_TEXTS[j]) {
+        chat.removeChild(el);
+        removed = true;
+        break;
+      }
+    }
+  }
+  return removed;
+}
+function maybeReplayHistory() {
+  if (historyReplayed) return;
+  if (!contextLoaded || !sessionsLoaded) return;
+  if (!settingsComplete()) return;
+  if (history.length !== 0) return;   /* 用户已经开口：往次记录绝不插进正在进行的对话 */
+  if (voiceTurn) return;
+  removeStartPlaceholder();
+  var rendered = replayHistory();
+  historyReplayed = true;
+  if (rendered === 0 && chat.children.length === 0) {
+    addBubble({type:'center', text:'开始对话吧...'});
+  }
+  chat.scrollTop = chat.scrollHeight;
+}
+function wireHistoryBar(bar) {
+  /* 独立作用域接住 bar：循环里注册闭包不能引用循环变量 */
+  bar.addEventListener('click', function() {
+    /* 回合进行中不做独立回放：在入口先做一次与 replayBar 相同的判断。
+       拉取是异步的，若只靠 replayBar 内部的检查，下载期间回合可能结束，
+       这次点击就会被延迟到那时执行，老人会听到一段没预期的声音。 */
+    if (voiceTurn && !voiceTurn.done && !voiceTurn.canceled) return;
+    if (bar._voiceBlob) { replayBar(bar); return; }   /* 已缓存：同步调用本就在手势之内，不再解锁 */
+    if (bar._voiceLoading) return;
+    bar._voiceLoading = true;
+    /* 必须在发起 fetch 之前、手势的同步调用链里解锁 iOS 音频。
+       Blob 只解决「媒体从哪里加载」，替代不了「手势授权」；fetch 完成后已脱离手势，
+       老人刷新页面后第一个点的往往就是历史语音条，iOS Safari 可能拒绝那次异步播放。 */
+    /* 已有独立回放在进行时跳过解锁：unlockAudio() 只在自身 play() 成功后才置位，且成功回调
+       无条件 pause()，会把正在播放的回放掐断（下载若失败也不会恢复）；而此时播放器必然
+       已被用户手势解锁过，交给下载成功后的 replayBar() 接管即可。 */
+    if (!replayingBar) unlockAudio();
+    fetch(bar._voiceUrl)
+      .then(function(r) { if (!r.ok) throw new Error('audio ' + r.status); return r.blob(); })
+      .then(function(blob) {
+        bar._voiceLoading = false;
+        bar._voiceBlob = blob;
+        bar.classList.remove('expired');   /* 失败后重试成功：恢复正常外观 */
+        replayBar(bar);          /* 必须走 Blob 路径：iOS 无法从 URL 直接播，且口型只能由 Blob 驱动 */
+      })
+      .catch(function() {
+        /* 重试语义：此处 _voiceLoading 已复位、_voiceBlob 仍为空，下一次点击会重新拉取；
+           若拉取成功而播放被拒，Blob 已缓存在 bar 上，下一次点击走同步分支直接 replayBar()，
+           在手势之内，可以播放。 */
+        bar._voiceLoading = false;
+        bar.classList.add('expired');
+      });
+  });
+}
+function replayHistory() {
+  var sessions = (sessionsData && sessionsData.sessions) ? sessionsData.sessions : [];
+  var rendered = 0;
+  for (var i = 0; i < sessions.length; i++) {
+    var s = sessions[i];
+    if (!s || s.session_id === sessionId) continue;   /* 当前会话由本轮实时对话负责 */
+    var turns = (s.turns && s.turns.length) ? s.turns : [];
+    var groups = [];
+    var groupByTurn = {};
+    var j;
+    for (j = 0; j < turns.length; j++) {
+      var t = turns[j];
+      if (!t) continue;
+      var gkey = 't' + String(t.turn);
+      if (!Object.prototype.hasOwnProperty.call(groupByTurn, gkey)) {
+        groupByTurn[gkey] = {user: null, sim: null};
+        groups.push(groupByTurn[gkey]);
+      }
+      var grp = groupByTurn[gkey];
+      if (t.role === 'user') { if (!grp.user) { grp.user = t; } }
+      else if (t.role === 'simulacrum') { if (!grp.sim) { grp.sim = t; } }
+    }
+    for (j = 0; j < groups.length; j++) {
+      var g = groups[j];
+      if (!g.sim) continue;              /* 没有数字人回复的孤立发言整轮跳过 */
+      var tsRaw = g.user ? g.user.ts : g.sim.ts;
+      var tsNum = Date.parse(String(tsRaw || ''));
+      if (isFinite(tsNum)) { maybeAddTimeDivider(tsNum); }
+      if (g.user) {
+        addBubble({type: 'user', text: String(g.user.text || ''), noDivider: true});
+        rendered += 1;
+      }
+      var segs = splitMessages(g.sim.text);
+      if (!segs || segs.length === 0) {
+        var whole = String(g.sim.text || '').replace(/^\s+|\s+$/g, '');
+        segs = [whole || '…'];
+      }
+      var pool = [];
+      var audios = (g.sim.audio && g.sim.audio.length) ? g.sim.audio : [];
+      var ai;
+      for (ai = 0; ai < audios.length; ai++) {
+        var item = audios[ai];
+        if (!item || typeof item.text !== 'string' || typeof item.file !== 'string') continue;
+        if (item.file.indexOf('audio/session_') !== 0) continue;
+        if (item.file.substring(item.file.length - 4) !== '.wav') continue;
+        if (item.file.indexOf('..') !== -1) continue;
+        if (item.file.indexOf('\\') !== -1) continue;
+        if (item.file.indexOf('/', 6) !== -1) continue;   /* 除开头 'audio/' 外不再含 '/' */
+        pool.push(item);
+      }
+      for (ai = 0; ai < segs.length; ai++) {
+        var segText = segs[ai];
+        var b = addBubble({type: 'subject', text: '', noDivider: true});
+        var el = b.querySelector('.bubble-content');
+        rendered += 1;
+        var hit = -1;
+        for (var pi = 0; pi < pool.length; pi++) {
+          if (pool[pi].text === segText) { hit = pi; break; }
+        }
+        if (hit === -1) { el.textContent = segText; continue; }
+        var au = pool[hit];
+        pool.splice(hit, 1);             /* 每条音频只用一次 */
+        var durNum = (typeof au.dur === 'number' && isFinite(au.dur) && au.dur > 0) ? au.dur : null;
+        el.className = 'bubble-content voice';
+        el.innerHTML = voiceBarHtml(segText, durNum);
+        var bar = el.querySelector('.voice-bar');
+        bar._voiceUrl = SESSIONS_BASE + au.file;
+        bar._voiceBlob = null;
+        bar._voiceLoading = false;
+        wireHistoryBar(bar);             /* 不进 voiceBars：可重新拉取，不挤占实时语音条的 Blob */
+      }
+    }
+  }
+  return rendered;
 }
 
 /* ===== pure functions ===== */
@@ -844,16 +996,9 @@ function loadShards() {
   });
   return Promise.all(fetches).then(function() { shardsLoading = false; });
 }
-function loadKnowledge() {
-  if (knowledgeLoading || knowledgeCache !== null) return Promise.resolve(knowledgeCache);
-  knowledgeLoading = true; var out = {memories: [], transcripts: []};
-  var one = function(name, key) {
-    return fetch('data/' + name, {cache: 'no-cache'})
-      .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(function(data) { if (data && Array.isArray(data.entries)) out[key] = data.entries; })
-      .catch(function() {});
-  };
-  var loadSessions = fetch('__SESSIONS_PATH__', {cache: 'no-cache'})
+function loadSessionsData() {
+  if (sessionsDataPromise) return sessionsDataPromise;
+  sessionsDataPromise = fetch(SESSIONS_PATH, {cache: 'no-cache'})
     .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
     .then(function(data) {
       if (data && data.viewer === VIEWER) {
@@ -864,8 +1009,24 @@ function loadKnowledge() {
         };
       }
     })
-    .catch(function() { /* 文件不存在或坏：功能静默关闭 */ });
-  return Promise.all([one('memories.json', 'memories'), one('transcripts.json', 'transcripts'), loadSessions])
+    .catch(function() { /* 文件不存在或坏：功能静默关闭 */ })
+    .then(function() {
+      sessionsLoaded = true;
+      applySessionsCard();
+      maybeReplayHistory();
+    });
+  return sessionsDataPromise;
+}
+function loadKnowledge() {
+  if (knowledgeLoading || knowledgeCache !== null) return Promise.resolve(knowledgeCache);
+  knowledgeLoading = true; var out = {memories: [], transcripts: []};
+  var one = function(name, key) {
+    return fetch('data/' + name, {cache: 'no-cache'})
+      .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(data) { if (data && Array.isArray(data.entries)) out[key] = data.entries; })
+      .catch(function() {});
+  };
+  return Promise.all([one('memories.json', 'memories'), one('transcripts.json', 'transcripts'), loadSessionsData()])
     .then(function() { knowledgeCache = out; knowledgeLoading = false; applySessionsCard(); return out; });
 }
 function collectAllRecords() {
@@ -1318,15 +1479,17 @@ function showTextMsg(vt, i) {
   }
   chat.scrollTop = chat.scrollHeight;
 }
-function showVoiceMsg(vt, i, blob, dur) {
-  var el = takePending(vt, i);
-  el.className = 'bubble-content voice';
-  var msg = vt.msgs[i];
+function voiceBarHtml(msg, dur) {
   var safeMsg = String(msg || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   var durNum = (dur && !isNaN(dur) && dur > 0) ? dur : null;
   var W = 72 + Math.min(Math.max((durNum || 1), 1), 30) * 4;
   var D = durNum ? (String(Math.max(1, Math.round(durNum))) + '"') : '';
-  var html = '<div class="voice-bar" role="button" tabindex="0" style="width:' + W + 'px"><span class="voice-icon"><i></i><i></i><i></i></span><span class="voice-dur">' + D + '</span></div><div class="voice-text">' + safeMsg + '</div>';
+  return '<div class="voice-bar" role="button" tabindex="0" style="width:' + W + 'px"><span class="voice-icon"><i></i><i></i><i></i></span><span class="voice-dur">' + D + '</span></div><div class="voice-text">' + safeMsg + '</div>';
+}
+function showVoiceMsg(vt, i, blob, dur) {
+  var el = takePending(vt, i);
+  el.className = 'bubble-content voice';
+  var html = voiceBarHtml(vt.msgs[i], dur);
   el.innerHTML = html;
   var bar = el.querySelector('.voice-bar');
   bar._voiceBlob = blob;
@@ -1816,6 +1979,9 @@ function init() {
   loadUiPrefs();
   startTtsProbeLoop();
   __SW_REGISTER_JS__
+
+  // 页面一打开就取会话数据（与 chat_context 并行，不等待），刷新后才回放得了往次记录
+  loadSessionsData();
 
   // 从 chat_context.json 载入 systemPrompt + shards
   fetch('__CONTEXT_PATH__', {cache: 'no-cache'})

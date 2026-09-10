@@ -1,5 +1,19 @@
 # MVP 生产进度日志
 
+## 2026-09-11 · 刷新后历史回放 + 历史语音条点播上线
+
+**需求**：爸爸刷新后聊天记录全没了；历史里每条数字人语音也要能点播。用户裁决：回放全部保留会话、没有回复的孤立发言跳过、回放内容不进模型上下文（靠现有检索兜底）。
+
+**改动**（DeepSeek 写；Codex 页面 3 轮、数据层 6 轮后 ACCEPT）：
+- `tools/build_companion_page.py`：sessions 打开即加载；`replayHistory()` 按回合分组、按历史时间戳插时间分隔、按段文本精确配对音频；历史语音条点击时 fetch→Blob→复用 `replayBar`，入口先挡实时回合、异步分支前同步 `unlockAudio()`（有回放进行时跳过）；`voiceBarHtml` 从 `showVoiceMsg` 抽出（输出逐字节等价）；三种状态提示回放前一并移除；`.voice-bar.expired` 变淡。
+- `tools/ingest_sessions.py`：per-viewer 模式把 `simulacrum_audio` 对应 WAV 复制进 `<viewer>/audio/` 并在回合上附 `audio: [{text, file, dur}]`；源侧二次校验、跨进程锁、mkstemp 临时文件、输出/源目录重叠拒绝、陈旧清理身份约束，大小写与同名冲突整组拒绝。
+- `tests/test_ingest_sessions_audio.py`：31 个测试（全量 67 个通过，1 个需要符号链接特权的 skip，已有无特权 mock 版覆盖同一修复）。
+
+**部署**：停 tts 树 → ingest 进 live `sessions_data`（复制 55 段：father 2 / owner 53）→ 重建两站页面 → 起 tts（命令行确认带新参数）。
+
+**验收**：服务端——爸爸站拿自己的音频 200 `audio/wav`，拿儿子的音频直链与 `../` 穿越均 404；真实日志 55/55 逐条核对。浏览器——历史只回放一次、孤立发言跳过、点语音条经 `blob:` 播放、失败变淡可重试、回放零 `/tts` `/session` 模型请求。
+**⏳ 待办**：真 iPhone 上「刷新后第一下就点历史语音条」能否出声（无头浏览器验不了，需用户实测）；被杀后残留随机 `.tmp` 的清理（Codex 判为可后续处理的 NIT）。
+
 ## 2026-09-10 · 会话数据 viewer 隔离（修复爸爸站可读儿子私人对话）
 
 **起因**：用户要求「刷新后聊天记录还在」+「历史语音条可播放」。查数据链路时顺手测出

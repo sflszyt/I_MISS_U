@@ -8,14 +8,30 @@ Usage:
 """
 
 import argparse
+import contextlib
+import hashlib
 import json
 import os
 import re
+import shutil
+import stat
 import sys
+import tempfile
 import threading
+import time
 import traceback
 from datetime import datetime
 from pathlib import Path
+
+try:  # POSIX advisory locking
+    import fcntl
+except ImportError:  # pragma: no cover - Windows
+    fcntl = None
+
+try:  # Windows advisory locking
+    import msvcrt
+except ImportError:  # pragma: no cover - POSIX
+    msvcrt = None
 
 # ---------------------------------------------------------------------------
 # Constants and global state
@@ -27,6 +43,7 @@ DEFAULT_VIEWER = "owner"
 REDACTED_TEXT = "\u3014\u542b\u654f\u611f\u4fe1\u606f\uff0c\u5df2\u7701\u7565\u3015"
 EXCLUDE_EVENT_TEXT = "exclude_session"
 OUT_NAME_RE = re.compile(r"^sessions_([a-z][a-z0-9_-]{0,31})\.json$")
+AUDIO_BASENAME_RE = re.compile(r"^session_[A-Za-z0-9_-]+_t\d{3}(?:_\d+)?\.wav$")
 
 ROOT = Path(__file__).resolve().parent.parent
 PEOPLE_DIR = ROOT / "people"
@@ -55,6 +72,70 @@ def contain_check(path, base_dir, allow_same=False):
         if allow_same and Path(path).resolve() == Path(base_dir).resolve():
             return True
         return False
+
+
+class IngestLockTimeout(RuntimeError):
+    """在超时时间内拿不到输出目录的跨进程锁。"""
+
+
+def _out_lock_path(person_dir, out_dir):
+    """把 out_dir 解析后的路径哈希成一个 .lock 文件名。
+
+    锁文件放在 person_dir 下的 .ingest_locks/ 而不是 out_dir 里：out_dir 可能是
+    被静态站提供、甚至被打包进可分发档案的目录，锁文件绝不能跟着分发出去。
+    """
+    # Windows 文件系统不区分大小写，而目录尚不存在时 resolve() 不会把大小写规范化：
+    # 同一个目录的两种大小写写法会得到不同的哈希，两个进程就会各自取得不同的锁。
+    # 因此先 normcase 再哈希（它在区分大小写的平台上是恒等变换，不影响那些平台）。
+    key = os.path.normcase(str(Path(out_dir).resolve()))
+    digest = hashlib.sha1(key.encode("utf-8")).hexdigest()
+    return Path(person_dir) / ".ingest_locks" / (digest + ".lock")
+
+
+@contextlib.contextmanager
+def _acquire_out_lock(person_dir, out_dir, timeout_s=60.0):
+    """取得覆盖整轮 ingest 的跨进程排他锁。
+
+    tts_server 内部的 threading.Lock 只能管到同一个进程，管不到手工运行的 CLI，
+    因此互斥必须落到文件系统上。锁文件永远不删除：删除会引入竞态（第三个进程
+    会新建并锁住一个全新的文件，从而与持锁者并行）。
+    """
+    lock_path = _out_lock_path(person_dir, out_dir)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT, 0o644)
+    locked = False
+    try:
+        deadline = time.monotonic() + float(timeout_s)
+        while True:
+            try:
+                if msvcrt is not None:
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                else:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                locked = True
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise IngestLockTimeout(
+                        "timed out waiting for output lock: %s" % lock_path
+                    )
+                time.sleep(0.1)
+        yield lock_path
+    finally:
+        if locked:
+            try:
+                if msvcrt is not None:
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+            except OSError:
+                pass
+        try:
+            os.close(fd)
+        except OSError:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -137,6 +218,23 @@ def validate_paths(person_dir, out_dir, exclude_file=None, patterns_path=None):
     return None
 
 
+def _check_out_not_overlapping_sessions(person_dir, out_dir):
+    """Validate per-viewer out_dir does not overlap person_dir/sessions.
+
+    Returns None if ok, or an error string (ASCII).
+    """
+    try:
+        guard_out = Path(out_dir).resolve()
+        guard_sessions = (Path(person_dir) / "sessions").resolve()
+    except (OSError, RuntimeError):
+        return "out dir must not overlap sessions/ in per-viewer mode"
+    if (guard_out == guard_sessions
+            or contain_check(guard_out, guard_sessions)
+            or contain_check(guard_sessions, guard_out)):
+        return "out dir must not overlap sessions/ in per-viewer mode"
+    return None
+
+
 def _normalize_viewer(viewer):
     """Return normalized viewer or DEFAULT_VIEWER."""
     if isinstance(viewer, str) and VIEWER_RE.match(viewer):
@@ -180,6 +278,59 @@ def _session_id_from_filename(filename):
     return None
 
 
+def _resolve_audio_source(person_dir, file_field, session_id):
+    """Validate a simulacrum_audio record's 'file' field.
+
+    Returns the resolved source Path, or None when the record must be dropped.
+    The field is relative to people/<slug>/sessions/ and must never escape it.
+    """
+    if not isinstance(file_field, str) or not file_field:
+        return None
+    if file_field.startswith("/"):
+        return None
+    # 日志规定只用 "/" 分隔。出现任何反斜杠或冒号一律拒绝：否则在 Windows 上
+    # "2026-09\..\2026-09/audio/x.wav" 会被当成单个路径段而绕过「无 . / .. 段」校验。
+    if "\\" in file_field or ":" in file_field:
+        return None
+    parts = file_field.split("/")
+    for part in parts:
+        if part == "" or part == "." or part == "..":
+            return None
+    basename = parts[-1]
+    if not AUDIO_BASENAME_RE.match(basename):
+        return None
+    if not isinstance(session_id, str) or not basename.startswith("session_%s_t" % session_id):
+        return None
+
+    sessions_root = Path(person_dir) / "sessions"
+    try:
+        source = sessions_root.joinpath(*parts).resolve()
+        sessions_resolved = sessions_root.resolve()
+        raw_resolved = (Path(person_dir) / "raw").resolve()
+    except (OSError, RuntimeError):
+        return None
+    if not contain_check(source, sessions_resolved, allow_same=False):
+        return None
+    if contain_check(source, raw_resolved, allow_same=True):
+        return None
+    # 源侧的文件链接可以换名：若只校验解析前的名字，father 会话里一个指向
+    # session_ow_t001.wav 的符号链接会把别人的音频发布到本站。因此 resolve 之后
+    # 必须用解析后的文件名重新校验，并且拒绝解析前后 basename 不同的引用。
+    resolved_basename = source.name
+    if resolved_basename != basename:
+        return None
+    if not AUDIO_BASENAME_RE.match(resolved_basename):
+        return None
+    if not isinstance(session_id, str) or not resolved_basename.startswith("session_%s_t" % session_id):
+        return None
+    try:
+        if not source.is_file():
+            return None
+    except OSError:
+        return None
+    return source
+
+
 def _sorted_turns(session_turns):
     """Sort turns by (turn asc, role user first)."""
     def sort_key(item):
@@ -190,7 +341,7 @@ def _sorted_turns(session_turns):
 
 def build_sessions(person_dir, *, exclude_file=None, patterns_path=None,
                    card_max_lines=12, card_line_chars=120, exchange_chars=200,
-                   generated_at=None):
+                   generated_at=None, attach_audio=False, audio_plan=None):
     """
     Build session payloads per viewer.
 
@@ -254,6 +405,8 @@ def build_sessions(person_dir, *, exclude_file=None, patterns_path=None,
                             "server_ts": rec.get("server_ts"),
                             "viewer": rec.get("viewer"),
                             "exclude": rec.get("exclude", False),
+                            "file": rec.get("file"),
+                            "duration_s": rec.get("duration_s"),
                             "filepath": fpath,
                             "lineno": lineno,
                         })
@@ -391,7 +544,50 @@ def build_sessions(person_dir, *, exclude_file=None, patterns_path=None,
             "original_text_for_card": None if redacted else text,
             "ts": rec.get("ts") or rec.get("server_ts") or "",
             "date": date_str,
+            "redacted": redacted,
         })
+
+    # Collect simulacrum_audio records (only used for the per-viewer layout).
+    # Records belonging to excluded sessions are never collected at all.
+    audio_by_turn = {}   # (viewer, session_id, turn_key) -> [audio entries]
+    # viewer -> {basename: [解析后的源 Path, ...]}。同一个 basename 可能来自不同目录，
+    # 因此必须把每个解析后的源都保留下来：若只用 setdefault(basename, source) 保留第一个，
+    # 冲突检查就永远看不到第二个源，两份同名不同源的音频会被静默合并成一个。
+    plan_sources = {}
+    audio_rejected = 0
+    if attach_audio:
+        for rec in raw_records:
+            if rec.get("role") != "simulacrum_audio":
+                continue
+            sid = rec["session_id"]
+            if sid is not None and sid in excluded_sessions:
+                continue
+            text = rec.get("text")
+            if not isinstance(text, str) or not text:
+                audio_rejected += 1
+                continue
+            file_field = rec.get("file")
+            if not isinstance(file_field, str):
+                audio_rejected += 1
+                continue
+            source = _resolve_audio_source(person_dir, file_field, sid)
+            if source is None:
+                audio_rejected += 1
+                continue
+            turn = rec.get("turn")
+            turn_key = -1 if turn is None else turn
+            viewer = _normalize_viewer(rec.get("viewer"))
+            dur = rec.get("duration_s")
+            if isinstance(dur, bool) or not isinstance(dur, (int, float)):
+                dur = None
+            basename = source.name
+            audio_by_turn.setdefault((viewer, sid, turn_key), []).append({
+                "text": text,
+                "file": "audio/" + basename,
+                "dur": dur,
+                "_basename": basename,
+                "_source": source,
+            })
 
     # Now group by viewer
     viewer_data = {}
@@ -436,22 +632,29 @@ def build_sessions(person_dir, *, exclude_file=None, patterns_path=None,
         sessions_list = []
         for entry in sorted_entries:
             # Filter turns? all turns already user/simulacrum non-empty
-            turn_objects = [{
-                "turn": t["turn"] if t["turn"] != -1 else None,
-                "role": t["role"],
-                "text": t["text"],
-                "ts": t["ts"] if t["ts"] else None,
-            } for t in entry["turns"]]
+            turn_dicts = []
+            for t in entry["turns"]:
+                turn_obj = {
+                    "turn": (t["turn"] if t["turn"] is not None else -1),
+                    "role": t["role"],
+                    "text": t["text"],
+                    "ts": t["ts"],
+                }
+                if attach_audio and t["role"] == "simulacrum" and not t.get("redacted"):
+                    matched_audio = audio_by_turn.get((viewer, entry["session_id"], turn_obj["turn"]))
+                    if matched_audio:
+                        turn_obj["audio"] = [
+                            {"text": a["text"], "file": a["file"], "dur": a["dur"]}
+                            for a in matched_audio
+                        ]
+                        for a in matched_audio:
+                            _sources = plan_sources.setdefault(viewer, {}).setdefault(a["_basename"], [])
+                            _src_key = os.path.normcase(str(a["_source"]))
+                            if all(os.path.normcase(str(_s)) != _src_key for _s in _sources):
+                                _sources.append(a["_source"])
+                turn_dicts.append(turn_obj)
             # Sort
-            turn_objects_sorted = _sorted_turns([{
-                "turn": (t["turn"] if t["turn"] is not None else -1),
-                "role": t["role"],
-                "text": t["text"],
-                "ts": t["ts"],
-            } for t in entry["turns"]])
-            # attach ts
-            for tt in turn_objects_sorted:
-                pass
+            turn_objects_sorted = _sorted_turns(turn_dicts)
             session_obj = {
                 "session_id": entry["session_id"],
                 "date": entry["date"],
@@ -586,6 +789,10 @@ def build_sessions(person_dir, *, exclude_file=None, patterns_path=None,
         "total_excluded_sessions": len(excluded_sessions),
     }
 
+    if audio_plan is not None:
+        audio_plan["sources"] = plan_sources
+        audio_plan["rejected"] = audio_rejected
+
     return payloads, global_stats
 
 
@@ -597,6 +804,211 @@ def write_atomic_json(path, obj):
         json.dump(obj, fh, ensure_ascii=False, indent=1)
         fh.write("\n")
     os.replace(str(tmp_path), str(path))
+
+
+def _viewer_audio_dir(out_dir, viewer):
+    """Return <out>/<viewer>/audio when it is a plain directory inside out_dir.
+
+    Returns None when the identity constraints do not hold; callers must then
+    copy nothing and attach no audio for that viewer (fail-safe against writing
+    through a junction/symlink that points somewhere else).
+    """
+    viewer_dir = Path(out_dir) / viewer
+    audio_dir = viewer_dir / "audio"
+    try:
+        resolved_out = Path(out_dir).resolve()
+        resolved_viewer = viewer_dir.resolve()
+        resolved_audio = audio_dir.resolve()
+    except (OSError, RuntimeError):
+        return None
+    if resolved_viewer != resolved_out / viewer:
+        return None
+    if resolved_audio != resolved_out / viewer / "audio":
+        return None
+    return audio_dir
+
+
+def _is_reusable_audio_target(target, source, resolved_audio_dir):
+    """True only when `target` 本身就是一个独立、就地、内容匹配的普通文件。
+
+    复用（unchanged）必须用 os.lstat 确认：是普通文件、不是链接（S_ISREG 为真
+    且 S_ISLNK 为假）、st_nlink == 1（硬链接不得复用，必须重新独立复制）、且解析
+    后的位置就是预期位置；再比较大小与整秒 mtime。任一条不满足都返回 False，
+    调用方会重新复制，从而绝不会写穿到源文件。
+    """
+    try:
+        dst_lstat = os.lstat(str(target))
+    except OSError:
+        return False
+    if not stat.S_ISREG(dst_lstat.st_mode) or stat.S_ISLNK(dst_lstat.st_mode):
+        return False
+    if dst_lstat.st_nlink != 1:
+        return False
+    try:
+        resolved_target = target.resolve()
+        src_stat = source.stat()
+    except (OSError, RuntimeError):
+        return False
+    if resolved_target != resolved_audio_dir / target.name:
+        return False
+    if src_stat.st_size != dst_lstat.st_size:
+        return False
+    if int(src_stat.st_mtime) != int(dst_lstat.st_mtime):
+        return False
+    return True
+
+
+def _copy_viewer_audio(out_dir, viewer, sources, stats):
+    """Copy one viewer's clips into <out>/<viewer>/audio/.
+
+    Returns the set of basenames that are in place, or None when the target
+    directory identity check fails. Only plain copies are used - never hard
+    links or symlinks - so nothing can ever write back into the source tree.
+    """
+    audio_dir = _viewer_audio_dir(out_dir, viewer)
+    if audio_dir is None:
+        return None
+    try:
+        audio_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        stats["rejected"] += len(sources)
+        print(("warning: cannot create audio dir %s: %s" % (audio_dir, exc)).encode("ascii", "replace").decode("ascii"), file=sys.stderr)
+        return set()
+    try:
+        resolved_audio_dir = audio_dir.resolve()
+    except (OSError, RuntimeError):
+        stats["rejected"] += len(sources)
+        return set()
+
+    placed = set()
+    for basename, source in sources.items():
+        target = audio_dir / basename
+        try:
+            if _is_reusable_audio_target(target, source, resolved_audio_dir):
+                stats["unchanged"] += 1
+                placed.add(basename)
+                continue
+        except OSError:
+            pass
+
+        # 每次都用一个排他创建的全新随机临时文件：固定名字的 .tmp 在并发下会发布
+        # 半截文件，而且若事先存在一个指向源文件的符号链接／硬链接，copy2 会把源
+        # 文件写穿。mkstemp 同时消灭这两个问题。
+        tmp_path = None
+        try:
+            fd, tmp_name = tempfile.mkstemp(
+                dir=str(audio_dir),
+                prefix="." + basename + ".",
+                suffix=".tmp",
+            )
+            tmp_path = Path(tmp_name)
+            os.close(fd)
+            shutil.copy2(str(source), str(tmp_path))
+            os.replace(str(tmp_path), str(target))
+            tmp_path = None
+            stats["copied"] += 1
+            placed.add(basename)
+        except OSError as exc:
+            # 只清理自己创建的临时文件，然后计 rejected，绝不附进 JSON。
+            if tmp_path is not None:
+                try:
+                    os.unlink(str(tmp_path))
+                except OSError:
+                    pass
+            stats["rejected"] += 1
+            print(("warning: cannot copy audio %s: %s" % (source, exc)).encode("ascii", "replace").decode("ascii"), file=sys.stderr)
+    return placed
+
+
+def _filter_payload_audio(payload, keep_files):
+    """Drop 'audio' entries that are not in keep_files; remove the key if empty."""
+    for session in payload.get("sessions") or []:
+        for turn in session.get("turns") or []:
+            audios = turn.get("audio")
+            if not audios:
+                continue
+            kept = [item for item in audios if item.get("file") in keep_files]
+            if kept:
+                turn["audio"] = kept
+            else:
+                del turn["audio"]
+
+
+def _referenced_audio_basenames(payload):
+    """Basenames of every clip actually referenced by this payload."""
+    result = set()
+    for session in payload.get("sessions") or []:
+        for turn in session.get("turns") or []:
+            for item in turn.get("audio") or ():
+                file_field = item.get("file")
+                if isinstance(file_field, str) and file_field.startswith("audio/"):
+                    result.add(file_field[len("audio/"):])
+    return result
+
+
+def _remove_audio_references(payload, bad_keys):
+    """移除引用了 bad_keys 中任一 normcase(basename) 的全部 audio 条目。
+
+    列表空了就删掉 "audio" 键。返回被移除的引用条数（每条被移除的引用计一次）。
+    """
+    removed = 0
+    for session in payload.get("sessions") or []:
+        for turn in session.get("turns") or []:
+            audios = turn.get("audio")
+            if not audios:
+                continue
+            kept = []
+            for item in audios:
+                file_field = item.get("file")
+                if (isinstance(file_field, str) and file_field.startswith("audio/")
+                        and os.path.normcase(file_field[len("audio/"):]) in bad_keys):
+                    removed += 1
+                    continue
+                kept.append(item)
+            if kept:
+                turn["audio"] = kept
+            else:
+                del turn["audio"]
+    return removed
+
+
+def _reject_text_conflicting_audio(payload, audio_stats, viewer):
+    """同一个音频文件被 text 不同的记录引用时，拒绝该 basename 的全部引用。
+
+    页面回放按「段文本完全相等」给气泡配音频。若同一个音频文件（按
+    os.path.normcase(basename) 判定）在本 viewer 内被两条及以上 text 不同的有效记录
+    引用，那么必有一段文字会配上别的段的声音。tts_server 正常情况下每次保存都是唯一
+    文件名、只写一条记录，所以这只可能来自日志被重复或篡改——但宁可不给语音，也不能
+    让她的声音配错字。因此整组拒绝：从复制计划与所有回合的 audio 列表中移除（列表空了
+    就删掉 "audio" 键），每条被移除的引用计入 rejected，并打印一行 ASCII 告警。
+    text 完全相同的重复引用不算冲突，保持原行为。
+
+    Returns the set of rejected normcase(basename) keys (empty when no conflict).
+    """
+    texts_by_key = {}
+    for session in payload.get("sessions") or []:
+        for turn in session.get("turns") or []:
+            for item in turn.get("audio") or ():
+                file_field = item.get("file")
+                if not isinstance(file_field, str) or not file_field.startswith("audio/"):
+                    continue
+                key = os.path.normcase(file_field[len("audio/"):])
+                texts_by_key.setdefault(key, set()).add(item.get("text"))
+
+    bad_keys = {k for k, texts in texts_by_key.items() if len(texts) >= 2}
+    if not bad_keys:
+        return bad_keys
+
+    removed = _remove_audio_references(payload, bad_keys)
+
+    audio_stats["rejected"] += removed
+    print(
+        ("warning: %s/audio: refusing %d entries whose file is referenced with "
+         "different texts: %s" % (viewer, removed, ", ".join(sorted(bad_keys))))
+        .encode("ascii", "replace").decode("ascii"),
+        file=sys.stderr,
+    )
+    return bad_keys
 
 
 def ingest(person_dir, out_dir, **opts):
@@ -616,6 +1028,37 @@ def ingest(person_dir, out_dir, **opts):
     if err:
         raise ValueError(err)
 
+    per_viewer_subdir = bool(opts.get("per_viewer_subdir", False))
+
+    if per_viewer_subdir:
+        # 铁律：会话日志源文件绝不能被改动或删除。若 out_dir 与 person_dir/sessions
+        # 相等或互相包含，陈旧清理就可能把源 WAV 当成陈旧产物删掉，因此直接拒绝运行。
+        # （validate_paths 本身不改，flat 模式行为保持不变。）
+        overlap_err = _check_out_not_overlapping_sessions(person_dir, out_dir)
+        if overlap_err:
+            raise ValueError(overlap_err)
+
+    # 整轮（读日志、复制、写 JSON、清理）都在跨进程锁内完成。tts_server 内部的
+    # threading.Lock 管不到手工运行的 CLI，互斥必须落到文件系统上。
+    with _acquire_out_lock(person_dir, out_dir):
+        return _ingest_locked(
+            person_dir,
+            out_dir,
+            per_viewer_subdir=per_viewer_subdir,
+            exclude_file=exclude_file,
+            patterns_path=patterns_path,
+            generated_at=generated_at,
+            card_max_lines=card_max_lines,
+            card_line_chars=card_line_chars,
+            exchange_chars=exchange_chars,
+        )
+
+
+def _ingest_locked(person_dir, out_dir, *, per_viewer_subdir, exclude_file,
+                   patterns_path, generated_at, card_max_lines,
+                   card_line_chars, exchange_chars):
+    """实际摄入流程；调用方必须已持有 out_dir 的跨进程锁。"""
+    audio_plan = {}
     payloads, global_stats = build_sessions(
         person_dir,
         exclude_file=exclude_file,
@@ -624,11 +1067,22 @@ def ingest(person_dir, out_dir, **opts):
         card_line_chars=card_line_chars,
         exchange_chars=exchange_chars,
         generated_at=generated_at,
+        attach_audio=per_viewer_subdir,
+        audio_plan=audio_plan,
     )
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    per_viewer_subdir = bool(opts.get("per_viewer_subdir", False))
+    audio_stats = None
+    audio_sources = {}
+    expected_audio = {}
+    if per_viewer_subdir:
+        audio_stats = {
+            "copied": 0,
+            "unchanged": 0,
+            "rejected": int(audio_plan.get("rejected") or 0),
+        }
+        audio_sources = audio_plan.get("sources") or {}
 
     written_files = []
     written_viewers = set()
@@ -636,6 +1090,61 @@ def ingest(person_dir, out_dir, **opts):
         if per_viewer_subdir:
             viewer_dir = out_dir / viewer
             viewer_dir.mkdir(parents=True, exist_ok=True)
+            # Audio must be fully in place before the json that references it.
+            viewer_sources = audio_sources.get(viewer) or {}
+            if viewer_sources:
+                # 同一个音频文件被 text 不同的记录引用时，必有一段文字会配上别的段的
+                # 声音，因此整组拒绝（见 _reject_text_conflicting_audio）。必须在复制
+                # 之前先从复制计划与所有回合的 audio 列表里一起移除。
+                _bad_keys = _reject_text_conflicting_audio(payload, audio_stats, viewer)
+                # 同一个目标 basename 若对应两个及以上「解析后不同的源」，那么无论先复制
+                # 哪一个，目标文件都只有一个，两份引用就会指向同一段声音（一个会话的气泡
+                # 播放另一个会话的音频）。因此必须在按 basename 去重之前比较每一个解析后的
+                # 源：先按 os.path.normcase(basename) 分组（Windows 上多个会话的 SID 只差
+                # 大小写时会落进同一组，区分大小写的平台上基名不同仍是不同组），组内只要有
+                # 两个 normcase 后不同的源就整组拒绝——该组所有引用都从各回合的 audio 列表
+                # 里移除（列表空了就删掉 "audio" 键），每条被移除的引用计入 rejected 并打印
+                # 一行 ASCII 告警。同一个解析后的源被多次引用不算冲突，仍只复制一次（保持
+                # 原行为）。已被 text 冲突拒绝的键不再参与分组，避免重复计数或漏判。
+                audio_groups = {}
+                for _basename, _sources in viewer_sources.items():
+                    if os.path.normcase(_basename) in _bad_keys:
+                        continue
+                    _group = audio_groups.setdefault(os.path.normcase(_basename), [])
+                    for _source in _sources:
+                        _group.append((_basename, _source))
+                conflict_keys = set()
+                for _norm_key, _group in audio_groups.items():
+                    if len({os.path.normcase(str(_src)) for _b, _src in _group}) >= 2:
+                        conflict_keys.add(_norm_key)
+                if conflict_keys:
+                    for _norm_key in sorted(conflict_keys):
+                        _group = audio_groups[_norm_key]
+                        _removed = _remove_audio_references(payload, {_norm_key})
+                        audio_stats["rejected"] += _removed
+                        print(
+                            ("warning: %s/audio: refusing %d entries whose target name collides "
+                             "under case-insensitive filesystems: %s"
+                             % (viewer, _removed, ", ".join(sorted(_b for _b, _s in _group))))
+                            .encode("ascii", "replace").decode("ascii"),
+                            file=sys.stderr,
+                        )
+                _viewer_copy_plan = {}
+                for _basename, _sources in viewer_sources.items():
+                    _norm_key = os.path.normcase(_basename)
+                    if _norm_key in _bad_keys or _norm_key in conflict_keys:
+                        continue
+                    _viewer_copy_plan[_basename] = _sources[0]
+                placed = _copy_viewer_audio(out_dir, viewer, _viewer_copy_plan, audio_stats)
+                if placed is None:
+                    print(
+                        ("warning: %s/audio is not a plain directory inside out dir; "
+                         "no audio will be attached for viewer '%s'" % (viewer, viewer)).encode("ascii", "replace").decode("ascii"),
+                        file=sys.stderr,
+                    )
+                    placed = set()
+                _filter_payload_audio(payload, set("audio/" + b for b in placed))
+            expected_audio[viewer] = _referenced_audio_basenames(payload)
             write_atomic_json(viewer_dir / "sessions.json", payload)
             written_files.append(f"{viewer}/sessions.json")
         else:
@@ -679,15 +1188,106 @@ def ingest(person_dir, out_dir, **opts):
                     continue
                 if not existing.is_dir():
                     continue
-                if not VIEWER_RE.fullmatch(existing.name):
+                # Windows 文件系统不区分大小写：磁盘上可能存在 FATHER 这样的目录，
+                # 它其实就是刚刚写入的 father。VIEWER_RE 只接受小写，直接拿原名匹配会
+                # 失败，于是这个 viewer 的陈旧产物永远清不掉。因此先 normcase 再匹配，
+                # 成员判断也用规范化后的名字；删除时仍使用真实的 existing 路径。
+                # （normcase 在区分大小写的平台上是恒等变换，那些平台上 FATHER 本来
+                # 就是另一个目录，继续跳过是正确的。）
+                vname = os.path.normcase(existing.name)
+                if not VIEWER_RE.fullmatch(vname):
                     continue
-                if existing.name in written_viewers:
+                if vname in written_viewers:
                     continue
                 target = existing / "sessions.json"
                 if not target.is_file():
                     continue
                 target.unlink()
                 deleted_files.append(f"{existing.name}/sessions.json")
+
+        # Stale audio cleanup: only files that live directly inside
+        # <out_dir>/<viewer>/audio, whose name matches the clip naming scheme,
+        # and that are not referenced by this round's json. Same directory
+        # identity constraints as the sessions.json cleanup above; never delete
+        # directories, never recurse, never touch non-matching names.
+        if out_dir.exists():
+            try:
+                resolved_audio_out = out_dir.resolve()
+            except (OSError, RuntimeError):
+                resolved_audio_out = None
+            if resolved_audio_out is not None:
+                for existing in out_dir.iterdir():
+                    try:
+                        resolved_existing = existing.resolve()
+                    except (OSError, RuntimeError):
+                        continue
+                    if resolved_existing != resolved_audio_out / existing.name:
+                        continue
+                    if not existing.is_dir():
+                        continue
+                    # 同 sessions.json 清理：磁盘上的 FATHER 其实就是 father（Windows
+                    # 不区分大小写），而 VIEWER_RE 只接受小写，直接拿原名匹配会跳过该目录，
+                    # 导致它的陈旧音频残留。因此先 normcase 再匹配，查该 viewer 的期望音频
+                    # 集合也用规范化后的名字；删除仍走真实的 existing 路径。
+                    # （normcase 在区分大小写的平台上是恒等变换，那些平台上 FATHER 本来
+                    # 就是另一个目录，继续跳过是正确的。）
+                    vname = os.path.normcase(existing.name)
+                    if not VIEWER_RE.fullmatch(vname):
+                        continue
+                    audio_dir = existing / "audio"
+                    try:
+                        resolved_audio_dir = audio_dir.resolve()
+                    except (OSError, RuntimeError):
+                        continue
+                    if resolved_audio_dir != resolved_audio_out / existing.name / "audio":
+                        continue
+                    if not audio_dir.is_dir():
+                        continue
+                    # Windows 文件系统不区分大小写：复用（unchanged）判断走的是 Path 比较，
+                    # 本身不区分大小写，而这里若用区分大小写的字符串集合判断，就会把刚刚被
+                    # 判定为可复用的同名文件当成陈旧产物删掉，JSON 里随即留下悬空引用。
+                    # 因此期望集合与待检查名称都先经 os.path.normcase() 规范化后再比较
+                    # （它在区分大小写的平台上是恒等变换，不影响那些平台）。
+                    expected = {
+                        os.path.normcase(_b)
+                        for _b in expected_audio.get(vname, set())
+                    }
+                    try:
+                        audio_items = list(audio_dir.iterdir())
+                    except OSError:
+                        continue
+                    for item in audio_items:
+                        name = item.name
+                        # Windows 文件系统不区分大小写：复用（unchanged）判断走的是 Path
+                        # 比较，本身不区分大小写，而 AUDIO_BASENAME_RE 是小写模式。若磁盘上
+                        # 已存在的目标名固定部分大小写不同（SESSION_ 前缀、_T001、.WAV），
+                        # 正则会因大小写不匹配而跳过它，音频就永远留在输出目录里清不掉。
+                        # 因此先算 normcase 再匹配正则、再用同一个 key 判断期望集合
+                        # （Windows 上 normcase 会转小写，正好匹配小写模式；非 Windows 平台
+                        # normcase 为恒等变换，行为不变），删除仍走真实的 item 路径。
+                        key = os.path.normcase(name)
+                        if not AUDIO_BASENAME_RE.match(key):
+                            continue
+                        if key in expected:
+                            continue
+                        # 删除前用 os.lstat 确认要删的是普通文件（不是目录、不是链接）。
+                        try:
+                            item_lstat = os.lstat(str(item))
+                        except OSError:
+                            continue
+                        if not stat.S_ISREG(item_lstat.st_mode):
+                            continue
+                        try:
+                            resolved_item = item.resolve()
+                        except (OSError, RuntimeError):
+                            continue
+                        if resolved_item.parent != resolved_audio_dir:
+                            continue
+                        try:
+                            item.unlink()
+                        except OSError:
+                            continue
+                        deleted_files.append(f"{existing.name}/audio/{name}")
     else:
         # Delete stale matching files in out_dir that were not written
         written_set = set(written_files)
@@ -698,11 +1298,14 @@ def ingest(person_dir, out_dir, **opts):
                         existing.unlink()
                         deleted_files.append(existing.name)
 
-    return {
+    result = {
         "written": written_files,
         "deleted": deleted_files,
         "stats": global_stats,
     }
+    if per_viewer_subdir:
+        result["audio"] = audio_stats
+    return result
 
 
 def main(argv=None):
@@ -770,20 +1373,40 @@ def main(argv=None):
         print(json.dumps({"global": source_stats_aggregated, "viewers": viewer_summary}, ensure_ascii=False))
         return 0
 
-    result = ingest(
-        person_dir,
-        out_dir,
-        exclude_file=args.exclude_file,
-        patterns_path=args.patterns,
-        card_max_lines=args.card_max_lines,
-        card_line_chars=args.card_line_chars,
-        exchange_chars=args.exchange_chars,
-        per_viewer_subdir=args.per_viewer_subdir,
-    )
+    if args.per_viewer_subdir:
+        overlap_err = _check_out_not_overlapping_sessions(person_dir, out_dir)
+        if overlap_err:
+            print("error: " + overlap_err, file=sys.stderr)
+            return 2
+
+    try:
+        result = ingest(
+            person_dir,
+            out_dir,
+            exclude_file=args.exclude_file,
+            patterns_path=args.patterns,
+            card_max_lines=args.card_max_lines,
+            card_line_chars=args.card_line_chars,
+            exchange_chars=args.exchange_chars,
+            per_viewer_subdir=args.per_viewer_subdir,
+        )
+    except IngestLockTimeout:
+        print(
+            "错误：等待超时，未能取得输出目录的跨进程锁，另一个摄入进程可能正在运行；本次未做任何写入，请稍后重试。",
+            file=sys.stderr,
+        )
+        return 3
     # Print summary to stderr
     print("written: %s" % ",".join(result["written"]), file=sys.stderr)
     if result["deleted"]:
         print("deleted: %s" % ",".join(result["deleted"]), file=sys.stderr)
+    if args.per_viewer_subdir:
+        audio_summary = result.get("audio") or {"copied": 0, "unchanged": 0, "rejected": 0}
+        print(
+            "audio: copied=%d unchanged=%d rejected=%d"
+            % (audio_summary["copied"], audio_summary["unchanged"], audio_summary["rejected"]),
+            file=sys.stderr,
+        )
     return 0
 
 
