@@ -155,6 +155,24 @@ class ` 当锚点，吞掉了 DeepSeek 第一轮放在它后面的 `strip_bracke
 - **两层的兜底页必须行为等价**。Codex 抓到 Worker 版缺了「再试一次」按钮和恢复探针：哪层生效对读者不可见，若 Worker 版没探针，PC 恢复后他会一直盯着"她今天不在"。同一份文案存在两处，改一处必须改另一处（`grep -c` 核对已写进部署文档）。
 - **Service Worker 只能拦 navigate**。`/tts` 与 `/v1/chat/completions` 一旦被缓存重放，就等于让她说出当时根本没被问到的话——这是伦理红线，不是性能选项。离线页每 60 秒的 `HEAD` 探针同理必须放行，否则会从缓存拿到"通了"而跳回一个死站。
 
+## 502 语义冲突：llm_proxy 与 Worker 抢同一个状态码 · 2026-09-10
+
+**现象**：缓存三层刚上线，用户报「接口错误 503：{"error":"origin_unavailable"}」。时间上紧跟改动，第一反应是回滚嫌疑。
+
+**误判与纠正（本条最值钱的部分）**：我先怀疑是自己引入的——新写的 `static_server.py` 只绑 IPv4，而 cloudflared ingress 写的是 `http://localhost:8021`，Windows 上 `localhost` 先解析 `::1`。日志里也确实有 `dial tcp [::1]:8021 ... actively refused`，看起来严丝合缝。**但实测把旧的 `python -m http.server --bind 127.0.0.1` 起在测试端口，它的 IPv6 同样不通**（只有不带 `--bind` 的儿子站才是 CPython 的 `DualStackServer`）。所以这是既有状态，不是新引入的。**故障发生在改动之后，不等于是改动造成的——这条差点让我回滚一个正确的改动。**
+
+**真因**：`llm_proxy` 用 **502** 表示「上游 LLM 服务商调用失败」，而 Worker 的 `ORIGIN_DOWN_STATUS = {502,503,504,521,522,523,524,530}` 用 502 表示「家里那台 PC 关机了」。**两个语义撞在同一个状态码上。** 11:27:17 DeepSeek 超时 11.3 秒 → llm_proxy 502 → Worker 误判 → 爸爸看到 `origin_unavailable`，而那台电脑好好地开着。日志铁证：`viewer=father status=502 stream=True error=upstream_failure dur_ms=11358`，同期 8022/8023 的隧道错误**零条**，llm_proxy 当天成功 9 次只失败这一次。
+
+**更常见的另一半**：`HTTPError` 分支原样透传上游状态码，而 LLM 服务商过载返回 503 是家常便饭，一样会被吞。
+
+**修法（Codex 一轮 REJECT→ACCEPT）**：llm_proxy 一律用 **424 Failed Dependency** 表示「我活着，但我依赖的上游失败了」。424 不在那张表里 → Worker 原样透传 → 页面拿得到真实错误；PC 真关机时 cloudflared 自己产生的 502 仍触发兜底，两者不再混淆。映射边界只覆盖那 8 个码，401/429/400 原样透传。
+
+**Codex 抓的 BLOCKER 值得记**：首版把上游错误 body 放进 424 的 `detail` 发给页面。它指出这**不是维持旧风险而是扩大可见面**——旧代码里这些 502/503 body 会被 Worker 兜底吞掉，改发 424 后就第一次对页面可见了，而脱敏只挡明文 key，挡不住 \uXXXX、URL-encoded 等可逆转义。改成只回 `{"error","upstream_status"}`，body 留在本地日志。**「改了状态码」会连带改变数据的可见范围，这一点很容易漏。**
+
+**顺带清理**：`config.yml` 三条 ingress 的 `localhost` 改成 `127.0.0.1`，消除每次请求先失败一次 `::1` 再回落的无谓往返。重启隧道后新日志 `::1` 错误归零、4 连接注册正常。
+
+**实测**（独立实例，不碰生产）：假上游返回 503 → 代理回 `424 {"error":"upstream_failure","upstream_status":503}`；上游不可达 → `424 {"error":"upstream_failure","detail":"URLError"}`，无 key 泄漏。
+
 ## 静态站 HTML 本身没有 no-cache —— 重建页面后浏览器仍跑旧版（2026-09-10 实锤）
 
 **现象**：爸爸站页面重建完毕，磁盘与 `curl http://127.0.0.1:8021/companion.html` 的 md5 一致，但真浏览器里 SW 死活不注册；`getRegistration()` 轮询 12 秒为 0，手动 `navigator.serviceWorker.register('/sw.js')` 却立刻成功并 activated。一度怀疑 Playwright 屏蔽 SW。

@@ -1,5 +1,15 @@
 # MVP 生产进度日志
 
+## 2026-09-10 · 502 语义冲突修复（424 约定）+ ingress 走 IPv4
+
+缓存三层上线后用户报「接口错误 503：origin_unavailable」。**诊断结论：与缓存改动无关。** 真因是 `llm_proxy` 用 502 表示"上游 LLM 失败"，而 Worker 的 `ORIGIN_DOWN_STATUS` 用 502 表示"家里 PC 关机"——同一个码两种语义。DeepSeek 超时 11.3 秒 → 502 → Worker 把真实错误吞掉换成兜底 JSON。
+
+**过程中的误判值得记**：先怀疑是新 `static_server.py` 只绑 IPv4 所致（日志确有 `dial tcp [::1]:8021` 失败），实测旧 `http.server --bind 127.0.0.1` 的 IPv6 同样不通才排除。**故障发生在改动之后不等于是改动造成的。**
+
+**改动**：`llm_proxy` 统一用 **424 Failed Dependency**（不在那张表里，Worker 原样透传），映射边界只覆盖 502/503/504/521-524/530，其余原样透传；`config.yml` 三条 ingress `localhost` → `127.0.0.1`（已备份 `config.yml.bak-20260910-cachefix`）。Codex 一轮 REJECT（首版把上游 body 放进 424 的 detail 发给页面 = **扩大 key 可见面**，因为旧代码里这些 body 本来会被 Worker 吞掉）→ 改成只回结构化字段后 ACCEPT。
+
+**实测**：独立实例双场景验证（上游 503 → `424 upstream_status:503`；上游不可达 → `424 detail:URLError`）；隧道重启后 4 连接注册、`::1` 错误归零；生产 llm_proxy 新代码 2.2 s 就绪。
+
 ## 2026-09-10 · 静态站缓存三层同治（爸爸不必再强刷）
 
 **起因**：用户实测「静态站 HTML 没有 no-cache，重建后你和爸爸都要强刷，否则跑的还是旧页面。今晚它骗过我三次。」而爸爸不懂强刷——缓存是服务端的责任，不该由一位老人来操作。

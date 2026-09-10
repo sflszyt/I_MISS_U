@@ -259,31 +259,62 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     bytes_out = len(safe_body)
                     status_out = upstream.status
         except urllib.error.HTTPError as exc:
+            # 跨组件约定：424 = 我活着、但我依赖的上游失败了。
+            # Worker 的 ORIGIN_DOWN_STATUS = {502,503,504,521,522,523,524,530} 故意不含 424，
+            # 不要把 424 加进那张表，否则真实错误会再次被吞掉。
+            # 上游返回那张表里的码时，对外一律改发 424，避免被 Worker 误判成「家里 PC 关机」；
+            # 其余状态码（401 鉴权失败 / 429 限流 / 400 参数错等）原样透传不变，那些码 Worker 不会误判。
             status_out = exc.code
             err_body = exc.read()
             if self.proxy.api_key:
                 err_body = err_body.replace(self.proxy.api_key.encode("utf-8"), b"[REDACTED]")
-            try:
-                self.send_response(exc.code)
-                self.send_header("Content-Type", exc.headers.get("Content-Type", "application/json"))
-                self.send_header("Content-Length", str(len(err_body)))
-                self.end_headers()
-                self.wfile.write(err_body)
-                bytes_out = len(err_body)
-            except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
-                log_line(self.args, f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} viewer={viewer} status={exc.code} stream={stream_out} error=client_disconnected")
-            except Exception:
-                pass
+            if exc.code in (502, 503, 504, 521, 522, 523, 524, 530):
+                status_out = 424
+                # 上游 body 刻意不外传：424 会被 Worker 原样透传给页面，而 body 里可能以
+                # 转义形式（\uXXXX、URL-encoded、raw/escaped 混合等）含有 API key，
+                # 脱敏无法穷尽所有编码形式，所以只回结构化字段，诊断靠状态码与本地日志。
+                payload = json.dumps({
+                    "error": "upstream_failure",
+                    "upstream_status": exc.code
+                }).encode("utf-8")
+                try:
+                    self.send_response(424)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(payload)))
+                    self.end_headers()
+                    self.wfile.write(payload)
+                    bytes_out = len(payload)
+                except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
+                    log_line(self.args, f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} viewer={viewer} status=424 upstream_status={exc.code} stream={stream_out} error=client_disconnected")
+                    return
+                except Exception:
+                    pass
+                log_line(self.args, f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} viewer={viewer} status=424 upstream_status={exc.code} stream={stream_out} error=upstream_failure")
+            else:
+                try:
+                    self.send_response(exc.code)
+                    self.send_header("Content-Type", exc.headers.get("Content-Type", "application/json"))
+                    self.send_header("Content-Length", str(len(err_body)))
+                    self.end_headers()
+                    self.wfile.write(err_body)
+                    bytes_out = len(err_body)
+                except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
+                    log_line(self.args, f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} viewer={viewer} status={exc.code} stream={stream_out} error=client_disconnected")
+                except Exception:
+                    pass
         except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
             log_line(self.args, f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} viewer={viewer} status={status_out} stream={stream_out} error=client_disconnected")
         except Exception as exc:
-            status_out = 502
+            # 跨组件约定：424 = 上游失败（这里是我自己调用上游时炸了）。
+            # Worker 的 ORIGIN_DOWN_STATUS 故意不含 424，不要把 424 加进那张表，
+            # 否则真实错误会再次被吞掉。detail 只放异常类名，不放异常字符串，避免 API key 外泄。
+            status_out = 424
             if not headers_sent:
                 try:
-                    self._send_json(502, {"error": "upstream unavailable"}, close=True)
+                    self._send_json(424, {"error": "upstream_failure", "detail": type(exc).__name__}, close=True)
                 except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
                     pass
-            log_line(self.args, f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} viewer={viewer} status=502 stream={stream_out} error=upstream_failure")
+            log_line(self.args, f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} viewer={viewer} status=424 stream={stream_out} error=upstream_failure")
 
         dur_ms = int((time.time() - start) * 1000)
         log_line(self.args, f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} viewer={viewer} status={status_out} stream={stream_out} dur_ms={dur_ms} bytes={bytes_out}")
