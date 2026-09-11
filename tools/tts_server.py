@@ -512,6 +512,13 @@ def build_handler(service):
                         if spoken_text != text:
                             audio_record['spoken_text'] = spoken_text
                         service.session_log.append(session_id, audio_record)
+                        # 音频记录也必须触发 ingest，否则会话最后一轮的后几个分段不会被收录
+                        try:
+                            if service.sessions_ingest is not None:
+                                service.sessions_ingest.schedule()
+                        except Exception:
+                            tb = traceback.format_exc()
+                            print(tb, flush=True)
                     except Exception as e:
                         print(f'[session] audio log failed: {e}', flush=True)
                         audio_rel = None
