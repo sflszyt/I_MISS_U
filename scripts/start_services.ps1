@@ -2,7 +2,7 @@
 # start_services.ps1
 #
 # Purpose:  Idempotently start (default), stop (-Stop), or check
-#           (-Status) the five services that power the digital
+#           (-Status) the six services that power the digital
 #           memorial site.  Designed to run unattended after a
 #           Windows reboot so the widower sees his wife's site
 #           when he opens the browser in the morning.
@@ -49,6 +49,7 @@ $LogRetention  = 30  # not used, kept for clarity
 # Site directories
 $SonSiteDir    = Join-Path $RepoRoot 'people\mama\archive_out'
 $DadSiteDir    = Join-Path $RepoRoot 'people\mama_for_father\site'
+$SonPublicSiteDir = Join-Path $RepoRoot 'people\mama_for_owner\site'
 
 # Tool scripts
 $StaticServer  = Join-Path $RepoRoot 'tools\static_server.py'
@@ -58,6 +59,7 @@ $LlmProxyScript= Join-Path $RepoRoot 'tools\llm_proxy.py'
 # Ports
 $SonPort       = 8020
 $DadPort       = 8021
+$SonPublicPort = 8024
 $TtsPort       = 8022
 $LlmPort       = 8023
 
@@ -175,6 +177,11 @@ function Test-ServiceRunningByName {
         }
         'dad-site' {
             $pats = @($StaticServer, '--port 8021', $DadSiteDir)
+            $procs = Get-MatchingProcesses -ProcessName 'python.exe' -CommandLinePatterns $pats
+            return ($null -ne $procs -and $procs.Count -gt 0)
+        }
+        'son-public' {
+            $pats = @($StaticServer, '--port 8024', $SonPublicSiteDir)
             $procs = Get-MatchingProcesses -ProcessName 'python.exe' -CommandLinePatterns $pats
             return ($null -ne $procs -and $procs.Count -gt 0)
         }
@@ -787,8 +794,9 @@ function Stop-AllServices {
     # happen to contain a similar substring.  A warning is printed if
     # a port remains occupied after the stop.
 
-    # Stop in reverse order: tunnel first, then llm, tts, dad, son
+    # Stop in reverse order: tunnel first, then son-public, llm, tts, dad, son
     Stop-ServiceByName -Name 'tunnel' -DisplayName 'tunnel' -ProcessName 'cloudflared.exe' -CommandLinePatterns @("tunnel run $TunnelName") -Port 0
+    Stop-ServiceByName -Name 'son-public' -DisplayName 'son-public' -ProcessName 'python.exe' -CommandLinePatterns @($StaticServer, '--port 8024', $SonPublicSiteDir) -Port $SonPublicPort
     Stop-ServiceByName -Name 'llm-proxy' -DisplayName 'llm-proxy' -ProcessName 'python.exe' -CommandLinePatterns @($LlmProxyScript) -Port $LlmPort
     Stop-ServiceByName -Name 'tts' -DisplayName 'tts' -ProcessName 'python.exe' -CommandLinePatterns @($TtsScript) -Port $TtsPort
     Stop-ServiceByName -Name 'dad-site' -DisplayName 'dad-site' -ProcessName 'python.exe' -CommandLinePatterns @($StaticServer, '--port 8021', $DadSiteDir) -Port $DadPort
@@ -808,6 +816,7 @@ function Show-Status {
     $services = @(
         @{ Name = 'son-site';   Port = $SonPort; Type = 'static' },
         @{ Name = 'dad-site';   Port = $DadPort; Type = 'static' },
+        @{ Name = 'son-public'; Port = $SonPublicPort; Type = 'static' },
         @{ Name = 'tts';        Port = $TtsPort; Type = 'health' },
         @{ Name = 'llm-proxy';  Port = $LlmPort; Type = 'health' }
     )
@@ -818,6 +827,7 @@ function Show-Status {
         $color = switch ($name) {
             'son-site'  { "$name" }
             'dad-site'  { "$name" }
+            'son-public' { "$name" }
             'tts'       { "$name" }
             'llm-proxy' { "$name" }
         }
@@ -875,6 +885,9 @@ function Test-Preconditions {
     }
     if (-not (Test-Path $DadSiteDir)) {
         $errors += "Dad site directory not found: $DadSiteDir"
+    }
+    if (-not (Test-Path $SonPublicSiteDir)) {
+        $errors += "Son public site directory not found: $SonPublicSiteDir"
     }
     if (-not (Test-Path $StaticServer)) {
         $errors += "Static server script not found: $StaticServer"
@@ -987,6 +1000,15 @@ try {
         -ArgumentList @($StaticServer, '--port', '8021', '--bind', '127.0.0.1', '--directory', $DadSiteDir) `
         -TimeoutSeconds $DefaultTimeout `
         -MatchPatterns $dadPatterns `
+        -ProcessName 'python.exe'
+
+    # Service 2b: son-public (port 8024)
+    $sonPublicPatterns = @($StaticServer, '--port 8024', $SonPublicSiteDir)
+    Start-PortService -Name 'son-public' -DisplayName 'son-public' -Port $SonPublicPort `
+        -ExePath $SysPython `
+        -ArgumentList @($StaticServer, '--port', '8024', '--bind', '127.0.0.1', '--directory', $SonPublicSiteDir) `
+        -TimeoutSeconds $DefaultTimeout `
+        -MatchPatterns $sonPublicPatterns `
         -ProcessName 'python.exe'
 
     # Service 3: tts (port 8022) - must use venv python

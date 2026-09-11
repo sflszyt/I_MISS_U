@@ -126,8 +126,8 @@ if ($Run) {
         # Build the argument array ONCE, cleanly
         $statusArgs = @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File', $StartServicesPath, '-Status')
 
-        # Required services: always these four
-        $required = @('son-site', 'dad-site', 'tts', 'llm-proxy')
+        # Required services: always these five
+        $required = @('son-site', 'dad-site', 'son-public', 'tts', 'llm-proxy')
         if (-not $SkipTunnelFlag) {
             $required += 'tunnel'
         }
@@ -139,6 +139,11 @@ if ($Run) {
         } catch {
             $proc = $null
         }
+
+        # Open the process handle while the child is still alive. Without a cached
+        # handle, a Start-Process -PassThru object reports ExitCode as $null after
+        # exit (verified 2026-09-11), which made this gate always return false.
+        if ($null -ne $proc) { try { $null = $proc.Handle } catch { } }
 
         if ($null -eq $proc) {
             return $false
@@ -202,6 +207,9 @@ if ($Run) {
         } catch {
             $proc = $null
         }
+
+        # Cache the handle so ExitCode is readable after exit (see Test-ServicesHealthy).
+        if ($null -ne $proc) { try { $null = $proc.Handle } catch { } }
 
         if ($null -eq $proc) {
             Write-TaskLog ("run attempt " + $attempt + "/" + $maxAttempts + " exit=launch-failed")
