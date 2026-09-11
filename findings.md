@@ -413,4 +413,26 @@ if (not isinstance(i, Generator)) and len(i) < 0.5 * len(prompt_text):
 
 ⛔ **不能因此把爸爸站改 mandarin**：她跟爸爸说的就是上海话，铁律「尊重素材语言」直接挡住。此发现的作用是**抬高 Phase 19 短参考修复的优先级**（wu 域最需要），不是换语域。
 
+> **2026-09-11 更新：用户在儿子站听过普通话语域后，要求爸爸站也改普通话，已执行**（只改 `--lang`，与线上 diff 仅一行）。这是对「尊重素材语言」与 #24 裁决「语音 wu 域」的**显式覆盖**，Claude 提示过她跟爸爸说的是上海话。现状：`:8021` 爸爸站 = `mandarin`。
+
 两站语域现状（今晚重建时逐项核对，未改动）：`:8020` 儿子站 = `mandarin`（裸文本→沪普）；`:8021` 爸爸站 = `wu`（`<|wuyu|>` 前缀→上海话）。
+
+## 2026-09-11 自启任务健康检查恒为 False（给 son-public 补清单时挖出的旧 bug）
+
+- **现象**：Codex 指出 `register_startup_task.ps1` 的 `Test-ServicesHealthy`（启动脚本 exit 3 时的兜底判据）漏了新服务 `son-public`。修完做隔离实测，却发现连「六个服务全在」都返回 False。
+- **根因**：函数用 `Start-Process -PassThru` 起 `start_services.ps1 -Status`，`WaitForExit` + `Refresh` 后读 `$proc.ExitCode`，**读出来是 `$null`**（输出文件里六行 `[ ok ]`、逐服务正则全部命中）；`$null -ne 0` 为真 → 恒返回 False。对照组在 `Start-Process` 后立刻 `$h = $proc.Handle`，ExitCode 读到 0。即：**exit-3 兜底路径自 T14-3 上线起从未能判健康**（方向是保守的：只会把健康误报成失败）。主循环同一写法，09-10 端到端碰巧读到了值，同样是隐患。
+- **修法**：两处 `Start-Process` 之后各加 `if ($null -ne $proc) { try { $null = $proc.Handle } catch { } }`（独立 try/catch：取 handle 失败时行为与原来一致，不把成功启动误判为启动失败）；清单加 `son-public`。
+- **教训**：
+  1. `Start-Process -PassThru` 的 `ExitCode` 要先缓存 `Handle`，否则可能为 `$null`；判退出码处凡是 `$null` 都要当失败而不是当 0。
+  2. **兜底路径也要活体验证**。T14-3 当时验的是主路径（exit 0），exit-3 分支只做了静态审查。
+  3. 测一个嵌在大脚本里的函数：用 `[System.Management.Automation.Language.Parser]::ParseFile` 取出 `FunctionDefinitionAst.Extent.Text`，按原脚本定义好依赖变量后 dot-source；「修复前」变体用字符串去掉修复行得到，同一套环境里做红/绿对照（这次五项：全在 True / 去掉 Handle 修复 False / 停 8024 False / 清单去掉 son-public 且停 8024 True / 拉起后 True）。
+  4. PowerShell 里 `& python … | Select-Object -First 1` 会提前掐断原生进程，`$LASTEXITCODE` 变 -1（写文件其实已完成）——要判退出码就先完整接住输出。
+
+## 2026-09-11 其他教训（真 iPhone 首测 / 爸爸首次登录 / 儿子站公网）
+
+- **会话日志的每个写入口都要触发摄入**：去抖调度器只挂在 `/session`，`/tts` 写的 `simulacrum_audio` 不触发 → 一轮多段只收进 5 s 窗内完成的段，会话最后一轮的后几段永远缺。判别手法：会话 JSONL 有 N 条音频、`sessions.json` 只有 1 条、`/health` 的 `sessions_ingest_last` 恰在第 1 段之后 → 手动补跑一次即全部回来（数据完整、只是时序）。
+- **Access 的 302 ≠ 登录方式可用**：爸爸站 One-time PIN 从未启用，登录页只有「Cloudflare 账号」按钮；机主是账号成员，所以一直验不出，直到爸爸本人来登。验收要未登录抓登录页看 `data-idp=` 与邮箱框，并用非成员邮箱实走一次。
+- **「iPhone 上」不等于 Safari**：会话日志的 `ua` 字段显示是 CriOS（iOS Chrome，WKWebView），桌面 Chromium 的验收覆盖不到这条音频路径；排查先从会话日志核对 UA（静态站日志不记 UA）。爸爸用的是微信内置浏览器（MicroMessenger），同样从未测过。
+- **新 hostname 探测**：建 DNS 前查过一次会被本机负缓存，之后一直「不存在」→ `curl --doh-url` 或 `ipconfig /flushdns`。
+- **Git Bash 传中文 JSON 给原生程序会被转码**（curl 报 400 invalid JSON）→ 用 Python urllib 或 `--data-binary @file`。
+- **爸爸在用时重启隧道**：先看 dad-site / tts 日志最近几分钟有无对话（页面加载不算），再重启；本次 12:53 重启前最后一次对话在 12:40。

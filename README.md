@@ -32,7 +32,8 @@ StoryFile 破产时，用户为逝者录制的对话视频躺在待拍卖的服�
 | `people/<slug>/` | 每人一份档案（**gitignore，永不上传**）：raw 只读原始素材 → normalized 中间格式 → processed 修复产物 → archive_out 最终档案 |
 | `docs/research/` | 研究报告（微信导出方案、产品形态对比） |
 | `docs/HANDOFF.md` | 会话交接文档（当前状态与下一步） |
-| `scripts/` | 基础设施：模型分工调用器 + 服务编排 `start_services.ps1` + 登录自启注册 `register_startup_task.ps1` |
+| `docs/ops-*.md` | 运维手册：爸爸站离线兜底、自动登录、儿子站公网入口 |
+| `scripts/` | 基础设施：模型分工调用器 + 服务编排 `start_services.ps1` + 登录自启注册 `register_startup_task.ps1` + 替换对应用 `apply_patch_pairs.py` |
 | `deploy/` | 部署产物：`cloudflare-worker/`（源站不通时的兜底页）、`dad-site/`（站点手写静态资源的源，因 `people/` 全目录 gitignore） |
 | `tests/` | 单元测试（标准库 unittest）与 e2e 规格 |
 
@@ -60,6 +61,7 @@ Claude 编排 · DeepSeek V4 Flash 写码 · Codex GPT-5.6 审核验收。`peopl
 - [x] **M4 卡通数字人（Phase 1 完成 2026-08-27）**：照片→暖手绘头像全本地生成链 + **viseme 音素时间轴口型**（Rhubarb 逐条预计算，四态嘴型贴片；恒定底图架构根治闪烁）+ **眨眼 + 头部微摆**整脸微活 + BYOK 对话页（真流式 SSE + 客户端检索 + Tier 纪律 system prompt）。下一步（可选）：talking-head 预渲染 MP4"特别版"
 - [x] **M4 桌面陪伴 companion**：iframe 组合脸 + 检索式对话 + 她的声音，三平台兼容；情绪表情层、多服务商抽屉、微信式 ≤30 字语音条、跨会话记忆（上次对话卡 + 第四检索源）
 - [x] **爸爸站上线（2026-09-10）**：命名隧道 + Cloudflare Access + Worker 离线兜底 + LLM 代理（PC 持 key）；09-10→11 补齐静态站缓存治理、424 约定、会话数据按 viewer 隔离、**刷新后历史回放 + 历史语音条点播**
-- [ ] 进行中：TTS 短句幻觉（参考音频过长，待 A/B 盲测短参考）、运行期身份、8A-2b 伦理护栏
+- [x] **儿子站公网入口（2026-09-11）**：`son.justmissingyou.com`——独立 Access 应用 + 只含陪伴页的独立站点目录（边界由目录联接决定）；同日爸爸站启用邮箱验证码登录、爸爸首次登录；爸爸站改用普通话语域（用户决定）
+- [ ] 进行中：iPhone 上历史语音条无声（研究完、待判别测试）、TTS 短句幻觉（参考音频过长，待 A/B 盲测短参考）、运行期身份（同站按人区分历史）、8A-2b 伦理护栏
 
 当前实时状态见 `docs/HANDOFF.md` 顶部与 `task_plan.md`；技术管道全景见 `docs/PIPELINE.md`。

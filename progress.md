@@ -1,5 +1,15 @@
 # MVP 生产进度日志
 
+## 2026-09-11 白天 · 儿子站公网入口 + 爸爸首次登录 + 爸爸站改普通话 + 两个真机问题
+
+- **缺语音条（真 iPhone 首测暴露）**：一轮 4 段只摄入第 1 段——`/tts` 写 `simulacrum_audio` 不触发摄入（只有 `/session` 触发，5 s 去抖窗外的后几段要等下次写入；会话最后一轮则永远缺）。DeepSeek 修 `_handle_tts`（append 后 schedule，独立 try/except，先于 `_send_audio`）+ 新测试 `tests/test_tts_server_tts_ingest.py`（真 handler + 真 socket + 假 service；红→绿；按 Codex MINOR 改为 `_send_audio` 入口 spy，变异测试证明能抓「挪到发送之后」）。Codex 两轮 ACCEPT。00:58 只重启 TTS（先杀进程树、确认 8022 释放）。手动补跑摄入修复 yhrod5（1→4 条）。真实流量验证：19:11 一轮 5 段，末段 19:12:02 → 摄入 19:12:08。
+- **iPhone 点历史语音条无声**：只读研究工作流 `wf_f86e2074-9f5`（15 agent）。设备实为 iOS Chrome（CriOS 152 / iOS 26.6.1）；WAV 每次 200；H3 静音键 / H4 首击竞态 / H5 恢复延迟被 WebKit 源码否；剩 H1 / H2（见 HANDOFF ⓪¹⁶）。待用户判别测试。
+- **爸爸登不进**：登录页只有 Cloudflare 账号按钮，One-time PIN 从未启用 → 用户启用 → 爸爸 12:34 起用微信内置浏览器登录，三次对话。
+- **儿子站公网入口**：brainstorming 两问（只开陪伴页 / 域名 son.）→ 方案 A 用户批准 → 设计 `docs/superpowers/specs/2026-09-11-son-public-site-design.md`、运维 `docs/ops-son-public-site.md`。DNS → 未登录 302 验证 → 站点目录与联接 → 构建（diff 仅 ttsBase）→ 临时 8024 做 14 项路径测试 → DeepSeek 改 `start_services.ps1`（9 对，第 1 对锚点编造按规矩只修锚点）→ 实测启动 / 幂等 → Codex REJECT（自启兜底清单漏 son-public）→ 修时挖出 `Test-ServicesHealthy` 恒 False 旧 bug → 两处缓存 Handle → 五项红/绿 → Codex ACCEPT → ingress 2 条 validate → 确认爸爸不在对话后重启隧道（4 连接）。
+- **爸爸站改普通话**：用户要求；已提示她跟爸爸说上海话（覆盖「尊重素材语言」与 #24 裁决）；只改 `--lang`，diff 一行；原子替换上线。
+- **观察**：father 名下 12/15 会话是儿子测试；儿子能看到爸爸对话 → 待裁决 A / B（HANDOFF ⓪¹⁶ §3）。
+- 普通话冒烟：7 字 2.72 s / 21 字 6.16 s（秒/字 0.30 / 0.26）；儿子站一直是 mandarin（owner 74 条）。
+
 ## 2026-09-11 · 刷新后历史回放 + 历史语音条点播上线
 
 **需求**：爸爸刷新后聊天记录全没了；历史里每条数字人语音也要能点播。用户裁决：回放全部保留会话、没有回复的孤立发言跳过、回放内容不进模型上下文（靠现有检索兜底）。

@@ -227,7 +227,7 @@
 - ⚠️ **暴露事件（09-08，已关闭）**：POC 期间 ingress 把 `/tts|/health|/session` 指向**正在运行的真实 tts_server**（`--token` 默认空、零鉴权），窗口约 3–4 分钟，其间任何人可驱动 4090 合成语音、向 `/session` 写日志。发现后立即停隧道。域名当天新建未公开，但 tts_server 访问日志被禁用（`:250-251`），**无法证明零访问**。纪律修正：Access 生效 + `--token` 开启两件都完成前，隧道不长跑
 - 📌 实测吞吐 20–25 KB/s（美东落点时），回传为 MP3 非 WAV，≤30 字单条约 50 KB → 约 2.5 s 传输 + 合成中位 3.56 s ≈ 首条 6 s 出声；香港落点后未复测（Access 挡住需登录）
 - 📌 已知待处理：Access session 过期时页面 fetch 会收到 302 跳登录页而非 401，TTS 请求将拿到 HTML 而非 MP3 → 需在 T12 老人 UX 做友好降级
-- ⬜ T3 POC-2（待 T1）：正式隧道 + Access 邮箱 PIN + 爸爸点一次链接实测大陆可达性
+- ✅ T3 POC-2（2026-09-11）：爸爸首次登录——先发现 Access 只有 Cloudflare 账号登录（One-time PIN 从未启用，09-08 只验了 302），用户启用后爸爸用**微信内置浏览器**登录对话，大陆可达性实证通过
 - ⬜ T4 独立站 `people/mama_for_father/site/`：目录联接 `data` → `people/mama/archive_out/data`（零拷贝全量）+ 独立端口 + 根目录不放审核页/开发者 index
 - ⬜ T5 `prompts/chat_system.husband.zh.md`（A 诚实标注；填上现模板 `:5` 的称呼悬空位）
 - ⬜ T6 `people/mama_for_father/config/relationship.father.json` + `facets.json`（称呼、禁区、同意日期、声音使用同意）
@@ -320,7 +320,7 @@
 - **根因在 CosyVoice 自己代码里**（`cosyvoice/cli/cosyvoice.py:94`）：`len(i) < 0.5 * len(prompt_text)` 即警告效果退化。我们的参考 `ref01_clip18` = **18.00 秒 / 90 字** → 警告线 45 字；而 8B-10 分条上限 30 字，**送进去的每一段都在警告区**
 - **经验断点比警告线更低**：92 段统计中，所有离群点（>0.38 秒/字）**全部 ≤18 字**；22–38 字的段全部正常。真实的崖在 **~20 字**
 - **提高分条上限（30→60）无效**（用户 09-10 提问，已答）：上限只影响**超限长行怎么切**，模型自己写出的 7 字短行不受影响，而翻车的全是短行。要拉长只能**合并**短行——但**她本人节律中位就是 17 字**，用长气泡迁就模型等于让她说话不像她，与铁律 2「尊重素材」冲突。**正确方向是把模型危险区往下压，不是把她的话往上拉**
-- **wu 域比 mandarin 域差得多**（收工前补测）：wu 中位 0.453 秒/字、≤18 字短段翻车率 **86%**（14 中 12，n=18 噪声大）；mandarin 中位 0.277、27%（45 中 12，n=74）。**爸爸站正好用最不稳的那一档**。⛔ 不能因此改 mandarin——她跟爸爸说的就是上海话，铁律「尊重素材语言」挡住；此发现只用于**抬高本 Phase 优先级**
+- **wu 域比 mandarin 域差得多**（收工前补测）：wu 中位 0.453 秒/字、≤18 字短段翻车率 **86%**（14 中 12，n=18 噪声大）；mandarin 中位 0.277、27%（45 中 12，n=74）。**爸爸站正好用最不稳的那一档**。⛔ 不能因此改 mandarin——她跟爸爸说的就是上海话，铁律「尊重素材语言」挡住；此发现只用于**抬高本 Phase 优先级**（**2026-09-11 用户显式覆盖：爸爸站已改 mandarin**；本 Phase 对爸爸站的紧迫性下降，但 mandarin 短段仍 27% 翻车）
 - ⬜ **修法一（主）**：加一条 ~12–16 字（3–4 秒）短参考并**按目标文本长度选参考**（危险线降到 ~7 字）。已从 99 条已校对转写筛出 **18 条 12–34 字候选**。⚠️ ref01–ref05 五条现有候选**全是 18 秒定长裁剪**，换哪条都一样，必须新切
 - ⬜ **修法二（兜底）**：修好时长 QC。现有 `chars*0.32 + 2.0` 的**固定 +2.0 宽限在短句上完全压倒字数项**，24 条可疑只拦 4 条、漏 20 条；那句 16 字阈值 7.12s、实际 7.04s，**差 0.08s 溜过**。且重抽只比时长不看内容
 - ⬜ **修法三（降级为可选）**：ASR 回读 CER 校验。仓库有现成配方（`gsv_pipeline.py` 用 funasr + `iic/SenseVoiceSmall`），但**对上海话的可靠性未验证**，可能误报连连并使每段延迟翻倍
@@ -337,6 +337,9 @@
 - ⬜ **首要前置（未实测）**：确认 cloudflared 转发给源站的请求确实带 `Cf-Access-Jwt-Assertion`。需在 tts_server 上加一次性头部探针
 - **存储：用户已裁决走服务端回放**（复用现有 `sessions/*.jsonl` + 按身份隔离的读接口）。爸爸的设备须在协议层拉不到儿子的对话
 - 儿子站（:8020 无 Access）回落构建期默认值
+- **09-11 实测污染规模**：father 名下 15 个会话 12 个是儿子测试（09-11 中午前爸爸根本登不进——OTP 未启用），其中 3 个进了爸爸的跨会话记忆 → ⏳ 待用户裁决 A（加入 `exclude.txt`）
+- **09-11 发现**：儿子能在爸爸站看到爸爸的对话（白名单含机主邮箱 + 按站点读历史）；说明卡未告知「儿子能看到」→ ⏳ 待用户裁决 B
+- 09-11 起儿子另有公网入口 son.（独立 Access 应用，见 Phase 23），测试应走 son 站
 
 ### Phase 21：部署层站点清单（2026-09-10 用户立项）— status: **待设计**
 
@@ -345,6 +348,7 @@
 - **澄清：工具层早已 person-generic**（08-12 基线，`--person` + `relationship.json` + 参数化模板）。**写死的是部署层**：`start_services.ps1` 五服务端口常量、cloudflared 单 hostname ingress、单个 `wrangler.toml`、单份 `tokens.env`
 - ⬜ 拟加一层站点清单（如 `deploy/sites.yaml`：person / viewer / port / hostname / lang / 关系配置），让上述四者全部由清单生成
 - 排序建议：**排在 Phase 19、20 之后**——20 的接口形状会决定 21 的清单字段
+- 09-11 起已有**两个公网站点**（dad. + son.）：`start_services.ps1` 六服务、ingress 两个 hostname、两个 Access 应用——都还是手写
 - ⬜ T15 知情同意：大字一页 + 当面演示 + 日期写入 facets
 - ⬜ T16 8A-2b b/d/e 欠账登记 + 三个月复核日（与 2026-11-28 对齐）
 
@@ -354,7 +358,21 @@
 - ✅ **502→424 语义冲突**（`4ce7c39`）：llm_proxy 上游失败改 424，响应不带上游 body；ingress 改 `127.0.0.1`
 - ✅ **会话数据 viewer 隔离**（`d3d7fb4`）：爸爸站曾可直读 `data/sessions_owner.json`；迁至 `sessions_data/<viewer>/` + 爸爸站只联接 father 子目录；Codex 三轮
 - ✅ **刷新后历史回放 + 历史语音条点播**（`36cbe32`）：见 Phase 20；Codex 页面 3 轮、数据层 6 轮（约 14 个 BLOCKER，五个是 Windows 大小写）
-- ⬜ 真 iPhone「刷新后第一下点历史语音条」实测；⬜ 被杀残留随机 `.tmp` 清理（NIT）
+- ✅ 真 iPhone 实测（09-11）：暴露缺语音条（已修）与点击无声（研究中）→ 见 Phase 24；⬜ 被杀残留随机 `.tmp` 清理（NIT）
+
+### Phase 23：儿子站公网入口 son.justmissingyou.com（2026-09-11 用户立项）— status: **complete（已上线；待用户手机实测）**
+
+- 用户裁决：只开陪伴页（不挂整个 :8020）/ 域名 son. / 方案 A（独立站点目录，边界靠目录联接不靠路由正则）
+- ✅ Access 应用「son」（用户建，只放机主邮箱）→ ✅ DNS + 未登录全路径 302 → ✅ `people/mama_for_owner/site/` → ✅ `son-public` :8024（`start_services.ps1`，Codex REJECT→ACCEPT）→ ✅ ingress 2 条 → ✅ 隧道重启（09-11 12:53）
+- ✅ 顺带：`register_startup_task.ps1` 兜底健康检查恒为 False 的旧 bug
+- ⬜ 用户手机实测（登录 / 重填 API key / 普通话 / 刷新后本轮语音条齐全）
+- 设计 `docs/superpowers/specs/2026-09-11-son-public-site-design.md`；运维 `docs/ops-son-public-site.md`
+
+### Phase 24：历史回放真机问题（2026-09-11 真 iPhone 首测）— status: **缺语音条 ✅ 已修；点击无声 研究完成、待判别测试**
+
+- ✅ 缺语音条：`/tts` 写音频记录也触发摄入（Codex 两轮 ACCEPT，真实流量验证）
+- ⏳ 点击无声：设备实为 iOS Chrome（WKWebView）；H1 脸的 AudioContext 卡住 vs H2 WAV-Blob；判别 = 关标签重开、第一下点历史条
+- 修法方向：H1 = 每次播放前按状态 resume、假 running 时 suspend+resume、切后台主动挂起，根治 = 声音不经 Web Audio（`<audio>` 直出 + 预算音量包络驱动口型）；H2 = 历史音频出 MP3 副本 + `replayBar` 失败不再静默复位
 
 ### Phase 17：VoiceStudio 能否取代本地 TTS（2026-09-08 用户立项）— status: **research complete**（09-08 收口）
 > 用户指令："立项：研究下这个项目是否能取代我的本地 tts https://github.com/debpalash/VoiceStudio"
@@ -401,6 +419,10 @@
 - 2026-09-10 用户裁决：缓存三层全做（源站 + Worker + SW，不加版本自检）；502 语义冲突与 ingress IPv4 两个都修
 - 2026-09-10 用户裁决：聊天记录回放顺序「隔离 → 文字回放 → 音频回放」；回放全部保留会话、孤立发言跳过、回放不进模型上下文
 - 2026-09-10 用户裁决：Codex 额度用尽时等恢复再终审（不跳过铁律 1）；随后改用 `gpt-5.6-sol` 审核（astra 用量太重），删除 Claude Code 的 codex MCP 配置（codex 0.154.0 已移除 mcp-server）；CLAUDE.md 铁律 1 的 Codex 行保持原文不改
+- 2026-09-11 用户裁决：儿子站公网入口——只开陪伴页、域名 son.、方案 A（独立站点目录）；用户自建 Access 应用「son」
+- 2026-09-11 用户在 Zero Trust 启用 One-time PIN（爸爸站此前只有 Cloudflare 账号登录）
+- 2026-09-11 用户裁决：爸爸站改普通话语域（**显式覆盖**「尊重素材语言」与 #24「语音 wu 域」，Claude 已提示她跟爸爸说上海话）
+- 2026-09-11 待裁决：A 儿子测试会话是否从爸爸记忆中排除；B 儿子能看到爸爸对话如何处理
 
 ## Errors Encountered
 | Error | Attempt | Resolution |
@@ -415,3 +437,7 @@
 | DeepSeek 替换对臆造多行签名锚点（09-10） | 2 | 逐对统计出现次数定位；只修锚点，新增内容取自它自己的 OLD→NEW 差异 |
 | 验收脚本从 offline.html 清 localStorage 与其自动跳转竞态（09-11） | 1 | 改在不会跳转的同源 JSON 页上清理 |
 | 超长内联 Bash 命令（多重 heredoc + 引号）解析失败（09-11） | 1 | 改为 Write 工具写脚本文件后执行 |
+| `Test-ServicesHealthy` 恒为 False：`Start-Process -PassThru` 未缓存 Handle，ExitCode 为 `$null`（09-11） | 1 | 两处 Start-Process 后缓存 Handle；AST 取函数隔离红/绿 |
+| PowerShell `& python … \| Select-Object -First 1` 掐断进程，`$LASTEXITCODE` = -1（09-11） | 1 | 先完整接住输出再判退出码 |
+| Git Bash 把中文 JSON 当参数传 curl → 服务端 400 invalid JSON（09-11） | 1 | 改用 Python urllib |
+| 新 hostname 建 DNS 后本机仍 000：DNS 负缓存（09-11） | 1 | `curl --doh-url` 或 `ipconfig /flushdns` |

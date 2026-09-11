@@ -81,7 +81,7 @@ python tools\build_companion_page.py `
   --viewer father `
   --context-path data_father/chat_context.json `
   --sessions-path data_father/sessions/sessions.json `
-  --lang wu `
+  --lang mandarin `
   --tts-origin same `
   --llm-proxy /v1/chat/completions `
   --intro-card `
@@ -91,6 +91,8 @@ python tools\build_companion_page.py `
 ```
 
 全部参数都是从重建前的 `companion.html` 反推 + 实测核对的：
+
+- **`--lang mandarin`（2026-09-11 起，此前为 `wu`）**：用户听过儿子站普通话语域后要求爸爸站也改普通话——**显式覆盖**「尊重素材语言」原则与 #24 裁决「语音 wu 域」（她跟爸爸说的是上海话）。依据是听感 + 短句质量：≤18 字短段翻车率 wu 86% vs mandarin 27%（见 `findings.md`）。重建时与线上 diff 只差 `lang` 一行。**别顺手改回 wu**；要改回也只需重建这一个参数。旧的 wu 历史语音保留原样。
 
 - **`--sessions-path` 绝不能漏**（2026-09-10 新增）。默认值是 `data/sessions_<viewer>.json`，
   而 `data` 是指向儿子站的目录联接——会话产物已于当日迁出共享目录以修复隐私泄漏。漏传这个参数，

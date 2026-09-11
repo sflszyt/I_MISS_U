@@ -1,7 +1,54 @@
 # 交接文档（HANDOFF）
 
-> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-09-11 凌晨：静态站缓存三层同治 / 502→424 / 会话数据 viewer 隔离 / 刷新后历史回放 + 历史语音条点播，全部部署并验收（见 ⓪¹⁵）**。上一版：2026-09-10 深夜，爸爸站真正上线（隧道 + Worker + L1 + 真机四问题 + TTS 短句幻觉定根，见 ⓪¹⁴）。上一版：2026-09-10，T14-3/T14-4/T14-5 完成，T14 代码层收官（见 ⓪¹³）。上一版：2026-09-09，T14-1/T14-2（token 落盘 + 服务启动编排，见 ⓪¹²）。上一版：2026-09-07，提交前全量刷新：#22 研究 a/b 收口（a 已裁决）+ 8B-10 语音条分条 + 8B-11 起音淡入 + #23 给爸爸六段语音**。最先看 ⓪¹⁵。（09-02 后补：进度全景核对（workflow 六路，输出未落盘）后修文档失真——四项待办移除日期更正为 09-01、⓪⁷/二章/六章过期陈述加标注、下回合列表 09-02 刷新）。
+> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-09-11 白天：儿子站公网入口 son. 上线 / 爸爸首次登录（Access 验证码此前从未启用）/ 爸爸站改普通话 / 缺语音条修复 / 自启健康检查恒 False 旧 bug（见 ⓪¹⁶）**。上一版：**2026-09-11 凌晨：静态站缓存三层同治 / 502→424 / 会话数据 viewer 隔离 / 刷新后历史回放 + 历史语音条点播，全部部署并验收（见 ⓪¹⁵）**。上一版：2026-09-10 深夜，爸爸站真正上线（隧道 + Worker + L1 + 真机四问题 + TTS 短句幻觉定根，见 ⓪¹⁴）。上一版：2026-09-10，T14-3/T14-4/T14-5 完成，T14 代码层收官（见 ⓪¹³）。上一版：2026-09-09，T14-1/T14-2（token 落盘 + 服务启动编排，见 ⓪¹²）。上一版：2026-09-07，提交前全量刷新：#22 研究 a/b 收口（a 已裁决）+ 8B-10 语音条分条 + 8B-11 起音淡入 + #23 给爸爸六段语音**。最先看 ⓪¹⁶。（09-02 后补：进度全景核对（workflow 六路，输出未落盘）后修文档失真——四项待办移除日期更正为 09-01、⓪⁷/二章/六章过期陈述加标注、下回合列表 09-02 刷新）。
 > 读这份之前先读 `CLAUDE.md`（铁律），再读仓库根的 `task_plan.md` / `progress.md` / `findings.md`（MVP 计划与实时状态）。研究依据在 `docs/research/`。
+
+## ⓪¹⁶ 增补（2026-09-11 白天：儿子站公网入口 / 爸爸首次登录 / 爸爸站改普通话 / 两个真机问题，最先看这段）
+
+> 一句话：**儿子不连 Tailscale 也能用了（son.justmissingyou.com）；爸爸终于登得进来（Access 验证码此前从未启用）；爸爸站也改成普通话；历史里缺的语音条修好了，iPhone 上点历史语音条没声还在查。**
+
+> 代码全部 DeepSeek 写、Codex 审（tts_server 两轮 ACCEPT；start_services / register_startup_task 一轮 REJECT→ACCEPT）；隧道配置与站点目录由 Claude 直接做并声明。
+
+### 1. 六件事
+
+| # | 起因 | 做法 | 验收 |
+|---|---|---|---|
+| 缺语音条 | 真 iPhone 首测：一轮 4 段只回放出第 1 段的语音条 | `tts_server._handle_tts` 写完 `simulacrum_audio` 也调 `sessions_ingest.schedule()`（独立 try/except、先于 `_send_audio`）；原先只有 `/session` 触发，会话最后一轮的后几段永远进不了历史 | 新测试 `tests/test_tts_server_tts_ingest.py`（venv 跑；真 handler + 真 socket；红→绿 + 变异测试）；09-11 00:58 只重启 TTS 上线；真实流量：末段 19:12:02 写入 → 19:12:08 摄入 |
+| 爸爸登不进 | 爸爸 Gmail 验证后看到「Cloudflare sign-in is restricted to members of the account」 | 实测登录页只有 `data-idp="Cloudflare"` 一个按钮——**One-time PIN 从未启用**；用户在 Zero Trust 启用 | 两站登录页均出现「Email → Send login code」；爸爸 12:34 / 12:39 / 13:11 三次用**微信内置浏览器**登录对话 |
+| 儿子站公网 | 用户要不连 Tailscale 也能用 | 方案 A（用户批准）：独立 Access 应用「son」只放机主邮箱；DNS `cloudflared tunnel route dns`；`people/mama_for_owner/site/`（companion + avatar 副本 + `data` 联接 + 只指 owner 的 `sessions_data/owner` 联接）；`son-public` :8024 进 `start_services.ps1`；ingress 2 条 | 未登录全路径 302；本地 14 项正/反向（评审页、father 会话、`../` `%2f` `%2e%2e` 穿越全 404）；`ingress validate/rule` 8 条匹配；隧道重启 4 连接注册 |
+| 自启健康检查 | Codex：兜底清单漏 son-public | 清单加 son-public；**顺带挖出旧 bug：`Test-ServicesHealthy` 恒为 False**（`Start-Process -PassThru` 未缓存 Handle，ExitCode 读成 `$null`）→ 两处缓存 Handle | 五项隔离红/绿实测（从文件 AST 取函数 dot-source） |
+| 爸爸站普通话 | 用户听过儿子站普通话后要求 | 只改 `--lang mandarin` 重建，与线上 diff 仅一行 | 19:11 一次 5 段全 `lang=mandarin`；**显式覆盖**「尊重素材语言」与 #24「语音 wu 域」 |
+| 历史语音条无声 | 真 iPhone 刷新后点历史条没声 | 只读研究工作流（15 agent）：设备其实是 **iOS Chrome（WKWebView）**；WAV 每次 200 送达；剩 H1（脸的 AudioContext 卡在假 running / 未恢复，研究引 WebKit 263627/276687）与 H2（WAV 放进 Blob 在 iOS 放不出） | ⏳ 判别：关掉 Chrome 标签（或上划杀掉 Chrome）重开，第一下点历史条：有声→H1，仍无声→H2 |
+
+### 2. 必须知道的
+
+1. **Access 的「302 拦截」≠「登录方式可用」**。改任何 Access 设置后，未登录抓登录页看 `data-idp=` 与邮箱框，并用**非账号成员**邮箱实走一次（机主登录会走 Cloudflare 账号按钮，验不出）。
+2. **爸爸站是普通话语域了**（用户显式覆盖，记录在 `docs/ops-offline-fallback.md` 与 `findings.md`）——别看到「尊重素材语言」原则就改回 wu；要改回只需重建 `--lang wu`。
+3. **身份仍是构建期常量**：谁打开爸爸站都读 father 的历史、说的话都记成 father。儿子测试请用 son 站；非用爸爸站不可时勾「本次对话不进记忆」（19:11 那次已正确排除）。
+4. **新 hostname 探测会被本机 DNS 负缓存骗**（建 DNS 前查过一次 → 之后一直「不存在」）：用 `curl --doh-url https://cloudflare-dns.com/dns-query` 或 `ipconfig /flushdns`。
+5. **`start_services.ps1` 没有单服务重启**：只重启 TTS 要先按命令行杀 `tools\tts_server.py` 进程树并确认 8022 释放，再 `-SkipTunnel`；否则三条件 skip 会把残留进程当健康跳过。整跑（不带 `-SkipTunnel`）会重启隧道，爸爸站断约 5 秒——先看日志确认他不在对话。
+6. 替换对应用工具已入库：`scripts/apply_patch_pairs.py <目标> <补丁> [--dry-run]`（重叠匹配也计数；Codex ACCEPT）。PowerShell 里别 `& python … | Select-Object -First 1`，会掐断进程、`$LASTEXITCODE` 变 -1。
+
+### 3. 待用户裁决
+
+- **A**：father 名下 15 个会话中 **12 个是儿子的测试**（9 个手机 Chrome、3 个桌面；09-11 中午前爸爸根本登不进），其中 `ykrExB` / `SbvOGm`（「老婆 在吗」）/ `yhrod5` 三个在爸爸的跨会话记忆里，会被当成「对话者自述」。建议：加进 `people/mama/sessions/exclude.txt`（原始日志不动、可撤回）。
+- **B**：儿子能在爸爸站看到爸爸的全部对话（Access 白名单有机主邮箱 + 页面按站点读历史）。说明卡只写「您和它说的话会被记录下来，存在这台电脑上」，没写「儿子能看到」。选项：① 说明卡加一句（推荐）② 把机主邮箱移出爸爸站 Access ③ 维持 ④ 做 Phase 20。
+
+### 4. 待办
+
+1. ⏳ iPhone 历史语音条判别测试（见上）→ 定根后修（H1：每次播放前按状态 resume、假 running 时 suspend+resume，根治=声音不经 Web Audio；H2：历史音频出 MP3 副本 + 失败不再静默复位）。
+2. ⏳ 儿子站手机实测（登录 / 重填 API key / 普通话 / 刷新后本轮语音条齐全）。
+3. Phase 19 短句幻觉：爸爸站改普通话后压力下降，但 mandarin 短段仍 27% 翻车。
+4. Phase 20 运行期身份（A/B 裁决后更迫切）；Phase 21 站点清单（现有 dad. + son. 两个公网站）。
+5. 可选：轮换 TTS token（本会话一次误把 token 打印进会话输出，未外传；步骤见 `people/mama_for_father/config/relationship.father.json` 的 `rotate_note`）。
+6. 旧账：Worker 新版待 `wrangler login`；8A-2b 护栏；T12c 主屏图标；真重启验收。
+
+### 5. 环境现场
+
+- **在跑（6 个服务）**：:8020 儿子站（Tailscale，整个 archive_out）、:8021 爸爸站、**:8024 儿子公网站**（127.0.0.1）、:8022 tts（09-11 00:58 以含修复的代码重启）、:8023 llm-proxy、cloudflared（09-11 12:53 重启，4 连接 hkg；ingress 含 son 两条，备份 `~/.cloudflared/config.yml.bak-20260911-son`）
+- **Access**：应用「dad」（爸爸 Gmail + 机主邮箱；Cloudflare 账号 / 邮箱验证码）、应用「son」（用户建，按设计只放机主邮箱）
+- **语域**：儿子站（两个入口）mandarin；爸爸站 mandarin（09-11 起）
+- **测试**：系统 Python 全量通过（新模块在系统 Python 下按设计 skip）；新模块用 venv 跑 4/4
 
 ## ⓪¹⁵ 增补（2026-09-10→11 通宵：缓存三层 / 502→424 / 会话数据 viewer 隔离 / 刷新后历史回放与历史语音条，最先看这段）
 
