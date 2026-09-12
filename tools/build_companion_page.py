@@ -263,7 +263,8 @@ var knowledgeLoading = false;
 var ttsBase = __TTS_BASE_EXPR__;
 __TTS_TOKEN_LINE__var ttsAvailable = false;
 var sessionId = buildSessionId(new Date());
-__LLM_PROXY_LINE__var sessionTurn = 0;
+__LLM_PROXY_LINE__
+__DEFAULT_PROFILE_LINE__var sessionTurn = 0;
 var sessionQueueKey = storageKey + '_sessionq';
 var sessionFlushing = false;
 var sessionStarted = false;
@@ -528,6 +529,36 @@ function loadSettings() {
   } catch(e) {
     settings = {url: '', model: '', key: '', provider: DEFAULT_PROVIDER, profiles: {}};
   }
+  applyDefaultProfile();
+}
+function applyDefaultProfile() {
+  /* 构建时内置的 key：页面开箱就能说话，iOS 清掉 localStorage 也不至于连接口一起丢。
+     只补空位：用户在抽屉里存过的 key 绝不覆盖，也绝不往 localStorage 回写。
+     内置 key 只写进 DEFAULT_PROFILE.provider 自己的档位，别的服务商档位一个字都不碰，
+     免得把内置 key 发到不该发的端点上。 */
+  if (typeof DEFAULT_PROFILE === 'undefined' || !DEFAULT_PROFILE || typeof DEFAULT_PROFILE !== 'object') return;
+  if (typeof DEFAULT_PROFILE.key !== 'string' || DEFAULT_PROFILE.key === '') return;
+  var dp = DEFAULT_PROFILE.provider;
+  if (!Object.prototype.hasOwnProperty.call(PROVIDERS, dp)) return;   /* 不认识的服务商：什么都不做 */
+  if (!settings.profiles || Object.prototype.toString.call(settings.profiles) !== '[object Object]') { settings.profiles = {}; }
+  if (!settings.profiles[dp]) { settings.profiles[dp] = normalizeProfile(null); }
+  if (settings.profiles[dp].key) { return; }               /* 用户在内置档位存过 key：一个字都不动 */
+  var storedHasKey = false;
+  for (var p in settings.profiles) {
+    if (Object.prototype.hasOwnProperty.call(settings.profiles, p) && settings.profiles[p] && settings.profiles[p].key) { storedHasKey = true; break; }
+  }
+  settings.profiles[dp].key = DEFAULT_PROFILE.key;         /* 只写内置档位 */
+  if (!storedHasKey && !settings.key) {                    /* 存档里没有任何可用 key：切到内置服务商 */
+    settings.provider = dp;
+  }
+  var active = Object.prototype.hasOwnProperty.call(PROVIDERS, settings.provider) ? settings.provider : DEFAULT_PROVIDER;
+  settings.provider = active;
+  if (active === dp) {                                     /* 内置档位在用：顺手刷新 url/model/key；否则原样不动 */
+    var seeded = withDefaults(dp, settings.profiles[dp]);
+    settings.url = seeded.url;
+    settings.model = seeded.model;
+    settings.key = seeded.key;
+  }
 }
 __SETTINGS_COMPLETE_FN__
 function withDefaults(provider, p) {
@@ -610,11 +641,24 @@ function addBubble(opts) {
   chat.appendChild(div); chat.scrollTop = chat.scrollHeight; return div;
 }
 function confNotice() { clearChat(); addBubble({type:'center', text:'点右上角 ⚙ 配置接口后开始对话'}); sendBtn.disabled = true; }
+function confNoticeKeepHistory() {
+  /* 与 confNotice 同一句提示，但不清空聊天区：往次记录是档案内容，不该因为没配 key 就消失。
+     updateChatState 会反复调用，同一句居中提示只留一条。 */
+  var CENTER_TEXT = '点右上角 ⚙ 配置接口后开始对话';
+  var present = false;
+  for (var i = 0; i < chat.children.length; i++) {
+    var el = chat.children[i];
+    if (el.className === 'bubble center' && el.textContent === CENTER_TEXT) { present = true; break; }
+  }
+  if (!present) { addBubble({type:'center', text: CENTER_TEXT}); }
+  sendBtn.disabled = true;
+}
 function systemNotice(msg) { addBubble({type:'notice', text: msg}); }
 function updateChatState() {
-  if (!settingsComplete()) { confNotice(); return; }
   if (!contextLoaded) { clearChat(); addBubble({type:'center', text:'档案加载中，请稍候…'}); sendBtn.disabled = true; return; }
-  maybeReplayHistory();
+  maybeReplayHistory();                                    /* 历史先回放：它不依赖接口配置 */
+  if (!settingsComplete()) { confNoticeKeepHistory(); return; }
+  removeStartPlaceholder();                                /* 配置齐了：清掉可能残留的居中占位提示 */
   if (chat.children.length === 0) { addBubble({type:'center', text:'开始对话吧...'}); }
   sendBtn.disabled = false; sendBtn.textContent = '发送'; streaming = false;
   if (controller) { try { controller.abort(); } catch(e) {} controller = null; }
@@ -644,7 +688,6 @@ function removeStartPlaceholder() {
 function maybeReplayHistory() {
   if (historyReplayed) return;
   if (!contextLoaded || !sessionsLoaded) return;
-  if (!settingsComplete()) return;
   if (history.length !== 0) return;   /* 用户已经开口：往次记录绝不插进正在进行的对话 */
   if (voiceTurn) return;
   removeStartPlaceholder();
@@ -1013,7 +1056,7 @@ function loadSessionsData() {
     .then(function() {
       sessionsLoaded = true;
       applySessionsCard();
-      maybeReplayHistory();
+      updateChatState();
     });
   return sessionsDataPromise;
 }
@@ -2089,7 +2132,8 @@ def build(person: str, archive_dir: str, viewer: str, context_path: str = 'data/
           out_name: str = 'companion.html', lang: str = 'mandarin',
           tts_origin: str = 'auto', tts_token: str = '',
           intro_card: bool = False, intro_builder: str = '家人',
-          llm_proxy: str = '', offline_fallback: bool = False) -> str:
+          llm_proxy: str = '', offline_fallback: bool = False,
+          default_key: str = '', default_provider: str = 'deepseek') -> str:
     """Render companion.html content."""
     if not sessions_path:
         sessions_path = f'data/sessions_{viewer}.json'
@@ -2132,6 +2176,15 @@ def build(person: str, archive_dir: str, viewer: str, context_path: str = 'data/
         llm_proxy_line = "var LLM_PROXY = '" + llm_proxy + "';\n"
     else:
         llm_proxy_line = ''
+
+    # 内置 API Key（构建时烘焙）：走 LLM 代理时页面不需要 key，一律注入 null
+    if llm_proxy:
+        default_key = ''
+    if default_key:
+        default_profile_line = ("var DEFAULT_PROFILE = {provider: '" + default_provider
+                                + "', key: '" + default_key + "'};\n")
+    else:
+        default_profile_line = 'var DEFAULT_PROFILE = null;\n'
 
     # settingsComplete replacement
     if llm_proxy:
@@ -2241,6 +2294,7 @@ def build(person: str, archive_dir: str, viewer: str, context_path: str = 'data/
         '__PAGE_TAG__': page_tag,
         '__TTS_TOKEN_LINE__': tts_token_line,
         '__LLM_PROXY_LINE__': llm_proxy_line,
+        '__DEFAULT_PROFILE_LINE__': default_profile_line,
         '__SETTINGS_COMPLETE_FN__': settings_complete_fn,
         '__LLM_PROXY_BRANCH__': llm_proxy_branch,
         '__LLM_PROXY_HIDE_JS__': llm_proxy_hide_js,
@@ -2278,6 +2332,12 @@ def main() -> int:
                         help='说明卡文案里对建档者的称呼（默认「家人」，例如「儿子」）')
     parser.add_argument('--llm-proxy', default='',
                         help='LLM 代理路径（同源，如 /llm/v1/chat/completions）；给定后页面固定用它、不再需要 API key')
+    parser.add_argument('--default-key', default='',
+                        help='构建时内置的 API Key，页面开箱即用（与 --default-key-env 二选一）')
+    parser.add_argument('--default-key-env', default='',
+                        help='构建时读取内置 API Key 的环境变量名（与 --default-key 二选一）')
+    parser.add_argument('--default-provider', default='deepseek',
+                        help='内置 API Key 对应的服务商：openai/anthropic/deepseek/kimi/custom（默认 deepseek）')
     parser.add_argument('--offline-fallback', action='store_true',
                         help='注册 Service Worker，以便在机器不可达时显示 offline.html（仅用于随附 sw.js 和 offline.html 的部署）')
     args = parser.parse_args()
@@ -2342,6 +2402,34 @@ def main() -> int:
             print('错误：--llm-proxy 需要同时提供 --tts-token（代理必须鉴权，否则会成为开放的 LLM 中转）', file=sys.stderr)
             return 2
 
+    # 内置 API Key：--default-key 与 --default-key-env 二选一
+    if args.default_key and args.default_key_env:
+        print('错误：--default-key 与 --default-key-env 不能同时给出，只能二选一', file=sys.stderr)
+        return 2
+
+    default_key = args.default_key
+    if args.default_key_env:
+        default_key = os.environ.get(args.default_key_env, '')
+        if not default_key:
+            print(f'错误：环境变量 {args.default_key_env} 未设置或为空，拒绝生成没有内置 Key 的页面', file=sys.stderr)
+            return 2
+
+    if args.default_provider not in ('openai', 'anthropic', 'deepseek', 'kimi', 'custom'):
+        print(f'错误：--default-provider 参数 "{args.default_provider}" 不在支持列表 openai/anthropic/deepseek/kimi/custom 中', file=sys.stderr)
+        return 2
+
+    if default_key and any(ch in default_key for ch in '"\'\\\n\r\u2028\u2029<>'):
+        print('错误：--default-key 含有引号、反斜杠、换行、回车、行分隔符或尖括号，无法安全写进页面', file=sys.stderr)
+        return 2
+
+    if default_key and os.path.basename(args.out_name.replace('\\', '/')).casefold() in ('avatar.html', 'chat.html', 'index.html'):
+        print(f'错误：--out-name "{args.out_name}" 是档案发布用的文件名（tools/build_archive.py 会把它复制或生成到 archive_dist/ 分发出去），'
+              '带内置 Key 的页面绝不能写进该文件，请改用别的 --out-name', file=sys.stderr)
+        return 2
+
+    if args.llm_proxy and default_key:
+        print('警告：已指定 --llm-proxy，页面走代理不需要 API Key，内置 Key 被忽略', file=sys.stderr)
+
     context_path = os.path.join(args.archive_dir, *args.context_path.split('/'))
     if not os.path.exists(context_path):
         print(f'错误：缺少 {context_path}（{args.context_path} 不存在）', file=sys.stderr)
@@ -2354,7 +2442,8 @@ def main() -> int:
                  tts_token=args.tts_token,
                  intro_card=args.intro_card, intro_builder=args.intro_builder,
                  llm_proxy=args.llm_proxy,
-                 offline_fallback=args.offline_fallback)
+                 offline_fallback=args.offline_fallback,
+                 default_key=default_key, default_provider=args.default_provider)
 
     out_path = os.path.join(args.archive_dir, args.out_name)
     tmp_path = out_path + '.tmp'
