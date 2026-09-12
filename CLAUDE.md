@@ -26,7 +26,7 @@
 
 ### 接入信息（已验证）
 
-- **写码子代理**：定义在 `.claude/agents/coder.md`（`model: opus`；工具 Read/Edit/Write/Bash/Glob/Grep）。派发：`Agent(subagent_type: "coder", prompt: 规格)`。**不要开 `isolation: "worktree"`**——`people/` 是 gitignore 的，独立工作树里根本没有它，而站点、页面、会话数据全在那儿。规格要点名文件路径与验收标准；子代理必须自检（`py_compile` / unittest / PowerShell AST / `node --check`），HTTP 与页面类改动要真起服务或真开浏览器。**⚠️ 子代理定义在会话启动时加载**：刚新建或改过 `coder.md` 的那个会话里 `subagent_type: "coder"` 会报「Agent type not found」（2026-09-12 实测），该会话内改用 `Agent(subagent_type: "claude", model: "opus", prompt: 先读 .claude/agents/coder.md + 规格)`（已实测可用）；下个会话起 `coder` 正常。
+- **写码子代理**：定义在 `.claude/agents/coder.md`（`model: opus`；工具 Read/Edit/Write/Bash/Glob/Grep）。派发：`Agent(subagent_type: "coder", prompt: 规格)`。**不要开 `isolation: "worktree"`**——`people/` 是 gitignore 的，独立工作树里根本没有它，而站点、页面、会话数据全在那儿。规格要点名文件路径与验收标准；子代理必须自检（`py_compile` / unittest / PowerShell AST / `node --check`），HTTP 与页面类改动要真起服务或真开浏览器。**⚠️ 新建/改过 `coder.md` 后不会立刻生效**：2026-09-12 实测——建好当场派活报「Agent type not found」，约十几分钟后 harness 自动完成注册，**同一会话内即可用**（再测通过）。未注册期间的替代路径：`Agent(subagent_type: "claude", model: "opus", prompt: 先读 .claude/agents/coder.md + 规格)`，同样实测可用。
 - **DeepSeek 通道已停用（2026-09-12 用户裁决）**：`/deepseek` skill 与 `scripts/deepseek.ps1`、`scripts/deepseek_call.py` 已删除，**不要再提议用它写代码或作备选**。`DEEPSEEK_API_KEY`（用户级环境变量）**只保留聊天用途**：爸爸站 `tools/llm_proxy.py --key-env DEEPSEEK_API_KEY`，儿子站页面构建期 `--default-key-env DEEPSEEK_API_KEY`。
 - **Codex**：**走 CLI**——codex-cli 0.154.0 起不再提供 MCP 服务器，`mcp__codex__codex` 已不可用。命令：`codex exec --model gpt-5.6-sol --sandbox read-only < 审核稿.txt > 输出.txt`。每次都是独立会话，审核稿必须自包含；输出完整存文件后再 grep 结论（别用 tail 截）。
 

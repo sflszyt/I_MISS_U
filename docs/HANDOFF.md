@@ -19,7 +19,7 @@
 - 子代理定义在 **`.claude/agents/coder.md`**：`model: opus`，工具 Read/Edit/Write/Bash/Glob/Grep；硬规矩写在里面（`people/*/raw/` 只读、不重启服务、不 git commit、不打印凭据、不扩大范围、不改 CLAUDE.md），并要求它自检（`py_compile` / unittest / PowerShell AST / `node --check`）与如实报告「哪些没验证」。
 - **不要开 `isolation: "worktree"`**：`people/` 是 gitignore 的，独立工作树里没有它，而站点目录、页面、会话数据全在那儿。
 - 主线程仍然**不写业务代码**；文档、部署配置、以及「只改锚点不改内容」的一两行修正除外。
-- **子代理定义在会话启动时加载**：2026-09-12 建好 `coder.md` 的当场，`subagent_type: "coder"` 实测报「Agent type not found」；当场的替代路径是 `Agent(subagent_type: "claude", model: "opus", prompt: 让它先读 .claude/agents/coder.md + 规格)`——已实测通过（它照读 coder.md、守只读规矩、如实报告）。**下个会话起直接用 `coder`。**
+- **子代理注册有延迟，但不必等下个会话**：2026-09-12 建好 `coder.md` 的当场派活报「Agent type not found」，约十几分钟后 harness 自动注册，**同一会话内再派即通过**。未注册期间用 `Agent(subagent_type: "claude", model: "opus", prompt: 让它先读 .claude/agents/coder.md + 规格)`（也实测通过：照读 coder.md、守只读规矩、如实报告）。⚠️ 它报的数字要自己核——两次验证里它把 `tts_server.py` 报成 648 行（实际 718）。
 
 ### 2. 为什么换（用户 2026-09-12 拍板）
 
