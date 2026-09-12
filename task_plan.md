@@ -340,6 +340,9 @@
 - **09-11 实测污染规模**：father 名下 15 个会话 12 个是儿子测试（09-11 中午前爸爸根本登不进——OTP 未启用），其中 3 个进了爸爸的跨会话记忆 → ⏳ 待用户裁决 A（加入 `exclude.txt`）
 - **09-11 发现**：儿子能在爸爸站看到爸爸的对话（白名单含机主邮箱 + 按站点读历史）；说明卡未告知「儿子能看到」→ ⏳ 待用户裁决 B
 - 09-11 起儿子另有公网入口 son.（独立 Access 应用，见 Phase 23），测试应走 son 站
+- ✅ **裁决 A 已执行（09-12）**：13 个儿子测试会话进 `exclude.txt` 并重摄入，爸爸历史只剩他自己 3 次
+- ✅ **裁决 B：用户明确「不用处理」**——儿子能看到爸爸对话，维持现状（不加告知、不移邮箱、不做按人隔离）。**别再提议**
+- ⚠️ 待用户确认：09-11 23:11（Windows 桌面 UA，已按儿子排除）与 09-12 11:27 爸爸站那次（整场带 `exclude`，不会进记忆）
 
 ### Phase 21：部署层站点清单（2026-09-10 用户立项）— status: **待设计**
 
@@ -360,12 +363,13 @@
 - ✅ **刷新后历史回放 + 历史语音条点播**（`36cbe32`）：见 Phase 20；Codex 页面 3 轮、数据层 6 轮（约 14 个 BLOCKER，五个是 Windows 大小写）
 - ✅ 真 iPhone 实测（09-11）：暴露缺语音条（已修）与点击无声（研究中）→ 见 Phase 24；⬜ 被杀残留随机 `.tmp` 清理（NIT）
 
-### Phase 23：儿子站公网入口 son.justmissingyou.com（2026-09-11 用户立项）— status: **complete（已上线；待用户手机实测）**
+### Phase 23：儿子站公网入口 son.justmissingyou.com（2026-09-11 用户立项）— status: **complete（已上线；09-12 用户实测发现两 bug，均已修）**
 
 - 用户裁决：只开陪伴页（不挂整个 :8020）/ 域名 son. / 方案 A（独立站点目录，边界靠目录联接不靠路由正则）
 - ✅ Access 应用「son」（用户建，只放机主邮箱）→ ✅ DNS + 未登录全路径 302 → ✅ `people/mama_for_owner/site/` → ✅ `son-public` :8024（`start_services.ps1`，Codex REJECT→ACCEPT）→ ✅ ingress 2 条 → ✅ 隧道重启（09-11 12:53）
 - ✅ 顺带：`register_startup_task.ps1` 兜底健康检查恒为 False 的旧 bug
-- ⬜ 用户手机实测（登录 / 重填 API key / 普通话 / 刷新后本轮语音条齐全）
+- ✅ 用户手机实测（09-12）：登录通；发现「看不到任何历史」与「每站都要重填 key」两个问题 → 均已修（历史不再依赖 API key；构建期内置默认 key，Codex 三轮 ACCEPT）
+- ⬜ 修完后的手机复测（不配 key 应能看到历史并直接发消息）
 - 设计 `docs/superpowers/specs/2026-09-11-son-public-site-design.md`；运维 `docs/ops-son-public-site.md`
 
 ### Phase 24：历史回放真机问题（2026-09-11 真 iPhone 首测）— status: **缺语音条 ✅ 已修；点击无声 研究完成、待判别测试**
@@ -422,7 +426,9 @@
 - 2026-09-11 用户裁决：儿子站公网入口——只开陪伴页、域名 son.、方案 A（独立站点目录）；用户自建 Access 应用「son」
 - 2026-09-11 用户在 Zero Trust 启用 One-time PIN（爸爸站此前只有 Cloudflare 账号登录）
 - 2026-09-11 用户裁决：爸爸站改普通话语域（**显式覆盖**「尊重素材语言」与 #24「语音 wu 域」，Claude 已提示她跟爸爸说上海话）
-- 2026-09-11 待裁决：A 儿子测试会话是否从爸爸记忆中排除；B 儿子能看到爸爸对话如何处理
+- 2026-09-11 提出、2026-09-12 用户裁决：**A = 排除**（13 个会话已进 `exclude.txt` 并重摄入）；**B = 不用处理**（儿子能看到爸爸对话，维持现状）
+- 2026-09-12 用户指令：**更新 CLAUDE.md 铁律 1**（覆盖 09-10「Codex 行保持原文不改」）——审核 Codex `gpt-5.6-sol` 走 CLI，写码 DeepSeek `deepseek-flash`；并要求实测 `deepseek-v4.1-flash`（结论：不存在）
+- 2026-09-12 用户要求：所有站「API key 填过一次就存住」→ 实现为构建期内置默认 key（key 明文进 HTML，用户知情）
 
 ## Errors Encountered
 | Error | Attempt | Resolution |
@@ -441,3 +447,7 @@
 | PowerShell `& python … \| Select-Object -First 1` 掐断进程，`$LASTEXITCODE` = -1（09-11） | 1 | 先完整接住输出再判退出码 |
 | Git Bash 把中文 JSON 当参数传 curl → 服务端 400 invalid JSON（09-11） | 1 | 改用 Python urllib |
 | 新 hostname 建 DNS 后本机仍 000：DNS 负缓存（09-11） | 1 | `curl --doh-url` 或 `ipconfig /flushdns` |
+| 儿子站空 localStorage 时整页没有历史（09-12） | 1 | 历史渲染不再依赖 `settingsComplete()`；提示改为追加不清空 |
+| 内置 key 被写进「当前」服务商档位，可能发到别家端点（09-12，Codex MAJOR） | 1 | 只写 `DEFAULT_PROFILE.provider` 档位 |
+| 保护文件名 `chat.html` 比较区分大小写，Windows 上 `CHAT.HTML` 绕过（09-12，Codex MAJOR） | 1 | `basename().casefold()` 后比较 |
+| Python 字符串里 `\a` 把文档路径写坏成 BEL 控制字符（09-12） | 2 | 用 `chr(92)` 拼反斜杠；写完读回并扫控制字符 |

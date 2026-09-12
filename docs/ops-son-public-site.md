@@ -45,10 +45,15 @@ Copy-Item "$root\people\mama\archive_out\avatar.html" "$site\avatar.html"
 ```powershell
 python tools\build_companion_page.py --person mama --archive-dir people\mama_for_owner\site `
   --viewer owner --sessions-path sessions_data/owner/sessions.json --tts-origin same `
-  --tts-token <tokens.env 里 owner: 后面那截>
+  --tts-token <tokens.env 里 owner: 后面那截> `
+  --default-key-env DEEPSEEK_API_KEY --default-provider deepseek
 ```
 
+Tailscale 版（`:8020`）同一套参数，只把 `--archive-dir` 换成 `people\mama\archive_out`、`--tts-origin` 换成 `auto`。**改了 `tools/build_companion_page.py` 两个都要重建。**
+
 - **`--tts-origin same` 绝不能漏**（默认 `auto` 会生成 `…:8022`，经隧道无此端口 → 没声音）。
+- **内置 API Key（2026-09-12 起）**：`--default-key-env DEEPSEEK_API_KEY` 把 key 烤进页面，手机上不用再填、iOS 清掉 localStorage 也不会丢。规则：只填 `--default-provider` 那一个档位（绝不写进别的服务商，否则会把 key 发到别家端点）；抽屉里存过的 key 永远优先；页面不会把内置 key 写回 localStorage。key 会明文出现在 HTML 里——`people/` 是 gitignore，公网站在 Access 后面，Tailscale 站在 tailnet 内。**构建器会拒绝 `--out-name chat.html/avatar.html/index.html` 配内置 key**（那些文件名会被 `build_archive` 分发出去）。
+- **历史不再依赖 API key（2026-09-12）**：没配接口时也照常显示往次对话，配置提示追加在历史下方。
 - 验收：与 `people/mama/archive_out/companion.html`（Tailscale 版）逐行 diff，**只允许 `ttsBase` 一行不同**。
 - 改了 `tools/build_companion_page.py` 时，Tailscale 版、本站、爸爸站三个页面都要重建。
 - 重建 avatar（`build_avatar_page`）后，把 `archive_out/avatar.html` 复制到本站与爸爸站。

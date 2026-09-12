@@ -17,17 +17,17 @@
 | 角色 | 模型 | 接入方式 | 职责 |
 |------|------|----------|------|
 | **主模型 / 指挥官** | Claude（当前会话模型） | 原生 | 计划、统筹、编排 agents、拆解任务、决策、最终把关 |
-| **代码执行** | DeepSeek V4 Flash | API | 负责实际写代码（实现、修改、生成） |
-| **审核验收** | Codex GPT-5.6 | MCP (`mcp__codex__codex`) | 负责代码审核（review）与验收（acceptance） |
+| **代码执行** | DeepSeek `deepseek-flash` | API（`scripts/deepseek_call.py`） | 负责实际写代码（实现、修改、生成） |
+| **审核验收** | Codex `gpt-5.6-sol` | CLI（`codex exec`） | 负责代码审核（review）与验收（acceptance） |
 
 1. **Claude 作为主模型**：理解需求、制定计划、编排工作流、分派任务、对最终结果负责。不亲自大批量写业务代码。
-2. **DeepSeek V4 Flash 负责写代码**：所有实质性代码编写通过 `/deepseek` skill（`scripts/deepseek.ps1`）交给 DeepSeek。Claude 提供清晰的规格与验收标准。
-3. **Codex GPT-5.6 负责审核验收**：DeepSeek 产出必须经 Codex（MCP）审查验收后才算完成。不通过则带反馈回炉 DeepSeek，循环至通过。
+2. **DeepSeek 负责写代码**：所有实质性代码编写通过 `/deepseek` skill（`scripts/deepseek.ps1`）交给 DeepSeek。Claude 提供清晰的规格与验收标准。
+3. **Codex 负责审核验收**：DeepSeek 产出必须经 Codex（CLI，见下）审查验收后才算完成。不通过则带反馈回炉 DeepSeek，循环至通过。
 
 ### 接入信息（已验证）
 
-- **DeepSeek**：环境变量 `DEEPSEEK_API_KEY`（用户级，勿写进任何项目文件）；端点 `https://api.deepseek.com/chat/completions`（OpenAI 兼容）；模型 `deepseek-v4-flash`（写代码），`deepseek-v4-pro`（备用）。推理模型，`max_tokens` 必须给足（≥8000）。
-- **Codex**：MCP 工具 `mcp__codex__codex`。
+- **DeepSeek**：环境变量 `DEEPSEEK_API_KEY`（用户级，勿写进任何项目文件）；端点 `https://api.deepseek.com/chat/completions`（OpenAI 兼容）。**模型（2026-09-12 实测 `/models` 确认，账号可用只有两个）：`deepseek-flash`（写代码；旧名 `deepseek-v4-flash` 仍被接受，服务端返回的 model 字段就是 `deepseek-flash`）、`deepseek-v4-pro`（更难的任务）。`deepseek-v4.1-flash` 不存在，调用直接 400。** 推理模型，`max_tokens` 必须给足（≥8000；大文件规格给 64000）。调用：`python scripts/deepseek_call.py <规格> <输出> <max_tokens>`。
+- **Codex**：**走 CLI**——codex-cli 0.154.0 起不再提供 MCP 服务器，`mcp__codex__codex` 已不可用。命令：`codex exec --model gpt-5.6-sol --sandbox read-only < 审核稿.txt > 输出.txt`。每次都是独立会话，审核稿必须自包含；输出完整存文件后再 grep 结论（别用 tail 截）。
 
 ### 标准工作流
 
@@ -99,6 +99,7 @@ I_MISS_U/
 - **M4** 数字人层（进行中）：卡通形象（不做真人脸）✅ viseme 时间轴口型+眨眼+微摆（Phase 1，2026-08-27）；✅ **桌面陪伴 companion 页 8A/8B（2026-08-29 上线，09-01→02 四连）**：iframe 组合脸+chat 大脑+她的声音，三平台兼容（iOS 解锁/▶兜底/100dvh）；✅ 情绪表情层（四情绪贴片 2026-09-01 用户定稿 s5002 并烘焙激活，`persona/emotions.json` 数据驱动——改情绪只改 json 再跑 `build_avatar_page`）；✅ 多服务商抽屉（OpenAI/Anthropic/DeepSeek/Kimi/自定义，09-01）；✅ 轴五 sessions 日志（tts_server `POST /session` → `people/<slug>/sessions/`，数字人话语永久 Tier-3，09-01）；✅ TTS 剥括号 + 分句语音流水线 + 微信式「正在输入」（09-02）——**上限形态"打开才在的对话窗"，8A-2b 伦理护栏未上不宜日常常用（分句流水线显著提升沉浸感，护栏须尽早补）**；✅ **8B-10 微信式语音条 + ≤30 字分条发送（09-05→06，Codex 三轮 ACCEPT）**：回复按 ≤30 字切成多条独立气泡、每条各自合成（前 12 条出声，超时/失败转文字），语音条可回放、下方转写文字可关，删除了"全文超 240 字不出声"；同时修 `build_rhythm_block` 键全错（模型此前从未见节律统计）+ 提示词"一行一条 ≤30 字"；✅ **8B-11 起音爆音淡入（09-07，Codex ACCEPT）**：模型每次开口固有 ~15 ms 爆音，tts_server 出口 `soften_onsets` 30 ms 升余弦淡入（`--onset-fade-ms`）；⏳ 8B-4 完整真机验收（09-01 首测已通）；可选增强=talking-head 预渲染 MP4"特别版"
 - **爸爸站已真正上线（2026-09-10 深夜）**：隧道打通（4 连接注册）+ Cloudflare Worker 部署 + **L1 离线兜底首次真跑通**；真机四问题定位并修复三个（解锁静音漏过 blob 守卫导致播真声 + 口型钉死、iframe 缩放误做成裁剪、CSS 注入竞态）。**遗留最大缺口：TTS 短句幻觉**——根因是参考音频 18 秒/90 字，据 CosyVoice 自身判据「待合成文本 < 参考一半」危险线达 45 字，而分条上限 30 字，**每段都在危险区**；修法=加短参考并按目标长度选参考，**待 A/B 盲测定音色**。另：`VIEWER` 为构建期常量致儿子在爸爸站的话被记成 father（档案污染，待运行期身份方案）；**会话数据 viewer 隔离已修**（09-10：爸爸站曾可直读 `data/sessions_owner.json`=儿子全部私人对话，ingest 分了文件却没分访问边界；现每 viewer 一子目录 + 爸爸站只联接自己那个，重建页面必带 `--sessions-path`）；**刷新后历史回放 + 历史语音条点播已上线**（09-11：按段文本精确配对 `simulacrum_audio`；音频按 viewer 复制进 `sessions_data/<viewer>/audio/`；Codex 页面 3 轮、数据层 6 轮后 ACCEPT；09-11 真 iPhone 首测暴露两问题：缺语音条已修、点击无声研究中，见下条）；**静态站缓存已治**（09-10：三层——`tools/static_server.py` 替掉 `python -m http.server` 发 `no-cache, must-revalidate` + Worker 出口改写 + SW 后台预热，爸爸再不需要强刷）
 - **2026-09-11 白天：儿子站公网入口上线 + 爸爸首次登录 + 爸爸站改普通话**：✅ `son.justmissingyou.com`（**独立 Access 应用「son」只放机主邮箱**；只开陪伴页——`people/mama_for_owner/site/` = companion（与 Tailscale 版只差 `--tts-origin same`）+ avatar 副本 + `data` 联接 + **只指 owner 的** `sessions_data/owner` 联接；`son-public` :8024 仅 127.0.0.1，进 `start_services.ps1`；ingress 2 条；运维 `docs/ops-son-public-site.md`）；✅ **爸爸站 Access 此前只有「Cloudflare 账号登录」、One-time PIN 从未启用**（09-08 只验了 302，机主是账号成员所以一直没发现）→ 用户启用后爸爸 12:34 起用**微信内置浏览器**登录对话；✅ **爸爸站改普通话语域——用户显式覆盖「尊重素材语言」与 #24 裁决「语音 wu 域」，别顺手改回**（≤18 字短段翻车率 wu 86% vs mandarin 27%；开口「啵」淡入不分语域）；✅ 缺语音条修复（`/tts` 写音频记录也触发摄入，真实流量已验证）；✅ `register_startup_task.ps1` 兜底健康检查**恒为 False** 的旧 bug（`Start-Process -PassThru` 未缓存 Handle → ExitCode 为 `$null`）已修；⏳ **iPhone（实为 iOS Chrome/WKWebView）点历史语音条无声**：研究剩 H1 脸的 AudioContext 卡住 / H2 WAV-Blob 两嫌疑，待用户「关标签重开、第一下点历史条」判别；⏳ **待用户裁决 A**：father 名下 15 个会话 12 个是儿子测试（3 个在爸爸跨会话记忆里）→ 是否加入 `exclude.txt`；**B**：儿子能在爸爸站看到爸爸的对话，而说明卡只写「记录存在这台电脑上」→ 加告知 / 移出 Access / 维持 / Phase 20
+- **2026-09-12：用户四项裁决 + 儿子站两个页面 bug**：✅ **A 已执行**——13 个「儿子在爸爸站的测试会话」进 `people/mama/sessions/exclude.txt` 并重摄入，爸爸历史只剩他自己 3 次；✅ **B 用户裁决「不用处理」**（儿子能看到爸爸对话，维持现状，别再提议）；✅ **历史不再依赖 API key**——此前 `settingsComplete()` 挡住渲染，iOS 清掉 localStorage 后整页空白（真实浏览器复现并修复）；✅ **构建期内置 API Key**（`--default-key` / `--default-key-env` / `--default-provider` → `DEFAULT_PROFILE`，只在 `loadSettings` 补空位、**只写默认服务商档位**、不回写 localStorage、拒绝 `--out-name chat/avatar/index.html`（casefold 比较））；两站页面已重建。Codex 三轮 REJECT→ACCEPT（MAJOR 两条：内置 key 会串到别家服务商、保护文件名比较区分大小写）。✅ **铁律 1 按用户指令更新**：审核 = Codex `gpt-5.6-sol` 走 CLI；写码 = DeepSeek `deepseek-flash`（实测 `/models`：账号只有 `deepseek-flash` 与 `deepseek-v4-pro`，**`deepseek-v4.1-flash` 不存在**，`deepseek-v4-flash` 是仍被接受的旧名）
 - **任务 #22 研究（09-02→03，已收口）**：a/ iOS 部署 → `docs/research/ios-app-deployment.md`，**用户裁决 A1 主屏 Web App（加 apple-touch-icon 即可，8A-2b 先行）、A2 壳 App 暂不做、云 GPU NO-GO、立 Phase 13 有声档案（预渲染语音库进 archive_dist）**；b/ 0→1 建档 App 产品化 → `docs/research/build-app-productization.md`，结论="建档工作台"（产出档案、companion 可选；微信取 key 永不可自动、声音需 4090 级、判断力工作只能固化配方或内置 agent；铁律 2 须变功能才可给陌生人），**E1–E6 待用户裁决**
 - **任务 #23（09-06，已完成）**：家人向首次实际使用——用户把对话截图发给爸爸后，把数字人六段回复整段合成（wu 域）发给爸爸；产物在 `people/mama/exports/for_dad_20260906/`（Tier-3 标识，不进 archive_dist）。用户知情自决，非默认放开
 - **副产品线：接入各 IM 平台聊天**（2026-08-29 研究，未开发）：微信四路径全查清（UIA #16 死 / iLink #20 官方但家人向 NO-GO / 服务号需主体 / OCR #21 可行但最脆+欺骗性最强）；**研究裁决=自用低风险 GO，家人向默认 NO-GO**（第三方受众伦理；方向本身仍等用户表态，未写一行接入代码）。依据 docs/research/dsh-im-analysis.md + docs/research/wechat-ocr-automation.md

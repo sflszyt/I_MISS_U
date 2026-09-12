@@ -436,3 +436,12 @@ if (not isinstance(i, Generator)) and len(i) < 0.5 * len(prompt_text):
 - **新 hostname 探测**：建 DNS 前查过一次会被本机负缓存，之后一直「不存在」→ `curl --doh-url` 或 `ipconfig /flushdns`。
 - **Git Bash 传中文 JSON 给原生程序会被转码**（curl 报 400 invalid JSON）→ 用 Python urllib 或 `--data-binary @file`。
 - **爸爸在用时重启隧道**：先看 dad-site / tts 日志最近几分钟有无对话（页面加载不算），再重启；本次 12:53 重启前最后一次对话在 12:40。
+
+## 2026-09-12 教训（儿子站两修 + 模型名实测）
+
+- **档案内容不该被凭据门挡住**：往次对话是档案，却因为 `settingsComplete()` 而在没配 API key 时整页不显示；iOS 清一次 localStorage 就等于「历史全没了」。判据：真实浏览器空 localStorage 打开 → 零条历史；注入设置刷新 → 全出来。凡是「读」的功能，都要问一句它是否被「写/调用」的前置条件绑架。
+- **内置凭据只能落在它自己的档位**：默认 key 若填进「当前激活的服务商」，用户存过别家 key 时就会把 DeepSeek 的 key 发到 Anthropic/自定义端点。这是 Codex 抓的 MAJOR，我在规格里没写死这一点。**凡是自动填凭据，先问「填给谁」。**
+- **Windows 大小写又咬一次**：保护文件名 `chat.html` 的比较是大小写敏感的，`CHAT.HTML` 在 Windows 上指向同一个文件（同类问题 09-11 已在 ingest 里踩过五处）。比较文件名一律 `basename().casefold()`。
+- **Python 字符串里的 `\a`**：写文档时 `'people\\mama\archive_out'` 被解释成 BEL 控制字符，文件里从此多一个不可见字符、路径也断了。修的时候用同样写法又失败一次。**写含 Windows 路径的文本用 `chr(92)` 拼，或用 raw 字符串，写完读回扫一遍 `ord(c) < 32`。**
+- **模型名要按接口实测**：`deepseek-v4.1-flash` 不存在（400），账号 `/models` 只有 `deepseek-flash` 与 `deepseek-v4-pro`；我们一直写的 `deepseek-v4-flash` 是仍被接受的旧名，服务端返回的 model 字段是 `deepseek-flash`。
+- **脚本里收集了错误就要打印**：批量改文档时把失败塞进 `errors` 却没输出，导致一处编辑静默没生效，后面才发现。

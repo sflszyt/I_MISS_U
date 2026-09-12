@@ -1,5 +1,14 @@
 # MVP 生产进度日志
 
+## 2026-09-12 · 裁决 A/B 执行 + 儿子站两个页面 bug + 铁律更新
+
+- **裁决 A（排除儿子的测试会话）**：13 个 father 会话 id 进 `exclude.txt` 并重摄入 → 爸爸历史只剩他自己 3 次，音频 15 个文件；owner 6 个会话不受影响。判据是「爸爸 09-11 12:30 前根本登不进（OTP 未启用）」+ UA（微信 = 爸爸，Chrome-iOS / Windows 桌面 = 儿子）。⚠️ 09-11 23:11 桌面 UA 那个与 09-12 11:27 爸爸站那次仍待用户确认。
+- **裁决 B**：用户明确「不用处理」——儿子能看到爸爸对话，维持现状。
+- **儿子站看不到历史（真实浏览器复现）**：空 localStorage 打开 → 只有配置提示、零条历史；注入设置后刷新 → 整段历史出现。根因是 `updateChatState()`/`maybeReplayHistory()` 双重 `settingsComplete()` 门（且 `confNotice()` 会 `clearChat()`）。改为历史先回放、提示追加在下方；`loadSessionsData()` 末尾改调 `updateChatState()`；配置齐了自动清残留提示。
+- **构建期内置默认 key**：新增 `--default-key` / `--default-key-env` / `--default-provider`，注入 `DEFAULT_PROFILE`，只在 `loadSettings` 补空位。Codex 三轮：REJECT（内置 key 会写进当前服务商档位 → 可能把 DeepSeek key 发到 Anthropic/自定义端点）→ 修 5 条 → REJECT（保护文件名比较区分大小写，Windows 上 `CHAT.HTML` 能绕过）→ 修 → ACCEPT。
+- **验证**：真实浏览器四场景（无 key 有历史 / 有内置 key 开箱可用 / 存了别家 key 时内置 key 不串档位 / 保存后残留提示消失）；命令行负向 8 项；重建两页哈希与线上一致（校验-only 改动）；`archive_dist` 与 git 改动里搜不到 key；全量测试 68 通过。
+- **铁律 1 更新**（用户指令，覆盖 09-10 的「Codex 行保持原文不改」）：Codex `gpt-5.6-sol` 走 CLI；DeepSeek `deepseek-flash`。实测 `/models`：`deepseek-v4.1-flash` 不存在，账号只有 `deepseek-flash` 与 `deepseek-v4-pro`。
+
 ## 2026-09-11 白天 · 儿子站公网入口 + 爸爸首次登录 + 爸爸站改普通话 + 两个真机问题
 
 - **缺语音条（真 iPhone 首测暴露）**：一轮 4 段只摄入第 1 段——`/tts` 写 `simulacrum_audio` 不触发摄入（只有 `/session` 触发，5 s 去抖窗外的后几段要等下次写入；会话最后一轮则永远缺）。DeepSeek 修 `_handle_tts`（append 后 schedule，独立 try/except，先于 `_send_audio`）+ 新测试 `tests/test_tts_server_tts_ingest.py`（真 handler + 真 socket + 假 service；红→绿；按 Codex MINOR 改为 `_send_audio` 入口 spy，变异测试证明能抓「挪到发送之后」）。Codex 两轮 ACCEPT。00:58 只重启 TTS（先杀进程树、确认 8022 释放）。手动补跑摄入修复 yhrod5（1→4 条）。真实流量验证：19:11 一轮 5 段，末段 19:12:02 → 摄入 19:12:08。
