@@ -1,7 +1,41 @@
 # 交接文档（HANDOFF）
 
-> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-09-12：裁决 A/B 执行 + 儿子站两个页面 bug（历史不再依赖 API key / 构建期内置默认 key）+ 铁律 1 改为 Codex CLI 与 deepseek-flash（见 ⓪¹⁷）**。上一版：**2026-09-11 白天：儿子站公网入口 son. 上线 / 爸爸首次登录（Access 验证码此前从未启用）/ 爸爸站改普通话 / 缺语音条修复 / 自启健康检查恒 False 旧 bug（见 ⓪¹⁶）**。上一版：**2026-09-11 凌晨：静态站缓存三层同治 / 502→424 / 会话数据 viewer 隔离 / 刷新后历史回放 + 历史语音条点播，全部部署并验收（见 ⓪¹⁵）**。上一版：2026-09-10 深夜，爸爸站真正上线（隧道 + Worker + L1 + 真机四问题 + TTS 短句幻觉定根，见 ⓪¹⁴）。上一版：2026-09-10，T14-3/T14-4/T14-5 完成，T14 代码层收官（见 ⓪¹³）。上一版：2026-09-09，T14-1/T14-2（token 落盘 + 服务启动编排，见 ⓪¹²）。上一版：2026-09-07，提交前全量刷新：#22 研究 a/b 收口（a 已裁决）+ 8B-10 语音条分条 + 8B-11 起音淡入 + #23 给爸爸六段语音**。最先看 ⓪¹⁷。（09-02 后补：进度全景核对（workflow 六路，输出未落盘）后修文档失真——四项待办移除日期更正为 09-01、⓪⁷/二章/六章过期陈述加标注、下回合列表 09-02 刷新）。
+> 给下一个会话的 Claude（或未来的自己）。最后更新：**2026-09-12 下午：写码通道从 DeepSeek 换成 Opus 子代理（`/deepseek` 与调用脚本已删，铁律 1 同步改写；`DEEPSEEK_API_KEY` 只留聊天用途），见 ⓪¹⁸**。上一版：**2026-09-12：裁决 A/B 执行 + 儿子站两个页面 bug（历史不再依赖 API key / 构建期内置默认 key）+ 铁律 1 改为 Codex CLI 与 deepseek-flash（见 ⓪¹⁷）**。上一版：**2026-09-11 白天：儿子站公网入口 son. 上线 / 爸爸首次登录（Access 验证码此前从未启用）/ 爸爸站改普通话 / 缺语音条修复 / 自启健康检查恒 False 旧 bug（见 ⓪¹⁶）**。上一版：**2026-09-11 凌晨：静态站缓存三层同治 / 502→424 / 会话数据 viewer 隔离 / 刷新后历史回放 + 历史语音条点播，全部部署并验收（见 ⓪¹⁵）**。上一版：2026-09-10 深夜，爸爸站真正上线（隧道 + Worker + L1 + 真机四问题 + TTS 短句幻觉定根，见 ⓪¹⁴）。上一版：2026-09-10，T14-3/T14-4/T14-5 完成，T14 代码层收官（见 ⓪¹³）。上一版：2026-09-09，T14-1/T14-2（token 落盘 + 服务启动编排，见 ⓪¹²）。上一版：2026-09-07，提交前全量刷新：#22 研究 a/b 收口（a 已裁决）+ 8B-10 语音条分条 + 8B-11 起音淡入 + #23 给爸爸六段语音**。最先看 ⓪¹⁸。（09-02 后补：进度全景核对（workflow 六路，输出未落盘）后修文档失真——四项待办移除日期更正为 09-01、⓪⁷/二章/六章过期陈述加标注、下回合列表 09-02 刷新）。
 > 读这份之前先读 `CLAUDE.md`（铁律），再读仓库根的 `task_plan.md` / `progress.md` / `findings.md`（MVP 计划与实时状态）。研究依据在 `docs/research/`。
+
+## ⓪¹⁸ 增补（2026-09-12 下午：写码通道换成 Opus 子代理，最先看这段）
+
+> 一句话：**写代码的不再是 DeepSeek，是 Opus 子代理；审核仍然是 Codex；`/deepseek` 与调用脚本已从仓库删除，不要再提议用它。**
+
+### 1. 现在怎么派活
+
+```
+需求 → Claude（主线程）：计划 + 拆解 + 规格 + 编排
+     → Agent(subagent_type: "coder", prompt: 规格)   # .claude/agents/coder.md，model: opus，独立上下文
+     → Codex：codex exec --model gpt-5.6-sol --sandbox read-only < 稿 > 输出
+     → 未通过带反馈回炉子代理，循环至 ACCEPT → Claude 汇总交付
+```
+
+- 子代理定义在 **`.claude/agents/coder.md`**：`model: opus`，工具 Read/Edit/Write/Bash/Glob/Grep；硬规矩写在里面（`people/*/raw/` 只读、不重启服务、不 git commit、不打印凭据、不扩大范围、不改 CLAUDE.md），并要求它自检（`py_compile` / unittest / PowerShell AST / `node --check`）与如实报告「哪些没验证」。
+- **不要开 `isolation: "worktree"`**：`people/` 是 gitignore 的，独立工作树里没有它，而站点目录、页面、会话数据全在那儿。
+- 主线程仍然**不写业务代码**；文档、部署配置、以及「只改锚点不改内容」的一两行修正除外。
+
+### 2. 为什么换（用户 2026-09-12 拍板）
+
+- DeepSeek 改 2000 行以上的文件会漂移：为此发明了「只出 OLD/NEW 替换对 + 脚本强制唯一匹配」的工艺，规格还得附整份源码（当天一个规格 107 KB），而且它当天照样臆造过一次锚点。
+- Opus 子代理自己读文件、精确改、当场跑测试，规格更短、轮次更少。
+- **代价**：烧的是用户自己的 Claude 额度（DeepSeek 是另外计费的便宜通道），用户知情后仍选它。
+- **风险**：写码的和派活的同属一个模型家族，盲区相关。**Codex 那道独立关口因此成为承重墙**——当天它抓出的两个 MAJOR（内置 key 会串到别家服务商、保护文件名比较区分大小写）就是明证。
+
+### 3. 删了什么、留了什么
+
+| | 状态 |
+|---|---|
+| `.claude/skills/deepseek/`、`scripts/deepseek.ps1`、`scripts/deepseek_call.py` | **已删**（git 历史可查） |
+| `scripts/apply_patch_pairs.py` | 保留（通用工具，不再是主线工艺） |
+| `DEEPSEEK_API_KEY` 环境变量 | **保留，但只用于聊天**：爸爸站 `llm_proxy --key-env`、儿子站页面构建期 `--default-key-env` |
+| 儿子站页面里内置的 key、爸爸站代理持有的 key | **保留**（用户明确要求不动） |
+| progress / findings / research / status 里的 DeepSeek 记载 | 保留（历史记录，不改） |
 
 ## ⓪¹⁷ 增补（2026-09-12：裁决 A/B + 儿子站两修 + 铁律更新，最先看这段）
 
@@ -103,8 +137,8 @@
 2. **tts 启动参数带 `--sessions-out-dir …/sessions_data --sessions-per-viewer-subdir`**（`start_services.ps1` 已带）。**改了 `ingest_sessions.py` 必须真重启 tts**——摄入调度器在进程内；「再跑一次启动脚本」≠ 重启（它会跳过健康进程）。
 3. **Windows 大小写是本轮最大的坑**：`Path` 比较不区分大小写，字符串集合、哈希、正则都区分；两者混用处必分叉（Codex 抓了五处），统一 `os.path.normcase`。
 4. **给导航请求加 init 的 fetch 会把 `mode: navigate` 降级**，破坏 Cloudflare Access 的 302 透传——爸爸会登不进站（见记忆 fetch-init-breaks-navigate）。
-5. **审核通道变了**：codex 0.154.0 **移除了 `mcp-server`**，`mcp__codex__codex` 已不可用，Claude Code 里的 codex MCP 配置已删。审核走 `codex exec --model gpt-5.6-sol --sandbox read-only < 稿 > 输出`（用户嫌 astra 用量重；每次独立会话，稿子自包含，输出存文件再 grep 结论）。**CLAUDE.md 铁律 1 那一行按用户要求保持原文。** Surfshark 会拦 Codex 的 WebSocket（伪装成 404），Bypasser 要加 `node.exe`。
-6. **DeepSeek 改大文件用替换对**：只让它输出 `<<<OLD>>>/<<<NEW>>>/<<<END>>>`，脚本逐对强制唯一匹配后应用（本会话的脚本在 scratchpad，已随会话消失；需要时照 `.claude/skills/deepseek/SKILL.md` 的说明让 DeepSeek 重写一个）。它会臆造多行函数签名的锚点；大规格给 64000 tokens；Git Bash 传 `/v1/...` 类参数要 `MSYS_NO_PATHCONV=1`。
+5. **审核通道变了**：codex 0.154.0 **移除了 `mcp-server`**，`mcp__codex__codex` 已不可用，Claude Code 里的 codex MCP 配置已删。审核走 `codex exec --model gpt-5.6-sol --sandbox read-only < 稿 > 输出`（用户嫌 astra 用量重；每次独立会话，稿子自包含，输出存文件再 grep 结论）。**（2026-09-12 更新：用户已要求把铁律 1 改成写实——审核 Codex `gpt-5.6-sol` 走 CLI；写码改为 Opus 子代理。）** Surfshark 会拦 Codex 的 WebSocket（伪装成 404），Bypasser 要加 `node.exe`。
+6. **写码通道已换（2026-09-12）**：DeepSeek 与 `/deepseek` skill 已删除，改由 Opus 子代理 `.claude/agents/coder.md` 写代码（`Agent(subagent_type: "coder", prompt: 规格)`，独立上下文，自己读改文件并自检）。`scripts/apply_patch_pairs.py` 保留但不再是主线工艺。**别再提议用 DeepSeek。**
 
 ### 3. 待办（按优先级）
 
@@ -519,7 +553,7 @@ scripts\start_services.ps1 -SkipTunnel    不碰隧道（本地测试用）
    - 部署形态倾向 repo+CLI 而非 WebUI（tools/asr/funasr_asr.py、两阶段训练脚本均可命令行调用，利于管道化；整合包 GPT-SoVITS-v2pro-20250604 可作环境底座）
    - **首个待决问题=转写策略**：她 160 条语料的转写是上海话本字，GPT-SoVITS 无吴语 G2P——普通话域训练用"普通话近似转写"（报告口径：模型自学说话人发音习惯，口音自然带出）还是筛选她偏普通话的条目子集，需小实验定夺
    - 粤语域=验证管道的跨语言能力（微调她音色后合成 'yue' 文本），她本人无粤语素材，属产品能力验证而非她的档案需求
-   - 铁律不变：管道代码 DeepSeek 写 + Codex 审；产出 A/B 对照现役 e14 普通话域（裸文本），盲听是唯一标准
+   - 铁律不变：管道代码由 coder 子代理写 + Codex 审（2026-09-12 前为 DeepSeek）；产出 A/B 对照现役 e14 普通话域（裸文本），盲听是唯一标准
    - 现成资产复用：processed/wechat_voice 125 条 WAV、99 条 corrected 转写、prep_v02 的 160 条清单（wu-sft/v02_full/data）；GPU 任务守 Start-Process 脱钩+Monitor 红线
 4. 抽卡预警（研究实锤，开工时心里有数）：GPT-SoVITS 产出稳定性是其最大短板（"抽卡"是社区黑话），逐条筛选负担可能高于现役——管道里应内建 ASR 回读 CER 自动淘汰 + 人工尾筛，把抽卡降级为自动重试
 
@@ -632,7 +666,7 @@ scripts\start_services.ps1 -SkipTunnel    不碰隧道（本地测试用）
 - `schema/uif.schema.json` + README（4 类记录：message/post/email/media_item；信封含 viewpoint/tier/provenance）
 - `docs/research/wechat-export.md` · `docs/research/form-factor.md`
 - `tools/ingest_media.py`（媒体清点+EXIF+报告）· `tools/silk_decode.py`（备用）· `tools/backup_check.py`（备份审计）
-- `scripts/deepseek_call.py`（流式调用器，唯一可靠通道）
+- ~~`scripts/deepseek_call.py`（流式调用器）~~ 2026-09-12 已删；写码改用 Opus 子代理 `.claude/agents/coder.md`
 
 ## 四、下一步（按序）
 
@@ -641,7 +675,7 @@ scripts\start_services.ps1 -SkipTunnel    不碰隧道（本地测试用）
 - 语音 84/85、视频 13/25 已验证可提取（真实 60s 语音样本已解码到 `~/ck-decrypted/sample_mama_voice.wav`）
 - 解密环境：key 在 `~/ck-data/secrets/`，db 镜像(已删shm)在 `~/ck-mirror`，明文库在 `~/ck-decrypted`，pysilk-mod 已装进 venv
 
-**待建（DeepSeek 写 + Codex 审）**：
+**待建（coder 子代理写 + Codex 审；2026-09-12 前为 DeepSeek）**：
 1. ~~`tools/extract_wechat_voice.py`（#11）~~ ✅ **已完成（2026-08-05，DeepSeek 两轮 + Codex 两轮审核 ACCEPT）**：实跑 5 会话共提取 **125 条 WAV（妈妈 99 条，总时长约 55 分钟）**，仅 1 条缺 blob（2021-12-22 一条，VoiceInfo 无行），0 解码失败 0 警告。产物：`processed/wechat_voice/<room>/` + `normalized/wechat_voice_manifest.jsonl`（UIF media_item，schema 校验通过，含 svr_id/chat_room/create_time_epoch/sender_wxid 关联键）+ `wechat_voice_report.md`。**运行须用 chatlog-keeper venv 的 python**（pysilk 在那里）：`installers\chatlog-keeper-0.2.0\.venv\Scripts\python.exe tools\extract_wechat_voice.py --person mama --db-dir ~\ck-decrypted`。原探测记录：sender 归属 = `Msg.real_sender_id` → 同 db `Name2Id` 表 rowid → wxid；Msg_<md5(room)> 分片散布在 message_0~6；VoiceInfo 在 media_0（3151 行全账号）+ media_1（1 行），列序 chat_name_id/create_time/local_id/svr_id/voice_data/data_index
 2. ~~`tools/collect_wechat_video.py`（#12）~~ ✅ **已完成（2026-08-05，DeepSeek 三轮 + Codex 两轮 ACCEPT + 热修复确认）**：5 会话 540 条视频消息，**215 个 mp4 在本地并已采集入 `raw/wechat/video/<年-月>/`（1.91 GB，妈妈发的 9 个）**，其余 325 个未下载/CDN 过期。manifest `normalized/wechat_video_manifest.jsonl`（UIF media_item，schema 全过）。要点：raw 只新增不变量用 staging+os.link 硬链接原子落盘实现；微信源 mp4 带 ReadOnly 属性，staging 清理需 _force_unlink（chmod 后删）。运行：`python tools\collect_wechat_video.py --person mama --db-dir ~\ck-decrypted --video-dir ~\xwechat_files`
 3. ~~`tools/parse_wechat.py`（#13）~~ ✅ **已完成（2026-08-05，DeepSeek 两轮 + Codex 三轮审核 ACCEPT）**：已产出 `people/mama/normalized/wechat_messages.uif.jsonl`（20923 条，妈妈 9386 条，jsonschema 全量校验通过，report 见同目录）。配置在 `people/mama/wechat_parse_config.json`（gitignore 内，重建时需按下述规格重写）。媒体 ref 由 #11/#12 后续按 chat_room+ts+sender_wxid 关联合并。**筛选规格（2026-08-05 核实后扩充，勿退回旧版）**：①一对一会话 `chat_room=laurawang001` 整段收录（6968 条，妈妈发 5048）；②**群聊补抓**——妈妈在 4 个群发过 4338 条（全部文字）：家庭群 `17586423176@chatroom`（她 3622/群 6981，成员仅她+justin+爸爸）、`25722082802@chatroom`（430）、`5030199976@chatroom`（147）、`3758229935@chatroom`（139），这些群的完整对话（含他人发言作为前后文）一并收录；③UIF 中 `chat_room` 区分语境（私聊/家庭群/亲友群），他人消息 sender 必须清晰标注，不得与妈妈本人的话混入 persona 语料
@@ -649,7 +683,7 @@ scripts\start_services.ps1 -SkipTunnel    不碰隧道（本地测试用）
    - **新立项（2026-08-05，用户拍板）——数据源扩展**：
      - **微博（#14，⚠️ 编号后被 08-18 GPT-SoVITS 泛化管道任务 #14 复用，引用时称"微博适配器"）**：两部分素材——①她自己微博账号的全部内容；②**用户（justin）微博下她的评论/回复**。适配器 `tools/parse_weibo.py` 输出 UIF post 记录（schema 已支持 author/comments）。前置：素材获取方式待研究（她的账号官方导出是否可行/网页存档抓取；justin 自己的微博可官方导出后筛她的评论），先由用户收集 raw → `people/mama/raw/weibo/`
      - **微信朋友圈（#15）**：她的朋友圈（含 justin 可见的点赞/评论互动）。适配器 `tools/parse_moments.py` 输出 UIF post 记录（source=wechat_moments）。前置：朋友圈数据在手机端，导出方式待研究（微信自带"个人信息导出"里朋友圈部分/手机备份工具），先由用户收集 raw → `people/mama/raw/moments/`
-     - 两者共同点：先解决**素材到手**，adapter 都是纯解析（模式同 #13，DeepSeek 写 + Codex 审）
+     - 两者共同点：先解决**素材到手**，adapter 都是纯解析（模式同 #13，coder 子代理写 + Codex 审）
 5. **M1 语音验证（进行中，2026-08-05 启动）**：
    - ✅ 素材普查：妈妈 99 条语音中 61 条 ≥15s（爱发 60s 长语音），参考素材充足
    - ✅ 候选试听：5 条最连续长语音切 18s 窗口发用户试听，**用户确认"音质可以"**（SILK 窄带可作克隆基底）
@@ -674,8 +708,8 @@ scripts\start_services.ps1 -SkipTunnel    不碰隧道（本地测试用）
 
 ## 五、工程注意事项（血泪教训，别再踩）
 
-- **DeepSeek 调用**：只用 `python scripts/deepseek_call.py <spec> <out> 32000`。非流式会被网络掐断；<32k tokens 会被推理烧光正文；生成后 strip markdown 围栏 + `py_compile`；`scripts/deepseek.ps1` 勿用于含中文的文件（PS 5.1 响应解码乱码）
-- **DEEPSEEK_API_KEY** 在用户级环境变量（Bash 工具进程可能不继承，可作第 4 参数传入）。⚠️ key 曾在对话明文出现，已提醒用户轮换
+- **写码**：派 `Agent(subagent_type: "coder", prompt: 规格)`（Opus 子代理，独立上下文，自己跑 `py_compile`/测试）。DeepSeek 通道 2026-09-12 已删除，勿再使用。
+- **DEEPSEEK_API_KEY**（用户级环境变量）**只用于聊天**：爸爸站 `llm_proxy --key-env DEEPSEEK_API_KEY`、儿子站页面构建期 `--default-key-env DEEPSEEK_API_KEY`；开发通道已不再使用它。⚠️ key 曾在对话里明文出现过，若要轮换：改环境变量 → 重建儿子站两个页面 → 重启 llm-proxy。
 - **pilk**（silk_decode 依赖）在 Python 3.13 无 wheel——不阻塞（主路径 chatlog 直出 MP3），真需要时装 VS Build Tools 或用 py3.11
 - **控制台中文乱码**是 GBK 代码页显示问题，文件都是 UTF-8，勿在脚本里强改 stdout 编码（Codex 建议保持现状）
 - 审核循环战绩参考：Codex 第一轮抓过 3 个 blocker（--person 路径注入写 raw/），修复模式是 slug 正则 + resolve() 锚定校验——新工具写 spec 时直接把这两条要求写进去

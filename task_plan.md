@@ -165,7 +165,7 @@
 - ✅ 内部盘点 3 路（workflow：companion 运行时依赖 15 项 / 0→1 管线人机分工 33 项 / 伦理约束 39 项，09-02）；外部扫描 7 路因账号限额失败 → 用户指令"一个一个来"，改由主模型逐条补查
 - ✅ **a 收口（09-02）→ `docs/research/ios-app-deployment.md`**：结论=A1 主屏 Web App（iOS 26 默认作为 Web App 打开，只需加 apple-touch-icon；http 无 secure-context 需求；ttsBase 取 location.protocol 故 tailscale serve https 零改动）推荐；A2 WKWebView 壳技术可行但收益全在 6.2 ③ 禁区、不推荐；她的声音出不了 4090（端侧运行时只跑官方 CosyVoice3/Qwen3-TTS 检查点，SFT .pt 无运行时）；A5 云 GPU 铁律 3.2 NO-GO；建议另立 A3′ 有声档案（预渲染语音库进 archive_dist）；前提 8A-2b 先上。待裁决 D1–D5
 - ✅ **a 用户裁决（2026-09-03）**：D1 接受 A1 + 同意 8A-2b 先行；D2 https 跳过；D3 A3′ 有声档案立项（→ Phase 13）；D4 A2 壳先不做、看 A1 效果；D5 PC 常开、服务手动拉起
-- ⬜ A1 实施（排在 8A-2b 之后）：build_companion_page.py 加 apple-touch-icon（avatar 静帧）→ DeepSeek 写 / Codex 审 → 真机添加到主屏幕、首次重输 key → 并入 8B-4 验收
+- ⬜ A1 实施（排在 8A-2b 之后）：build_companion_page.py 加 apple-touch-icon（avatar 静帧）→ coder 子代理写 / Codex 审 → 真机添加到主屏幕、首次重输 key → 并入 8B-4 验收
 - ✅ **b 收口（09-03）→ `docs/research/build-app-productization.md`**：结论="产出 companion 的自动化 App"改为"产出档案的建档工作台"（B1 向导式，预留 B2 agent 工作台，B3 云端 NO-GO）；确定性步骤可 GUI 封装、七道闸门是产品本体不可压缩；三条硬边界=微信取 key 永不可自动（用户自带导出件）/ 她的声音需 4090 级（GPU 分档、不提供云 TTS）/ Claude 承担的判断力工作只能"固化配方+失败即止"或内置 agent；给陌生人的前提=铁律 2 从文档变功能（§4 表，8A-2b 超集）；分期 P0 债清偿→P1 MVP→P2 判断力层→P3 打包，工程量推断 5–10× 妈妈档 12 天。待裁决 E1–E6
 - ⬜ 用户裁决 E1–E6
 
@@ -429,6 +429,7 @@
 - 2026-09-11 提出、2026-09-12 用户裁决：**A = 排除**（13 个会话已进 `exclude.txt` 并重摄入）；**B = 不用处理**（儿子能看到爸爸对话，维持现状）
 - 2026-09-12 用户指令：**更新 CLAUDE.md 铁律 1**（覆盖 09-10「Codex 行保持原文不改」）——审核 Codex `gpt-5.6-sol` 走 CLI，写码 DeepSeek `deepseek-flash`；并要求实测 `deepseek-v4.1-flash`（结论：不存在）
 - 2026-09-12 用户要求：所有站「API key 填过一次就存住」→ 实现为构建期内置默认 key（key 明文进 HTML，用户知情）
+- 2026-09-12 用户裁决：**写码通道换成 Opus 子代理**（`.claude/agents/coder.md`），`/deepseek` skill 与调用脚本删除、不保留为备选；审核仍为 Codex CLI。`DEEPSEEK_API_KEY` 只留聊天用途（llm_proxy + 儿子站页面内置 key）
 
 ## Errors Encountered
 | Error | Attempt | Resolution |

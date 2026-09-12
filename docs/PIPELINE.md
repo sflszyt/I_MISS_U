@@ -27,7 +27,7 @@
 2. **Tier 分级 + 人工闸门**：Tier-1 家人确认 / Tier-2 可溯源 / Tier-3 模型生成禁作事实；AI 新学到的一切默认 Tier-3。
 3. **raw/ 神圣不可侵犯**：只读、永不修改、gitignore、永不出机；一切处理输出到新目录。
 
-**工程方法论（三模型分工）**：Claude 统筹/规格/验收编排，DeepSeek V4 Flash 写实质代码（`scripts/deepseek_call.py`，必带 `DEEPSEEK_NOTHINK=1`，≥32k tokens，大规格 64000；大文件只让它输出 OLD/NEW 替换对、脚本强制唯一匹配后应用），Codex 审核验收（REJECT 回炉至 ACCEPT；codex 0.154.0 起 MCP 不可用，经 CLI `codex exec --model gpt-5.6-sol --sandbox read-only`，稿子自包含、输出存文件）。Claude 直写仅限：一次性探针、声明的 1-3 行 hotfix、纯数据拼装、判断类文书——每次须声明。
+**工程方法论（三模型分工）**：Claude 统筹/规格/验收编排；**Opus 子代理写实质代码**（`.claude/agents/coder.md`，独立上下文，自己读改文件并跑编译/测试）；Codex 审核验收（REJECT 回炉至 ACCEPT；codex 0.154.0 起 MCP 不可用，走 CLI `codex exec --model gpt-5.6-sol --sandbox read-only`）。**DeepSeek 通道 2026-09-12 已停用**（skill 与调用脚本已删；`DEEPSEEK_API_KEY` 只留给聊天：llm_proxy 与儿子站页面内置 key）。
 
 ---
 
@@ -259,7 +259,7 @@ python tools\collect_wechat_video.py --person mama --db-dir ~\ck-decrypted --vid
 
 **审核工艺**：①Codex 对 CJK 文件的"语法错误"指控一律先 py_compile/json.load/node 实证（累计 6 次误报）②给 Codex 的复审 prompt 明确"跑命令验证勿目测"③**审核方自己的破坏性实验会污染共享测试环境**——复现缺陷必须干净连接/干净状态（TTS 分帧攻击污染 keep-alive 导致误判 BLOCKER 一案）④同文件三轮回炉失败即停，换外科 hotfix（三振协议）⑤共享契约的成对工具必须联审。
 
-**DeepSeek 管线**：流式调用器唯一可靠（非流式被网络掐）；`DEEPSEEK_NOTHINK=1` 必带（推理烧光正文）；≥32k tokens；产物剥围栏（可能带前导解说，按 shebang/编码行定位真起点）+ py_compile；修改既有文件=嵌全文出全文+git diff 逐 hunk 核对改动面。
+**DeepSeek 管线（2026-09-12 已停用，仅作存档）**：曾用 `scripts/deepseek_call.py` 流式调用（已删）；`DEEPSEEK_NOTHINK=1` 必带、≥32k tokens、产物剥围栏、大文件只出 OLD/NEW 替换对（应用工具 `scripts/apply_patch_pairs.py` 保留，但不再是主线工艺）。现在写码走 Opus 子代理。
 
 **Windows 特有**：PS 5.1 内联 python -c 引号/&& 必炸（写脚本文件跑）；Set-Content BOM 坑；`Get-ChildItem -Filter` 不支持字符类；服务/SYSTEM 进程操作需真提权（本机 UAC 静默提权 ConsentPromptBehaviorAdmin=0）；长时 GPU 任务 Start-Process 脱钩（见 5.3）。
 
@@ -303,7 +303,7 @@ python tools\collect_wechat_video.py --person mama --db-dir ~\ck-decrypted --vid
 
 ### 12.4 建议推进顺序
 
-1. **还泛化债**（上表前两行：配置化 + 语音脚本收编）——纯工程，DeepSeek+Codex 流水线
+1. **还泛化债**（上表前两行：配置化 + 语音脚本收编）——纯工程，coder 子代理 + Codex 流水线
 2. **写 SKILL.md v0**：把本文档的 Stage/闸门流程转成 skill 指令（判断类，Claude 写）
 3. **第二人物实战验证**：用一个新 slug（哪怕小数据集）从头走一遍 skill，暴露隐藏的 mama 特化
 4. 数据源与语言扩展按需求排期

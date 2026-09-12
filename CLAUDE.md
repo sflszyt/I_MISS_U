@@ -17,23 +17,24 @@
 | 角色 | 模型 | 接入方式 | 职责 |
 |------|------|----------|------|
 | **主模型 / 指挥官** | Claude（当前会话模型） | 原生 | 计划、统筹、编排 agents、拆解任务、决策、最终把关 |
-| **代码执行** | DeepSeek `deepseek-flash` | API（`scripts/deepseek_call.py`） | 负责实际写代码（实现、修改、生成） |
+| **代码执行** | Claude Opus 5 子代理 | Agent 工具（`.claude/agents/coder.md`，独立上下文） | 负责实际写代码（实现、修改、生成、写测试） |
 | **审核验收** | Codex `gpt-5.6-sol` | CLI（`codex exec`） | 负责代码审核（review）与验收（acceptance） |
 
 1. **Claude 作为主模型**：理解需求、制定计划、编排工作流、分派任务、对最终结果负责。不亲自大批量写业务代码。
-2. **DeepSeek 负责写代码**：所有实质性代码编写通过 `/deepseek` skill（`scripts/deepseek.ps1`）交给 DeepSeek。Claude 提供清晰的规格与验收标准。
-3. **Codex 负责审核验收**：DeepSeek 产出必须经 Codex（CLI，见下）审查验收后才算完成。不通过则带反馈回炉 DeepSeek，循环至通过。
+2. **Opus 子代理负责写代码**：所有实质性代码编写用 `Agent(subagent_type: "coder", prompt: 规格)` 派给 `.claude/agents/coder.md`（`model: opus`）。它有独立上下文，自己读文件、改文件、跑编译与测试。Claude 提供清晰的规格与验收标准，**不亲自写业务代码**（例外：文档、部署配置，以及只改锚点不改内容的一两行修正）。
+3. **Codex 负责审核验收**：子代理产出必须经 Codex（CLI，见下）审查验收后才算完成。不通过则带反馈回炉子代理，循环至通过。**写码的和派活的同属一个模型家族、盲区相关，Codex 这道独立关口是承重墙，任何情况下不得跳过。**
 
 ### 接入信息（已验证）
 
-- **DeepSeek**：环境变量 `DEEPSEEK_API_KEY`（用户级，勿写进任何项目文件）；端点 `https://api.deepseek.com/chat/completions`（OpenAI 兼容）。**模型（2026-09-12 实测 `/models` 确认，账号可用只有两个）：`deepseek-flash`（写代码；旧名 `deepseek-v4-flash` 仍被接受，服务端返回的 model 字段就是 `deepseek-flash`）、`deepseek-v4-pro`（更难的任务）。`deepseek-v4.1-flash` 不存在，调用直接 400。** 推理模型，`max_tokens` 必须给足（≥8000；大文件规格给 64000）。调用：`python scripts/deepseek_call.py <规格> <输出> <max_tokens>`。
+- **写码子代理**：定义在 `.claude/agents/coder.md`（`model: opus`；工具 Read/Edit/Write/Bash/Glob/Grep）。派发：`Agent(subagent_type: "coder", prompt: 规格)`。**不要开 `isolation: "worktree"`**——`people/` 是 gitignore 的，独立工作树里根本没有它，而站点、页面、会话数据全在那儿。规格要点名文件路径与验收标准；子代理必须自检（`py_compile` / unittest / PowerShell AST / `node --check`），HTTP 与页面类改动要真起服务或真开浏览器。
+- **DeepSeek 通道已停用（2026-09-12 用户裁决）**：`/deepseek` skill 与 `scripts/deepseek.ps1`、`scripts/deepseek_call.py` 已删除，**不要再提议用它写代码或作备选**。`DEEPSEEK_API_KEY`（用户级环境变量）**只保留聊天用途**：爸爸站 `tools/llm_proxy.py --key-env DEEPSEEK_API_KEY`，儿子站页面构建期 `--default-key-env DEEPSEEK_API_KEY`。
 - **Codex**：**走 CLI**——codex-cli 0.154.0 起不再提供 MCP 服务器，`mcp__codex__codex` 已不可用。命令：`codex exec --model gpt-5.6-sol --sandbox read-only < 审核稿.txt > 输出.txt`。每次都是独立会话，审核稿必须自包含；输出完整存文件后再 grep 结论（别用 tail 截）。
 
 ### 标准工作流
 
 ```
-需求 → Claude：计划+拆解+编排 → DeepSeek：按规格写代码
-     → Codex：审核+验收 → 未通过回炉 DeepSeek，循环至通过 → Claude：汇总交付
+需求 → Claude：计划+拆解+编排 → coder 子代理（Opus）：按规格写代码 + 自检
+     → Codex：审核+验收 → 未通过回炉子代理，循环至通过 → Claude：汇总交付
 ```
 
 ---
@@ -72,7 +73,7 @@ I_MISS_U/
 ├── tools/             # 通用工具（parser、修复链、TTS 批处理、档案生成）
 ├── prompts/           # 通用模板（关系层参数化：亲子/祖孙/伴侣/挚友…）
 ├── docs/research/     # 研究报告
-├── scripts/           # deepseek.ps1 等基础设施
+├── scripts/           # start_services.ps1 / register_startup_task.ps1 等基础设施
 └── people/<slug>/     # 每人一份档案（gitignore）
     ├── raw/           # 只读原始素材，按来源分子目录（wechat/photos/videos/weibo/email）
     ├── normalized/    # parser 输出的统一中间格式（JSONL）

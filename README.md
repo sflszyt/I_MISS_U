@@ -47,7 +47,7 @@ StoryFile 破产时，用户为逝者录制的对话视频躺在待拍卖的服�
 
 ## 开发铁律
 
-Claude 编排 · DeepSeek V4 Flash 写码 · Codex GPT-5.6 审核验收。`people/*/raw/` 只读；`people/` 永不进版本库。详见 `CLAUDE.md`。
+Claude 编排 · Opus 子代理写码（`.claude/agents/coder.md`）· Codex `gpt-5.6-sol` 审核验收（CLI）。`people/*/raw/` 只读；`people/` 永不进版本库。详见 `CLAUDE.md`。
 
 ## 里程碑（2026-09-11 更新）
 

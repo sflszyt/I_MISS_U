@@ -1,5 +1,14 @@
 # MVP 生产进度日志
 
+## 2026-09-12 下午 · 写码通道换成 Opus 子代理，DeepSeek 通道删除
+
+- **用户裁决**：写代码从 DeepSeek 换成 Claude Opus 5 子代理，与主线程独立；**不保留 `/deepseek` 作为备选**；审核仍由 Codex 完成；并要求清掉项目开发代码里对 DeepSeek key 的使用（爸爸站与儿子站聊天用的 key 保留）。
+- **新增** `.claude/agents/coder.md`（`model: opus`，工具 Read/Edit/Write/Bash/Glob/Grep）：硬规矩（`raw/` 只读、不重启服务、不 git commit、不打印凭据、不扩大范围、不改 CLAUDE.md）+ 自检要求（py_compile / unittest / PowerShell AST / node --check）+ 报告格式（含「哪些没验证」）。
+- **删除** `.claude/skills/deepseek/SKILL.md`、`scripts/deepseek.ps1`、`scripts/deepseek_call.py`——这三个是项目里仅有的、为开发用途读 `DEEPSEEK_API_KEY` 的地方。保留 `scripts/apply_patch_pairs.py`（通用工具）。
+- **保留聊天用途的 key**：`tools/llm_proxy.py --key-env DEEPSEEK_API_KEY`（爸爸站）、儿子站页面构建期 `--default-key-env DEEPSEEK_API_KEY`、`start_services.ps1` 的代理参数，一处未动。实测被跟踪文件里没有任何硬编码的 `sk-` 凭据。
+- **铁律 1 与文档同步改写**：CLAUDE.md（分工表、三条说明、接入信息、标准工作流、架构树注释）、README、PIPELINE、HANDOFF（⓪¹⁸ + 三处面向未来的说明）、task_plan（决策记录 + 未完成项）。历史流水不改。
+- **记忆**：新建「写码分工（现役）」，删除 4 条只服务于 DeepSeek 通道的旧记忆（管道教训 / 分工执行 / 全文回显 / 替换对工作流），索引同步。
+
 ## 2026-09-12 · 裁决 A/B 执行 + 儿子站两个页面 bug + 铁律更新
 
 - **裁决 A（排除儿子的测试会话）**：13 个 father 会话 id 进 `exclude.txt` 并重摄入 → 爸爸历史只剩他自己 3 次，音频 15 个文件；owner 6 个会话不受影响。判据是「爸爸 09-11 12:30 前根本登不进（OTP 未启用）」+ UA（微信 = 爸爸，Chrome-iOS / Windows 桌面 = 儿子）。⚠️ 09-11 23:11 桌面 UA 那个与 09-12 11:27 爸爸站那次仍待用户确认。
