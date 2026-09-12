@@ -342,7 +342,7 @@
 - 09-11 起儿子另有公网入口 son.（独立 Access 应用，见 Phase 23），测试应走 son 站
 - ✅ **裁决 A 已执行（09-12）**：13 个儿子测试会话进 `exclude.txt` 并重摄入，爸爸历史只剩他自己 3 次
 - ✅ **裁决 B：用户明确「不用处理」**——儿子能看到爸爸对话，维持现状（不加告知、不移邮箱、不做按人隔离）。**别再提议**
-- ⚠️ 待用户确认：09-11 23:11（Windows 桌面 UA，已按儿子排除）与 09-12 11:27 爸爸站那次（整场带 `exclude`，不会进记忆）
+- ✅ 2026-09-12 用户确认无误：09-11 23:11（Windows 桌面 UA）与 09-12 11:27 爸爸站那次的归属判断都对，排除结果保持
 
 ### Phase 21：部署层站点清单（2026-09-10 用户立项）— status: **待设计**
 
@@ -369,13 +369,13 @@
 - ✅ Access 应用「son」（用户建，只放机主邮箱）→ ✅ DNS + 未登录全路径 302 → ✅ `people/mama_for_owner/site/` → ✅ `son-public` :8024（`start_services.ps1`，Codex REJECT→ACCEPT）→ ✅ ingress 2 条 → ✅ 隧道重启（09-11 12:53）
 - ✅ 顺带：`register_startup_task.ps1` 兜底健康检查恒为 False 的旧 bug
 - ✅ 用户手机实测（09-12）：登录通；发现「看不到任何历史」与「每站都要重填 key」两个问题 → 均已修（历史不再依赖 API key；构建期内置默认 key，Codex 三轮 ACCEPT）
-- ⬜ 修完后的手机复测（不配 key 应能看到历史并直接发消息）
+- ✅ 修完后的手机复测（2026-09-12 用户确认：不配 key 就能看到历史、可直接发消息）
 - 设计 `docs/superpowers/specs/2026-09-11-son-public-site-design.md`；运维 `docs/ops-son-public-site.md`
 
-### Phase 24：历史回放真机问题（2026-09-11 真 iPhone 首测）— status: **缺语音条 ✅ 已修；点击无声 研究完成、待判别测试**
+### Phase 24：历史回放真机问题（2026-09-11 真 iPhone 首测）— status: **缺语音条 ✅ 已修；点击无声 2026-09-12 用户复测报正常**
 
 - ✅ 缺语音条：`/tts` 写音频记录也触发摄入（Codex 两轮 ACCEPT，真实流量验证）
-- ⏳ 点击无声：设备实为 iOS Chrome（WKWebView）；H1 脸的 AudioContext 卡住 vs H2 WAV-Blob；判别 = 关标签重开、第一下点历史条
+- ✅ 点击无声：2026-09-12 用户复测「没问题」。⚠️ **未区分是哪一种**——若当时是「关掉标签重开后才出声」，那就是 H1（跨刷新粘连的 AudioContext），**问题会复发**；下次再遇到直接按 H1 修（每次播放前按状态 resume、假 running 时 suspend+resume、切后台主动挂起），不必再做判别
 - 修法方向：H1 = 每次播放前按状态 resume、假 running 时 suspend+resume、切后台主动挂起，根治 = 声音不经 Web Audio（`<audio>` 直出 + 预算音量包络驱动口型）；H2 = 历史音频出 MP3 副本 + `replayBar` 失败不再静默复位
 
 ### Phase 17：VoiceStudio 能否取代本地 TTS（2026-09-08 用户立项）— status: **research complete**（09-08 收口）

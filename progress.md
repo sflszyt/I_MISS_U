@@ -8,6 +8,8 @@
 - **保留聊天用途的 key**：`tools/llm_proxy.py --key-env DEEPSEEK_API_KEY`（爸爸站）、儿子站页面构建期 `--default-key-env DEEPSEEK_API_KEY`、`start_services.ps1` 的代理参数，一处未动。实测被跟踪文件里没有任何硬编码的 `sk-` 凭据。
 - **铁律 1 与文档同步改写**：CLAUDE.md（分工表、三条说明、接入信息、标准工作流、架构树注释）、README、PIPELINE、HANDOFF（⓪¹⁸ + 三处面向未来的说明）、task_plan（决策记录 + 未完成项）。历史流水不改。
 - **记忆**：新建「写码分工（现役）」，删除 4 条只服务于 DeepSeek 通道的旧记忆（管道教训 / 分工执行 / 全文回显 / 替换对工作流），索引同步。
+- **子代理实测两点**：新建的 `coder` 在当前会话不生效（报 Agent type not found，定义在会话启动时加载），当场用 `claude` + `model: opus` 让它先读 coder.md 的替代路径实测通过；它报的行数不准（`tts_server.py` 报 648，实际 718），可核事实主线程要自己量。
+- **用户收尾复测三项全过**：儿子站不配 key 可见历史并可发消息；历史语音条「没问题」（未区分 H1/H2，若复发按 H1 修）；两次会话归属判断无误。
 
 ## 2026-09-12 · 裁决 A/B 执行 + 儿子站两个页面 bug + 铁律更新
 
