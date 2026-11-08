@@ -1442,7 +1442,7 @@ def encode_mp3(wav_path: Path, bitrate: int) -> bytes:
     except ImportError as e:
         print("Error: preview mode requires soundfile, lameenc, and numpy.")
         print("Please run with a python that has these libs, e.g.:")
-        print("  C:\\Users\\justin\\venvs\\cosyvoice\\Scripts\\python.exe tools\\build_avatar_page.py --preview N")
+        print("  python tools/build_avatar_page.py --preview N")
         sys.exit(1)
     
     try:

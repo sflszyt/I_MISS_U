@@ -101,6 +101,14 @@ def build_memories(candidates: list[dict], person: str) -> dict:
     """Build the memories.json top-level object from confirmed candidates."""
     entries = []
     for cand in candidates:
+        if cand.get('schema_version') == 2:
+            try:
+                from .memory_evidence import validate_candidate, decision_is_current
+            except ImportError:
+                from memory_evidence import validate_candidate, decision_is_current
+            validate_candidate(cand)
+            if cand.get('person') != person or not decision_is_current(cand):
+                continue
         if cand.get("status") != "confirmed":
             continue
         title = cand.get("user_title") or cand.get("title") or ""
@@ -118,6 +126,10 @@ def build_memories(candidates: list[dict], person: str) -> dict:
             "tier": 1,
         }
         note = cand.get("user_note")
+        if cand.get('schema_version') == 2:
+            entry['schema_version'] = 2
+            for key in ('person', 'relationship_id', 'evidence_revision', 'evidence_records', 'provenance', 'decision'):
+                entry[key] = cand[key]
         if isinstance(note, str) and note.strip():
             entry["note"] = note
         entries.append(entry)
@@ -137,6 +149,23 @@ def build_transcript_entries(transcripts: list[dict], media: str) -> list[dict]:
     entries = []
     for rec in transcripts:
         text = rec.get("text")
+        if rec.get('schema_version') == 2:
+            if 'verification_contract' in rec:
+                try:
+                    from .transcript_evidence import validate_verified_transcript
+                except ImportError:
+                    from transcript_evidence import validate_verified_transcript
+                validate_verified_transcript(rec)
+            if (rec.get('speaker_status') != 'confirmed' or rec.get('single_speaker') is not True
+                    or rec.get('transcript_status') != 'corrected'
+                    or rec.get('speaker_id') in (None, '', 'unknown')
+                    or rec.get('source_kind') != 'real_recording'):
+                continue
+            if not isinstance(text, str) or not text.strip():
+                continue
+            entries.append(dict(rec, media=media, tier=2,
+                                is_subject=rec['speaker_id'] == rec.get('person')))
+            continue
         if not (rec.get("is_subject") is True and isinstance(text, str) and text.strip()):
             continue
         timestamp = rec.get("timestamp", "")

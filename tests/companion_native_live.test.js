@@ -1,0 +1,32 @@
+const assert=require('assert/strict');
+const {context,turn,tick,Element,mp3,response}=require('./companion_voice_harness');
+(async()=>{
+ const h=context(),v=turn(h);h.document.createElement=t=>{const e=new Element(t);if(t==='audio')e.reject=true;return e;};h.synthMsg(v,0);await tick();await tick();
+ assert.equal(v.bars.filter(Boolean).length,2,'blocked first playback must not hide generated second bar');
+ assert(v.bars.every(b=>b._historyAudio.controls),'live bars expose native controls');
+ assert(v.bars[0]._historyStatus.textContent.includes('AUDIO_PLAY'));
+ const first=v.bars[0],second=v.bars[1];h.cancelVoiceTurn();assert(first._voiceBlob&&second._voiceBlob,'cancel preserves generated blobs');
+ first._historyAudio.reject=false;h.replayBar(first);await tick();assert(!first._historyAudio.paused,'canceled turn still replays');const count=h.urls();h.replayBar(first);h.replayBar(first);assert.equal(h.urls(),count,'repeated taps reuse URL');
+ for(let i=0;i<61;i++){const t=turn(h,['x']);h.showVoiceMsg(t,0,mp3(),1);}assert(first._voiceBlob,'more than60 segments retain first entry');
+ console.log('PASS independent live rendering, native rejection/retry, cancellation, URL/cache retention');
+ const late=context(),old=turn(late);let done;late.fetch=()=>new Promise(r=>done=r);late.synthMsg(old,0);await tick();late.cancelVoiceTurn();const fresh=turn(late,['new']);done(response());await tick();assert(old.bars[0]._voiceBlob);assert(!old.bars[1]);assert.equal(old.bars[0]._historyAudio.plays,undefined);assert.equal(late.voiceTurn,fresh);
+ const stale=context(),sv=turn(stale);let staleDone;stale.fetch=()=>new Promise(r=>staleDone=r);stale.synthMsg(sv,0);await tick();stale.sendGeneration++;staleDone(response());await tick();assert(!sv.bars[0],'profile generation discards result');
+ console.log('PASS canceled inflight preserved without autoplay/unstarted synthesis; profile stale discarded');
+ const bad=context(),bv=turn(bad,['bad']);let calls=0;bad.fetch=async()=>{calls++;return response(new Blob(['<html>PRIVATE</html>'],{type:'audio/mpeg'}));};bad.synthMsg(bv,0);await tick();assert(!bv.bars[0]._voiceBlob);assert(bv.bars[0]._historyStatus.textContent.includes('AUDIO_SIGNATURE'));assert(!bv.bars[0]._historyStatus.textContent.includes('PRIVATE'));
+ bad.fetch=async()=>{calls++;return response();};bv.bars[0]._historyRetry.emit('click');bv.bars[0]._historyRetry.emit('click');await tick();assert.equal(calls,2);assert(bv.bars[0]._voiceBlob);
+ console.log('PASS signature rejection, safe code and idempotent explicit retry');
+ const own=context(),ov=turn(own);own.synthMsg(ov,0);await tick();await tick();const a=ov.bars[0],b=ov.bars[1];own.replayBar(b);await tick();assert(a._historyAudio.paused);assert.equal(own.replayingBar,b);a._historyAudio.emit('ended');a._historyAudio.emit('playing');assert.equal(own.replayingBar,b,'late events cannot steal ownership');assert(a._historyAudio.paused);
+ own.suspendNativeVoice(false);assert(b._historyAudio.paused);own.document.hidden=false;b._historyAudio.emit('playing');assert(b._historyAudio.paused,'return does not resume');assert.equal(own.replayAudio,null);
+ console.log('PASS ownership, stale ended/playing, page suspension');
+ const codes=context(),cv=turn(codes,['one']);codes.fetch=async()=>({ok:false,status:403});codes.synthMsg(cv,0);await tick();assert(cv.bars[0]._historyStatus.textContent.includes('AUDIO_HTTP_403'));
+ const pending=context(),pv=turn(pending,['one']);pending.document.createElement=t=>{const e=new Element(t);if(t==='audio')e.pending=true;return e;};pending.synthMsg(pv,0);await new Promise(r=>setTimeout(r,80));assert(pv.bars[0]._historyStatus.textContent.includes('AUDIO_PLAY_PENDING'));
+ const denied=context(),dv=turn(denied,['one']);denied.document.createElement=t=>{const e=new Element(t);if(t==='audio')e.play=()=>Promise.reject(Object.assign(Error('PRIVATE'),{name:'NotAllowedError'}));return e;};denied.synthMsg(dv,0);await tick();assert(dv.bars[0]._historyStatus.textContent.includes('AUDIO_PLAY_NotAllowedError'));
+ console.log('PASS safe HTTP status, play name and pending diagnostic codes');
+ const seq=context(),sq=turn(seq);seq.synthMsg(sq,0);await tick();const qa=sq.bars[0]._historyAudio,qb=sq.bars[1]._historyAudio;qa.emit('ended');assert.equal(sq.playIdx,0,'false ended does not advance');qa.ended=true;qa.currentTime=1;qa.paused=true;qa.emit('pause');qa.emit('ended');assert.equal(sq.playIdx,1);assert.equal(seq.replayAudio,qb,'natural completion advances once');qa.emit('ended');assert.equal(sq.playIdx,1);
+ qb.error={code:3};qb.emit('error');assert(sq.bars[1]._historyStatus.textContent.includes('AUDIO_MEDIA_3'));assert.equal(seq.replayAudio,null);
+ for(const [kind,want] of [['mime','AUDIO_MIME'],['fetch','AUDIO_FETCH'],['body','AUDIO_BODY']]) {const c=context(),v=turn(c,['one']);c.fetch=kind==='fetch'?()=>new Promise(()=>{}):async()=>kind==='mime'?response(new Blob(['<html>'],{type:'text/html'})):{...response(),blob:()=>new Promise(()=>{})};c.synthMsg(v,0);await new Promise(r=>setTimeout(r,75));assert(v.bars[0]._historyStatus.textContent.includes(want),kind);}
+ const pr=context(),pt=turn(pr,['one']);const pb=pr.showVoiceMsg(pt,0,mp3(),1);let pa=pb._historyAudio,resolveOld;pa.play=()=>new Promise(r=>resolveOld=r);pr.replayBar(pb);await new Promise(r=>setTimeout(r,65));pr.replayBar(pb);resolveOld();await tick();pa=pb._historyAudio;assert(!pa.paused);assert.equal(pr.replayAudio,pa,'old resolved play cannot stop retry');
+ pr.suspendNativeVoice(false);const u=pr.urls();pr.replayBar(pb);pa=pb._historyAudio;assert.equal(pr.urls(),u,'BFcache pause preserves URL');assert(!pa.paused);pr.sendGeneration++;pa.pause();pa.emit('pointerdown');pa.play();assert(pa.paused,'native controls cannot play old profile segment');
+ console.log('PASS genuine ended, media code, MIME/fetch/body timeout, late play resolution, BFcache and profile controls');
+ const pre=context(),pp=turn(pre);pre.synthMsg(pp,0);await tick();const p2=pp.bars[1]._historyAudio;p2.error={code:4};p2.emit('error');assert(pp.bars[1]._historyStatus.textContent.includes('AUDIO_MEDIA_4'),'preloaded decode failure is visible');assert.equal(pre.replayAudio,pp.bars[0]._historyAudio,'preload error cannot stop current player');
+})().catch(e=>{console.error(e);process.exitCode=1;});

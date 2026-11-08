@@ -1,68 +1,42 @@
 # I_MISS_U
 
-为关键的人建立**可传承的数字档案**——修复后的原声、照片、时间线、语言习惯、家人确认过的记忆卡片。
+为关键的人建立可传承的数字档案：原声、照片、时间线、语言习惯和经过人工确认的记忆卡片。档案使用 Markdown、JSON、WAV、PNG 和自包含 HTML 等开放格式；对话只是访问档案的一种方式。
 
-> **档案是核心产物，二十年后不依赖任何模型、订阅、公司还能打开。对话只是访问方式之一。**
+## 目录
 
-## 为什么是"档案优先"
+- `schema/`：统一中间格式，包含来源、视角、事实分级和溯源信息。
+- `tools/`：素材导入、档案编译、人工核验、语音处理和可选对话服务。
+- `prompts/`：按关系参数化的提示模板。
+- `tests/`：合成数据单元测试和浏览器测试。
+- `deploy/`：通用静态页面及 Worker 源码；实际部署配置仅保留本地。
 
-StoryFile 破产时，用户为逝者录制的对话视频躺在待拍卖的服务器上；Eternos 的纪念用户在公司拿到 $10.3M 融资后被转型抛下；Replika 因拿用户数据训练模型被罚 500 万欧元。
+`people/` 存放个人档案，整个目录不进入 Git。原始素材 `people/*/raw/` 只读；处理结果必须写到新目录。个人运维记录、代理配置、安装器、日志和密钥文件同样只保留本地。
 
-**I_MISS_U 的档案不托付给任何公司、任何运行时、任何订阅——它只是你硬盘上一个 20 年后仍能双击打开的文件夹。**（完整论证见 `docs/research/form-factor.md`）
+## 事实分级
 
-## 产品形态：构建/消费分层混合
+1. Tier-1：经过人工确认的记忆。
+2. Tier-2：自动抽取的信息，必须可溯源。
+3. Tier-3：模型生成或推断，不得陈述为事实，升级必须经过人工确认。
 
+保留人物完整性，不能系统性删除负面特质。档案完整性优先于对话沉浸感。
+
+## 本地验证与提交检查
+
+```powershell
+python -X utf8 -m unittest discover -s tests -t .
+node --check tests/e2e/companion_sessions.spec.js
+python -X utf8 tools/audit_git_privacy.py
+python -X utf8 tools/audit_git_privacy.py --staged
 ```
-┌─ 构建端（允许死）────────────────────┐   ┌─ 消费端（必须活20年）──────────────┐
-│ Claude Code skill + tools/           │   │ 自包含静态档案                      │
-│ 素材导入 · persona构建 · 人工审核闸门 │ → │ 开放格式数据层 + 静态HTML浏览层     │
-│ 档案编译 · 格式健康检查              │   │ + 可选BYOK对话页（自配LLM API）     │
-└──────────────────────────────────────┘   └────────────────────────────────────┘
-```
 
-把需要智能的部分放在允许死的构建端，把需要活 20 年的部分做成不需要智能的静态文件。
+TTS 测试需要已安装音频依赖的 Python 环境。浏览器测试支持通过 `PLAYWRIGHT_CORE` 指定本地 Playwright 模块。语法检查不等于浏览器实测。
 
-## 仓库结构
+TTS 路径通过命令行参数指定；本机可使用已忽略的 `tools/tts_local_defaults.json` 保存 `MODELS_DIR_DEFAULT`、`EXP_DIR_DEFAULT`、`REF_DEFAULT`、`PROMPT_TEXT_DEFAULT` 四个非空路径字符串。不在该文件保存凭据。
 
-| 目录 | 内容 |
-|---|---|
-| `schema/` | 统一中间格式（UIF）JSON Schema——所有数据源适配器的合同 |
-| `tools/` | 通用工具：源解析、音频修复与 TTS 服务（`tts_server`）、档案编译（`build_archive`）、companion/avatar 页面构建、会话摄入（`ingest_sessions`）、静态站服务（`static_server`，发 no-cache）、LLM 代理（`llm_proxy`）等 |
-| `prompts/` | 人格/记忆构建模板（关系层参数化：亲子/祖孙/伴侣/挚友…） |
-| `people/<slug>/` | 每人一份档案（**gitignore，永不上传**）：raw 只读原始素材 → normalized 中间格式 → processed 修复产物 → archive_out 最终档案 |
-| `docs/research/` | 研究报告（微信导出方案、产品形态对比） |
-| `docs/HANDOFF.md` | 会话交接文档（当前状态与下一步） |
-| `docs/ops-*.md` | 运维手册：爸爸站离线兜底、自动登录、儿子站公网入口 |
-| `scripts/` | 基础设施：模型分工调用器 + 服务编排 `start_services.ps1` + 登录自启注册 `register_startup_task.ps1` + 替换对应用 `apply_patch_pairs.py` |
-| `deploy/` | 部署产物：`cloudflare-worker/`（源站不通时的兜底页）、`dad-site/`（站点手写静态资源的源，因 `people/` 全目录 gitignore） |
-| `tests/` | 单元测试（标准库 unittest）与 e2e 规格 |
+旧档案的账号标识可在已忽略的 `tools/identity.local.json` 中设置 `owner_participant`；未配置时为中性的 `owner`。显式参数优先于 `IMISSU_OWNER_ID` 环境变量，再优先于本机文件。身份配置只改变读取与新构建所用的标识，不迁移已有数据。测试使用合成身份，不加载真实个人身份。
 
-## 三条自我保护约束
+冻结语音对照实验需要本机 `tools/reference_bindings.local.json`（或 `IMISSU_REFERENCE_BINDINGS` 指定的文件）提供三项参考素材 SHA-256 绑定；未配置时拒绝运行。个人扫描词可放在已忽略的 `.privacy-policy.json` 中，以正则表达式字符串数组表示；扫描报告不会输出匹配内容。
 
-依据 26 名中国丧亲者的实证研究（arXiv 2603.01017：AI 逐步理想化逝者、真假记忆混淆）：
+`scripts/start_services.ps1` 与 `scripts/register_startup_task.ps1` 是本机专用运维脚本，保留在本地，不随源码分发；新检出需要自行配置服务启动方式。
 
-1. **事实分级 + 人工闸门**：Tier-1 家人确认 / Tier-2 自动抽取可溯源 / Tier-3 模型生成**禁止陈述为事实**；新信息必须人工确认才升级
-2. **保留完整性**：缺点和争吵也写进 persona，禁止理想化过滤
-3. **档案优先于对话**：沉浸度是唯一需要克制的指标
-
-## 开发铁律
-
-Claude 编排 · Opus 子代理写码（`.claude/agents/coder.md`）· Codex `gpt-5.6-sol` 审核验收（CLI）。`people/*/raw/` 只读；`people/` 永不进版本库。详见 `CLAUDE.md`。
-
-## 里程碑（2026-09-11 更新）
-
-- [x] **Phase 1** 地基：铁律 / 骨架 / UIF Schema / 研究报告 / 首批工具（Codex 全部 ACCEPT）
-- [x] **M0** 素材归集：微信全量落地（UIF 20909 消息 + 语音 125 WAV + 视频 215 个；敏感凭据批 14 条已从派生层清除；备份关口经用户豁免）
-- [x] **M1 语音克隆（已关口）**：CosyVoice2-Wu SFT **v0.2 e14 现役**（160 条 / 47.2 分钟全量校对重训；**双语域**：`<|wuyu|>`=上海话 / 裸文本=她的沪普）。M1 以用户本人盲听 v2 关闭（8 条骗过 7；家人盲听经用户裁决移除）
-- [x] **M1+ 语音泛化**：GPT-SoVITS v2Pro 普通话+粤语管道（`tools/gsv_pipeline.py`，person-generic）——普通话=沪语本字微调（臂C）/ 粤语=零样本；ASR CER 回读 QC 自动淘汰抽卡废品
-- [x] **M2-数据** 档案数据包 228MB（年度分片 + 媒体索引 + 68 月 timeline）+ 节律统计 + persona 素材摘要 + **她的全部语音/视频文本化**（108 条转写，44 条用户校对）
-- [x] **M2-确认** 人工闸门首轮收口：**Tier-1 记忆册诞生**（memories.md 124 条，用户 150 卡全裁决）；persona.md Q1-Q13 全部裁决（46 论断带溯源，含缺点与冲突面 9 条）
-- [x] **M3 MVP 已交付（2026-08-16）**：`archive_dist/` 自包含离线档案（sha256 manifest 对账，拷走即用：双击 start_server → 卡通人 / BYOK 对话 / 文字层四件）
-- [x] **M4 卡通数字人（Phase 1 完成 2026-08-27）**：照片→暖手绘头像全本地生成链 + **viseme 音素时间轴口型**（Rhubarb 逐条预计算，四态嘴型贴片；恒定底图架构根治闪烁）+ **眨眼 + 头部微摆**整脸微活 + BYOK 对话页（真流式 SSE + 客户端检索 + Tier 纪律 system prompt）。下一步（可选）：talking-head 预渲染 MP4"特别版"
-- [x] **M4 桌面陪伴 companion**：iframe 组合脸 + 检索式对话 + 她的声音，三平台兼容；情绪表情层、多服务商抽屉、微信式 ≤30 字语音条、跨会话记忆（上次对话卡 + 第四检索源）
-- [x] **爸爸站上线（2026-09-10）**：命名隧道 + Cloudflare Access + Worker 离线兜底 + LLM 代理（PC 持 key）；09-10→11 补齐静态站缓存治理、424 约定、会话数据按 viewer 隔离、**刷新后历史回放 + 历史语音条点播**
-- [x] **儿子站公网入口（2026-09-11）**：`son.justmissingyou.com`——独立 Access 应用 + 只含陪伴页的独立站点目录（边界由目录联接决定）；同日爸爸站启用邮箱验证码登录、爸爸首次登录；爸爸站改用普通话语域（用户决定）
-- [x] **儿子站可用性两修（2026-09-12）**：往次对话不再依赖 API key 才显示；构建期可内置默认 key（只写指定服务商档位，永不覆盖用户自己存的）
-- [ ] 进行中：iPhone 上历史语音条无声（研究完、待判别测试）、TTS 短句幻觉（参考音频过长，待 A/B 盲测短参考）、运行期身份（同站按人区分历史）、8A-2b 伦理护栏
-
-当前实时状态见 `docs/HANDOFF.md` 顶部与 `task_plan.md`；技术管道全景见 `docs/PIPELINE.md`。
+隐私扫描只输出路径、行号和类别；默认检查整个候选树，`--staged` 检查整个 Git 索引。忽略规则不会移除已跟踪文件，也不会清除旧提交中的内容。扫描用于发现常见密钥和个人标识，不能替代人工审核，尤其不能自动判断自由文本中的私人记忆。

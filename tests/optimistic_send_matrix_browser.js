@@ -1,0 +1,82 @@
+// Real Edge, loopback HTTP and IndexedDB. No real data or remote API.
+const fs=require('fs'),path=require('path'),http=require('http'),assert=require('node:assert/strict'),{createHash}=require('crypto');
+const {chromium}=require(process.env.PLAYWRIGHT_CORE||require('node:path').join(require('node:os').homedir(), '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright-core'));
+const fixture=path.resolve(process.argv[2]),output=path.resolve(process.argv[3]),delay=Number(process.argv[4]||0);
+let html=fs.readFileSync(path.join(fixture,'companion.html'),'utf8'), counts={},bodies=[],authMode=null,llmDelay=40,holdIdentity=false,heldIdentities=[],identityNumber=0,holdIdentityNumber=0;
+let llmError=false; const overrides=new Map();
+const stable=v=>Array.isArray(v)?'['+v.map(stable).join(',')+']':v&&typeof v==='object'?'{'+Object.keys(v).sort().map(k=>JSON.stringify(k)+':'+stable(v[k])).join(',')+'}':JSON.stringify(v);
+const hash=v=>createHash('sha256').update(v).digest('hex');
+const instrument=`
+window.measurements={events:[],spans:[]};
+window.markTest=function(name){window.measurements.events.push({name,t:performance.now()});};
+const proto=globalThis.ArchiveDeviceCache.ArchiveDeviceCache.prototype;
+window.testPreparationOutcomes=[];
+for(const name of ['prepare','finishForSend']){if(typeof proto[name]!=='function')continue;const testPrepare=proto[name];proto[name]=function(...a){return testPrepare.apply(this,a).then(v=>{testPreparationOutcomes.push(name+':resolved');return v;},e=>{testPreparationOutcomes.push(name+':rejected');throw e;});};}
+for(const name of ['gate','hash','prepareOnce']){const old=proto[name];proto[name]=async function(...a){const t=performance.now();try{return await old.apply(this,a);}finally{window.measurements.spans.push({name,t,ms:performance.now()-t});}};}
+const sp=globalThis.ArchiveDeviceCache.IndexedArchiveStore.prototype;
+for(const name of ['snapshot','bind','current','get','put']){const old=sp[name];sp[name]=async function(...a){const t=performance.now();try{return await old.apply(this,a);}finally{window.measurements.spans.push({name,t,ms:performance.now()-t});}};}
+const parse=JSON.parse;JSON.parse=function(...a){const t=performance.now();try{return parse.apply(this,a);}finally{window.measurements.spans.push({name:'parse',t,ms:performance.now()-t});}};
+function timedTest(name,fn){return function(...a){const t=performance.now();try{return fn.apply(this,a);}finally{measurements.spans.push({name,t,ms:performance.now()-t});}};}
+collectAllRecords=timedTest('collectAllRecords',collectAllRecords);retrieveSnippets=timedTest('retrieveSnippets',retrieveSnippets);retrieveKnowledge=timedTest('retrieveKnowledge',retrieveKnowledge);retrieveSessions=timedTest('retrieveSessions',retrieveSessions);
+`;
+html=html.replace("pendingUser.className = 'bubble user';","window.markTest('normal-user-bubble');requestAnimationFrame(()=>window.markTest('normal-first-frame')); pendingUser.className = 'bubble user';").replace("pendingUser.className = 'bubble user-pending';","window.markTest('pending-user-bubble');requestAnimationFrame(()=>window.markTest('pending-next-raf')); pendingUser.className = 'bubble user-pending';");
+html=html.replace('var archiveOptions =',instrument+'\nvar archiveOptions =')
+.replace('function sendMessage(event, retryBubble, retryText) {','function sendMessage(event, retryBubble, retryText) { window.markTest("click-handler");')
+.replace("addBubble({type:'user', text: userText});","window.markTest('user-bubble'); addBubble({type:'user', text: userText});")
+.replace('setTypingIndicator(contentEl);',"setTypingIndicator(contentEl); window.markTest('waiting-ui');")
+.replace('accText += delta;',"window.markTest('first-token'); accText += delta;")
+.replace('function logSession(rec, requestSettings) {', 'function logSession(rec, requestSettings) { (window.testLogs||(window.testLogs=[])).push({rec:structuredClone(rec),exclude:requestSettings?requestSettings.exclude:noMemoryEnabled});')
+.replace('var archiveCache =',"const testValidate=archiveOptions.validate;archiveOptions.validate=async function(...a){const t=performance.now();try{return await testValidate.apply(this,a);}finally{measurements.spans.push({name:'scope-validation',t,ms:performance.now()-t});}};\nvar archiveCache =")
+.replace('var archiveOptions =', 'window.testReset=()=>{invalidateArchivePage();history=[];historyReplayed=false;sessionId=buildSessionId(new Date());sessionTurn=0;chat.textContent="";};window.testCold=async()=>{await archiveCache.clear();history=[];historyReplayed=false;};window.testSeedHistory=()=>{sessionsData={sessions:[{session_id:"old-synthetic",turns:[{role:"user",turn:1,text:"old synthetic history",ts:"2020-01-01T00:00:00Z"},{role:"simulacrum",turn:1,text:"old synthetic reply"}]}]};sessionsLoaded=true;historyReplayed=false;};window.testFeedback=()=>({phase:dataReadyPhase,pending:sendPending,streaming,history:history.length,epoch:archiveCache.epoch,owner:archiveCache.operationOwner});window.testState=()=>({sendPending,streaming,history:history.length,noMemoryEnabled});window.testOverlap=()=>{const p=ensureDataReady();return p===loadContext()&&p===loadShards();};window.testChangeSetting=()=>{settings.model+="-changed";};\nvar archiveOptions =');
+html=html.replace("dataReadyPhase = 'ready'; reportDataProgress(); applySessionsCard(); updateChatState();", "dataReadyPhase = 'ready'; reportDataProgress(); applySessionsCard(); updateChatState(); if((window.testBoundary||'').startsWith('commit')){const mode=window.testBoundary;window.testBoundary=null;queueMicrotask(()=>{localStorage.setItem('companion_archive_invalidation',String(Math.random()));if(mode.includes('disabled'))localStorage.setItem('companion_archive_disabled','true');});}")
+.replace('function companionStream(endpoint, headers, body, mode, requestController, onDelta, onDone, onError, diagnostic) {', "function companionStream(endpoint, headers, body, mode, requestController, onDelta, onDone, onError, diagnostic) { if((window.testBoundary||'').startsWith('fetch')){const mode=window.testBoundary;window.testBoundary=null;queueMicrotask(()=>{localStorage.setItem('companion_archive_invalidation',String(Math.random()));if(mode.includes('disabled'))localStorage.setItem('companion_archive_disabled','true');if(mode.includes('edited')){inputText.value='newer synthetic draft';inputText.dispatchEvent(new Event('input',{bubbles:true}));}});}");
+assert(html.includes('window.markTest("click-handler")'), 'send instrumentation matched');
+html=html.replace('var archiveOptions =', "const realFetch=window.fetch;window.fetch=function(url,options){if(String(url).includes('/v1/chat/completions'))markTest('actual-chat-fetch');return realFetch.apply(this,arguments);};\nvar archiveOptions =");
+const server=http.createServer((req,res)=>{const p=new URL(req.url,'http://localhost').pathname;counts[p]=(counts[p]||0)+1;
+ const json=x=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify(x));};
+ if(p==='/companion.html'){res.setHeader('Content-Type','text/html');return res.end(html);}
+ if(p==='/avatar.html'){res.setHeader('Content-Type','text/html');return res.end('<html></html>');}
+ if(p==='/control.html'){res.setHeader('Content-Type','text/html');return res.end('<html></html>');}
+ if(p==='/cdn-cgi/access/get-identity'){identityNumber++;if(authMode==='timeout')return;const finish=()=>{if(authMode==='offline'){res.destroy();return;}if(authMode===401){res.statusCode=401;return json({});}json({account_id:'a'.repeat(32),user_uuid:'11111111-1111-4111-8111-111111111111'});};if(holdIdentity||identityNumber===holdIdentityNumber){heldIdentities.push(finish);return;}return setTimeout(finish,delay);}
+ if(p.startsWith('/data/'))return setTimeout(()=>{const file=path.join(fixture,p);if(overrides.has(p)||fs.existsSync(file)){res.setHeader('Content-Type','application/json');res.end(overrides.get(p)||fs.readFileSync(file));}else{res.statusCode=404;json({});}},p.includes('manifest')?delay:0);
+ if(req.method==='POST'){let body='';req.on('data',b=>body+=b);req.on('end',()=>{bodies.push({path:p,body:JSON.parse(body)});if(p==='/v1/chat/completions'){if(llmError){res.statusCode=503;return json({error:'synthetic'});}res.setHeader('Content-Type','text/event-stream');return setTimeout(()=>res.end('data: {"choices":[{"delta":{"content":"synthetic response"}}]}\n\ndata: [DONE]\n\n'),llmDelay);}json({ok:true});});return;}
+ res.statusCode=503;json({});
+});
+
+(async()=>{await new Promise(r=>server.listen(0,'127.0.0.1',r));const browser=await chromium.launch({headless:true,executablePath:'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'});const origin='http://127.0.0.1:'+server.address().port,report={cases:[],errors:[]};
+try{for(const width of [320,390]){const ctx=await browser.newContext({viewport:{width,height:480}}),page=await ctx.newPage();page.on('pageerror',e=>report.errors.push(String(e)));await ctx.route('**/*',r=>new URL(r.request().url()).origin===origin?r.continue():r.abort());
+await page.goto(origin+'/companion.html');await page.locator('#intro-ok').click();await page.waitForFunction(()=>testFeedback().phase==='ready');await page.locator('#intro-enter').click();
+const posts=()=>bodies.filter(x=>x.path==='/v1/chat/completions');const release=()=>{holdIdentity=false;heldIdentities.splice(0).forEach(f=>f());};const settled=()=>page.waitForFunction(()=>!testFeedback().pending&&!testFeedback().streaming);const logCounts=()=>page.evaluate(()=>({user:(window.testLogs||[]).filter(x=>x.rec.role==='user').length,assistant:(window.testLogs||[]).filter(x=>x.rec.role==='simulacrum').length,event:(window.testLogs||[]).filter(x=>x.rec.role==='event'&&x.rec.text==='llm_error').length}));
+for(const state of ['warm','cold','resumed']){
+ if(state==='cold')await page.evaluate(async()=>{await testCold();testSeedHistory();});
+ if(state==='resumed')await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));Object.defineProperty(document,'hidden',{configurable:true,value:false});document.dispatchEvent(new Event('visibilitychange'));});
+ holdIdentity=true;const n=posts().length;await page.locator('#input-text').fill(state+' draft');await page.evaluate(()=>{measurements.events=[];});await page.locator('#send-btn').click();await page.locator('#input-text').press('Enter');await page.waitForTimeout(100);
+ assert.equal(await page.locator('.bubble.center').count(),0);assert.equal(posts().length,n);assert.equal(await page.locator('#input-text').inputValue(),'');assert.equal(await page.locator('.bubble.user').last().textContent(),state+' draft');assert.equal(await page.locator('.typing-dots').count(),1);assert(await page.locator('#input-bar').evaluate(n=>n.scrollWidth<=n.clientWidth));
+ const events=await page.evaluate(()=>measurements.events);const click=events.find(e=>e.name==='click-handler').t,bubble=events.find(e=>e.name==='normal-user-bubble').t,frame=events.find(e=>e.name==='normal-first-frame').t,waiting=events.find(e=>e.name==='waiting-ui').t;assert(bubble-click<50);assert(waiting-click<50);assert(frame>=bubble);
+ await page.locator('#input-text').fill('newer draft '+state);release();await settled();assert.equal(posts().length,n+1);assert.equal(await page.locator('#input-text').inputValue(),'newer draft '+state);
+ if(state==='cold'){const texts=await page.locator('.bubble.user').allTextContents();assert(texts.indexOf('old synthetic history')>=0);assert(texts.indexOf('old synthetic history')<texts.indexOf('cold draft'));}
+ const fetched=await page.evaluate(()=>measurements.events.find(e=>e.name==='actual-chat-fetch').t);assert(fetched-frame>=90);
+ report.cases.push({width,state,clickToFetch:fetched-click,clickToBubble: bubble-click,clickToFrame:frame-click,clickToWaiting:waiting-click,fetchAfterGate:true,newerDraftPreserved:true});
+}
+// Request failure: same DOM node retries once; failed attempt is absent from context/logs.
+llmError=true;const logs=await logCounts(),h=await page.evaluate(()=>testFeedback().history);await page.locator('#input-text').fill('request failure');await page.locator('#send-btn').click();await settled();await page.waitForFunction(()=>document.querySelector('.send-failed'));await page.locator('.send-failed').last().evaluate(n=>n.dataset.testId='retry-node');const failed=await logCounts();assert.equal(failed.user,logs.user);assert.equal(failed.assistant,logs.assistant);assert.equal(failed.event,logs.event+1);assert.equal(await page.evaluate(()=>testFeedback().history),h);llmError=false;
+await page.locator('#input-text').fill('keep newer');await page.locator('[data-test-id=retry-node] button').click();await settled();assert.equal(await page.locator('[data-test-id=retry-node]').count(),1);assert.equal(await page.locator('[data-test-id=retry-node]').textContent(),'request failure');assert.equal(await page.locator('#input-text').inputValue(),'keep newer');const success=await logCounts();assert.equal(success.user,logs.user+1);assert.equal(success.assistant,logs.assistant+1);
+
+// Text equality alone does not confer ownership of a later draft.
+llmError=true;await page.locator('#input-text').fill('identical later draft');await page.locator('#send-btn').click();await settled();llmError=false;await page.locator('#input-text').fill('');await page.locator('#input-text').fill('identical later draft');await page.locator('.send-failed').filter({hasText:'identical later draft'}).locator('button').click();await settled();assert.equal(await page.locator('#input-text').inputValue(),'identical later draft');
+// Old cancellation resolution must not finish a new send or write successful logs.
+holdIdentity=true;await page.locator('#input-text').fill('cancel old');await page.locator('#send-btn').click();await page.waitForTimeout(60);await page.locator('.archive-send-cancel').click();await page.locator('#input-text').fill('new owned');await page.locator('#send-btn').click();await page.waitForTimeout(60);const n=posts().length;release();await settled();assert.equal(posts().length,n+1);assert.equal(posts().at(-1).body.messages.at(-1).content.includes('new owned'),true);assert.equal(await page.locator('.send-failed').filter({hasText:'cancel old'}).count(),1);
+// A new session retires the pending bubble and its late callback.
+holdIdentity=true;await page.locator('#input-text').fill('old session');await page.locator('#send-btn').click();await page.waitForTimeout(60);const before=posts().length;await page.evaluate(()=>testReset());release();await page.waitForTimeout(100);assert.equal(posts().length,before);assert.equal(await page.locator('.bubble.user').count(),0);
+// Offline/denial failures remain retryable on the same bubble; no success effects.
+for(const mode of ['offline',401]){authMode=mode;await page.locator('#input-text').fill('gate '+mode);const before=posts().length;await page.locator('#send-btn').click();await page.waitForFunction(()=>document.querySelector('.send-failed'));assert.equal(posts().length,before);authMode=null;await page.locator('.send-failed button').last().click();await settled();assert.equal(posts().length,before+1);}
+
+for(const mode of ['data','hash','revision']) {
+ const key=mode==='revision'?'/data/archive-cache-manifest.json':'/data/messages-2000.json';
+ const original=fs.readFileSync(path.join(fixture,key),'utf8');
+ overrides.set(key,mode==='data'?'not json':mode==='hash'?JSON.stringify(JSON.parse(original).map((r,i)=>i===0?{...r,text:'tampered synthetic'}:r)):JSON.stringify({...JSON.parse(original),revision:'0'.repeat(64)}));
+ await page.evaluate(()=>testCold());await page.locator('#input-text').fill('invalid '+mode);const before=posts().length;await page.locator('#send-btn').click();await settled();assert.equal(posts().length,before,'gate blocks '+mode);const bubble=page.locator('.send-failed').filter({hasText:'invalid '+mode});assert.equal(await bubble.count(),1);
+ overrides.delete(key);await bubble.locator('button').click();await settled();assert.equal(posts().length,before+1);
+}
+report.cases.push({width,requestFailureSameNodeRetry:true,eventOnlyOnFailure:true,cancelLateOwnership:true,newSessionRetirement:true,offlineAnd401Retry:true});await ctx.close();}
+assert.deepEqual(report.errors,[]);report.pass=true;}catch(e){report.error=e.stack;process.exitCode=1;}finally{fs.writeFileSync(output+'.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report));await browser.close();server.closeAllConnections();server.close();}})();

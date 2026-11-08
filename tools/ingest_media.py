@@ -10,6 +10,12 @@
 
 from __future__ import annotations
 
+try:
+    from .local_identity import owner_participant
+except ImportError:
+    from local_identity import owner_participant
+
+
 import argparse
 import hashlib
 import json
@@ -436,7 +442,7 @@ def build_record(
         ).hexdigest(),
         "record_type": "media_item",
         "person": person,
-        "viewpoint": "justin",
+        "viewpoint": owner_participant(),
         "source": sf.source,
         "tier": 2,
         "provenance": {

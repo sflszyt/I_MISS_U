@@ -14,6 +14,12 @@
 
 from __future__ import annotations
 
+try:
+    from .local_identity import owner_participant
+except ImportError:
+    from local_identity import owner_participant
+
+
 import argparse
 import hashlib
 import json
@@ -229,13 +235,16 @@ def _build_record(
 
     content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
     base_input = f"wechat:{chat_room}:{ts_raw}:{sender_wxid}:{content_hash}"
+    viewpoint = cfg.get("viewpoint", owner_participant())
+    if viewpoint != owner_participant() or cfg.get("source_account_id"):
+        base_input = f"{cfg.get('source_account_id', viewpoint)}:{base_input}"
     record_id = _unique_record_id(base_input, seen)
 
     record: Dict[str, Any] = {
         "record_id": record_id,
         "record_type": "message",
         "person": person,
-        "viewpoint": "justin",
+        "viewpoint": viewpoint,
         "source": "wechat",
         "timestamp": timestamp,
         "timestamp_precision": timestamp_precision,
@@ -474,6 +483,13 @@ def _run(args: argparse.Namespace) -> int:
     viewpoint_owner_wxid = cfg["viewpoint_owner_wxid"]
     rooms = cfg["rooms"]
     known_participants = cfg.get("known_participants", {})
+
+    if not isinstance(cfg.get("viewpoint", owner_participant()), str) or re.fullmatch(r"[a-z0-9_-]+", cfg.get("viewpoint", owner_participant())) is None:
+        print("error: invalid viewpoint slug", file=sys.stderr)
+        return 1
+    if "source_account_id" in cfg and (not isinstance(cfg["source_account_id"], str) or not cfg["source_account_id"]):
+        print("error: invalid source account namespace", file=sys.stderr)
+        return 1
 
     if not isinstance(subject_wxid, str) or not subject_wxid:
         print("error: config subject_wxid must be a non-empty string", file=sys.stderr)

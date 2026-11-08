@@ -18,9 +18,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 PERSON_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
-DEFAULT_RHUBARB = Path(
-    r"C:\Users\justin\tools\Rhubarb-Lip-Sync-1.14.0-Windows\rhubarb.exe"
-)
+DEFAULT_RHUBARB = Path.home() / "tools/Rhubarb-Lip-Sync-1.14.0-Windows/rhubarb.exe"
 RHUBARB_TIMEOUT = 300  # seconds
 
 

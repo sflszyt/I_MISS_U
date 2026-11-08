@@ -9,6 +9,7 @@ import json
 import os
 import re
 import sys
+import uuid
 import threading
 import time
 import urllib.error
@@ -16,8 +17,16 @@ import urllib.request
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+if __package__:
+    from .father_model_policy import load_policy, validate_models, CREDENTIAL_TARGET
+    from .windows_credential import read_openai_credential
+else:
+    from father_model_policy import load_policy, validate_models, CREDENTIAL_TARGET
+    from windows_credential import read_openai_credential
+
 TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 VIEWER_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_./:-]{0,127}$")
 MAX_BODY = 256 * 1024
 ALLOWED_FIELDS = {"model", "messages", "stream", "temperature", "top_p", "max_tokens", "thinking"}
 
@@ -39,18 +48,120 @@ def log_line(args, text):
             sys.stderr.write(f"llm_proxy: cannot write log: {exc}\n")
 
 
+def diagnostic_log_line(args, text):
+    # Diagnostic loss must not change transport behavior or print raw sink errors.
+    try:
+        sys.stderr.write(text + "\n")
+    except (OSError, ValueError):
+        pass
+    if args.log_dir:
+        try:
+            os.makedirs(args.log_dir, exist_ok=True)
+            path = os.path.join(args.log_dir, "llm_proxy_" + time.strftime("%Y%m%d") + ".log")
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write(text + "\n")
+        except (OSError, ValueError):
+            pass
+
+
 def safe_omit_key(text, key):
     if not key:
         return text
     return text.replace(key, "[REDACTED]")
 
 
+def openai_sse_chunks(upstream, api_key):
+    """Forward only complete SSE events; EOF must never manufacture a DONE event."""
+    line = bytearray()
+    event = bytearray()
+    data_lines = []
+    skip_lf = False
+    prefix = b""  # only the stream-start optional UTF-8 BOM is stripped
+    wire_bom = b""
+    key = api_key.encode("utf-8")
+    reader = getattr(upstream, "read1", upstream.read)
+    while True:
+        raw = reader(4096)
+        if not raw:
+            # Do not release partial lines/events on failure.
+            raise EOFError("incomplete upstream stream")
+        if prefix is not None:
+            prefix += raw
+            bom = b"\xef\xbb\xbf"
+            if len(prefix) < len(bom) and bom.startswith(prefix):
+                continue
+            wire_bom = bom if prefix.startswith(bom) else b""
+            raw = prefix[len(wire_bom):]
+            prefix = None
+        for byte in raw:
+            if skip_lf:
+                skip_lf = False
+                if byte == 10:
+                    continue
+            if byte not in (10, 13):
+                line.append(byte)
+                if len(line) + len(event) > MAX_BODY:
+                    raise ValueError("upstream SSE event too large")
+                continue
+            skip_lf = byte == 13
+            value = bytes(line)
+            line.clear()
+            event.extend(value + b"\n")
+            if value:
+                if value.startswith(b"data:"):
+                    data_lines.append(value[5:].removeprefix(b" "))
+                elif value == b"data":
+                    data_lines.append(b"")
+                if len(event) > MAX_BODY:
+                    raise ValueError("upstream SSE event too large")
+                continue
+            done = b"\n".join(data_lines) == b"[DONE]"
+            # Credentials cannot contain CR/LF (validated by ProxyConfig), so a
+            # key cannot span SSE events. Assemble TCP chunks first, redact a
+            # whole event, then release that entire event without a tail buffer.
+            output = bytes(event).replace(key, b"[REDACTED]")
+            # Preserve the original optional signature on the wire: both proxy
+            # and client ignore exactly one BOM; a second remains ordinary data.
+            output = wire_bom + output
+            wire_bom = b""
+            event.clear()
+            data_lines.clear()
+            if output:
+                yield output
+            if done:
+                return
+
+
 class ProxyConfig:
-    def __init__(self, args, tokens, api_key):
+    def __init__(self, args, tokens, api_key, openai_key=""):
+        if "\r" in openai_key or "\n" in openai_key:
+            fail("invalid OpenAI credential format")
+        try:
+            self.openai_models = validate_models(getattr(args, "openai_model", []) or [])
+        except ValueError:
+            fail("invalid father OpenAI policy")
+        self.openai_key = openai_key
         self.args = args
         self.tokens = tokens
         self.api_key = api_key
+        self.viewer_models = parse_viewer_models(getattr(args, "viewer_model", None) or [], tokens)
         self.limiter = RateLimiter(args.rpm, args.daily)
+
+
+def parse_viewer_models(specs, tokens):
+    """Resolve only operator-configured models for authenticated viewer names."""
+    routes = {}
+    viewers = set(tokens.values())
+    for spec in specs:
+        viewer, separator, model = spec.partition("=")
+        if not separator or not VIEWER_RE.fullmatch(viewer) or not MODEL_RE.fullmatch(model):
+            fail("invalid --viewer-model; expected VIEWER=MODEL without whitespace")
+        if viewer not in viewers:
+            fail("--viewer-model viewer is not configured in authentication tokens")
+        if viewer in routes:
+            fail("duplicate --viewer-model viewer")
+        routes[viewer] = model
+    return routes
 
 
 class RateLimiter:
@@ -107,7 +218,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 self.close_connection = True
             self.end_headers()
             self.wfile.write(data)
+            if getattr(self, "_request_id", None): self._diagnostic("downstream_complete", status)
         except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            if getattr(self, "_request_id", None): self._diagnostic("downstream_disconnected")
             self.close_connection = True
 
     def do_OPTIONS(self):
@@ -125,10 +238,54 @@ class ProxyHandler(BaseHTTPRequestHandler):
         self._send_json(200, {
             "status": "ok",
             "model": self.args.model,
+            "default_model": self.args.model,
+            "viewer_models": dict(self.proxy.viewer_models),
             "viewers": len(self.proxy.tokens)
         })
 
+    def _diagnostic(self, stage, status=None):
+        # Fixed schema: never include request bodies, credentials, URLs or exceptions.
+        # downstream_complete means writes finished here, never proof of client delivery.
+        event = {"request_id": self._request_id, "stage": stage}
+        if isinstance(status, int) and 100 <= status <= 599:
+            event["status"] = status
+        if self._request_ray:
+            event["cf_ray"] = self._request_ray
+        diagnostic_log_line(self.args, "request_diag " + json.dumps(event, separators=(",", ":")))
+
+    def send_response(self, code, message=None):
+        super().send_response(code, message)
+        if getattr(self, "_request_id", None):
+            self.send_header("X-Request-ID", self._request_id)
+            self._diagnostic("downstream_headers", code)
+
+    def _diagnostic_route(self, provider, model):
+        # Enumerated routing metadata only; never echo arbitrary client values.
+        allowed = {"openai": ("gpt-6-luna", "gpt-6.1-terra", "gpt-6.1-sol"),
+                   "deepseek": ("deepseek-v4-pro",)}
+        if model not in allowed.get(provider, ()):
+            return
+        event = {"request_id": self._request_id, "stage": "upstream_route",
+                 "provider": provider, "model": model}
+        diagnostic_log_line(self.args, "request_diag " + json.dumps(event, separators=(",", ":")))
+
     def do_POST(self):
+        supplied = self.headers.get("X-Request-ID", "")
+        self._request_id = supplied if re.fullmatch(r"[a-f0-9]{32}", supplied) else uuid.uuid4().hex
+        ray = self.headers.get("CF-Ray", "")
+        self._request_ray = ray if re.fullmatch(r"[a-fA-F0-9]{16}-[A-Z]{3}", ray) else ""
+        try:
+            self._diagnostic("request_received")
+            self._handle_post()
+        except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
+            self._diagnostic("error")
+        except Exception:
+            self._diagnostic("error")
+            raise
+        finally:
+            self._request_id = None
+
+    def _handle_post(self):
         if self.path.split("?", 1)[0] != "/v1/chat/completions":
             self._send_json(404, {"error": "not found"}, close=True)
             return
@@ -150,7 +307,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 try:
                     self.wfile.write(body)
+                    self._diagnostic("downstream_complete", 429)
                 except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+                    if getattr(self, "_request_id", None): self._diagnostic("downstream_disconnected")
                     self.close_connection = True
             else:
                 self._send_json(429, {"error": msg}, close=True)
@@ -188,7 +347,30 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": "bad json"}, close=True)
                 return
 
-            data["model"] = self.args.model
+            if not isinstance(data, dict):
+                self._send_json(400, {"error": "invalid request"}, close=True)
+                return
+            upstream_url, upstream_key = self.args.upstream, self.proxy.api_key
+            openai_route = False
+            selection = data.get("model", "proxy")
+            if viewer == "father" and (selection in ("gpt-6-luna", "gpt-6.1-terra", "gpt-6.1-sol", "deepseek-v4-pro") or "provider" in data):
+                provider = "deepseek" if selection == "deepseek-v4-pro" else "openai"
+                if selection not in ("gpt-6-luna", "gpt-6.1-terra", "gpt-6.1-sol", "deepseek-v4-pro") or data.get("provider", provider) != provider:
+                    self._send_json(400, {"error": "unknown model selection"}, close=True)
+                    return
+                openai_route = provider == "openai"
+                if openai_route:
+                    if selection not in self.proxy.openai_models or not self.proxy.openai_key:
+                        self._send_json(409, {"error": "model not configured; availability unverified"}, close=True)
+                        return
+                    upstream_url = "https://api.openai.com/v1/chat/completions"
+                    upstream_key = self.proxy.openai_key
+                data["model"] = selection
+            elif viewer == "father" and selection != "proxy":
+                self._send_json(400, {"error": "unknown model selection"}, close=True)
+                return
+            else:
+                data["model"] = self.proxy.viewer_models.get(viewer, self.args.model)
             client_max = data.get("max_tokens")
             try:
                 client_max_int = int(client_max) if client_max is not None else self.args.max_tokens
@@ -196,24 +378,31 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 client_max_int = self.args.max_tokens
             data["max_tokens"] = min(client_max_int, self.args.max_tokens)
 
-            if "deepseek" in self.args.upstream.lower():
+            if not openai_route and "deepseek" in upstream_url.lower():
                 data["thinking"] = {"type": "disabled"}
 
             filtered = {k: v for k, v in data.items() if k in ALLOWED_FIELDS}
+            if openai_route:
+                filtered = {k: v for k, v in filtered.items() if k in {"model", "messages", "stream", "max_tokens"}}
+                filtered["max_completion_tokens"] = filtered.pop("max_tokens")
             body = json.dumps(filtered).encode("utf-8")
             stream_out = bool(filtered.get("stream", False))
 
             req = urllib.request.Request(
-                self.args.upstream,
+                upstream_url,
                 data=body,
                 method="POST",
                 headers={
-                    "Authorization": "Bearer " + self.proxy.api_key,
+                    "Authorization": "Bearer " + upstream_key,
                     "Content-Type": "application/json",
                     "Accept": "text/event-stream" if stream_out else "application/json"
                 }
             )
+            self._diagnostic("upstream_attempt")
+            if viewer == "father" and selection != "proxy":
+                self._diagnostic_route("openai" if openai_route else "deepseek", selection)
             with urllib.request.urlopen(req, timeout=self.args.timeout) as upstream:
+                self._diagnostic("upstream_headers", upstream.status)
                 if stream_out:
                     # Streaming path: we deliberately skip API key redaction here
                     # because redaction requires buffering the entire response, which
@@ -227,23 +416,26 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     self.close_connection = True
                     self.end_headers()
                     headers_sent = True
-                    while True:
-                        chunk = upstream.read(4096)
-                        if not chunk:
-                            break
+                    chunks = (openai_sse_chunks(upstream, upstream_key) if openai_route
+                              else iter(lambda: upstream.read(4096), b""))
+                    for chunk in chunks:
                         try:
                             self.wfile.write(chunk)
                             self.wfile.flush()
                         except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
+                            if getattr(self, "_request_id", None): self._diagnostic("downstream_disconnected")
                             log_line(self.args, f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} viewer={viewer} status=200 stream=True error=client_disconnected")
                             return
                         bytes_out += len(chunk)
                     status_out = 200
+                    self._diagnostic("downstream_complete", 200)
                 else:
                     upstream_body = upstream.read()
                     safe_body = upstream_body
                     if self.proxy.api_key:
                         safe_body = safe_body.replace(self.proxy.api_key.encode("utf-8"), b"[REDACTED]")
+                    if openai_route:
+                        safe_body = safe_body.replace(upstream_key.encode("utf-8"), b"[REDACTED]")
 
                     self.send_response(upstream.status)
                     self.send_header("Content-Type", upstream.headers.get("Content-Type", "application/json"))
@@ -254,18 +446,26 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     try:
                         self.wfile.write(safe_body)
                     except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
+                        if getattr(self, "_request_id", None): self._diagnostic("downstream_disconnected")
                         log_line(self.args, f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} viewer={viewer} status={upstream.status} stream=False error=client_disconnected")
                         return
                     bytes_out = len(safe_body)
                     status_out = upstream.status
+                    self._diagnostic("downstream_complete", upstream.status)
         except urllib.error.HTTPError as exc:
+            self._diagnostic("upstream_headers", exc.code)
             # 跨组件约定：424 = 我活着、但我依赖的上游失败了。
             # Worker 的 ORIGIN_DOWN_STATUS = {502,503,504,521,522,523,524,530} 故意不含 424，
             # 不要把 424 加进那张表，否则真实错误会再次被吞掉。
             # 上游返回那张表里的码时，对外一律改发 424，避免被 Worker 误判成「家里 PC 关机」；
             # 其余状态码（401 鉴权失败 / 429 限流 / 400 参数错等）原样透传不变，那些码 Worker 不会误判。
             status_out = exc.code
-            err_body = exc.read()
+            if openai_route:
+                # Never wait for or relay an untrusted error body on this route.
+                exc.close()
+                err_body = b'{"error":"upstream_failure"}'
+            else:
+                err_body = exc.read()
             if self.proxy.api_key:
                 err_body = err_body.replace(self.proxy.api_key.encode("utf-8"), b"[REDACTED]")
             if exc.code in (502, 503, 504, 521, 522, 523, 524, 530):
@@ -284,27 +484,36 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     self.end_headers()
                     self.wfile.write(payload)
                     bytes_out = len(payload)
+                    self._diagnostic("downstream_complete", 424)
                 except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
+                    if getattr(self, "_request_id", None): self._diagnostic("downstream_disconnected")
                     log_line(self.args, f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} viewer={viewer} status=424 upstream_status={exc.code} stream={stream_out} error=client_disconnected")
                     return
                 except Exception:
-                    pass
+                    self._diagnostic("error")
                 log_line(self.args, f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} viewer={viewer} status=424 upstream_status={exc.code} stream={stream_out} error=upstream_failure")
             else:
                 try:
                     self.send_response(exc.code)
-                    self.send_header("Content-Type", exc.headers.get("Content-Type", "application/json"))
+                    if exc.code == 403:
+                        self.send_header("X-LLM-Error", "upstream_forbidden")
+                    self.send_header("Content-Type", "application/json" if openai_route else exc.headers.get("Content-Type", "application/json"))
                     self.send_header("Content-Length", str(len(err_body)))
                     self.end_headers()
                     self.wfile.write(err_body)
                     bytes_out = len(err_body)
+                    self._diagnostic("downstream_complete", exc.code)
                 except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
+                    if getattr(self, "_request_id", None): self._diagnostic("downstream_disconnected")
                     log_line(self.args, f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} viewer={viewer} status={exc.code} stream={stream_out} error=client_disconnected")
                 except Exception:
-                    pass
+                    self._diagnostic("error")
         except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
+            # This broad catch can also be an upstream read failure.
+            self._diagnostic("error")
             log_line(self.args, f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} viewer={viewer} status={status_out} stream={stream_out} error=client_disconnected")
         except Exception as exc:
+            self._diagnostic("error")
             # 跨组件约定：424 = 上游失败（这里是我自己调用上游时炸了）。
             # Worker 的 ORIGIN_DOWN_STATUS 故意不含 424，不要把 424 加进那张表，
             # 否则真实错误会再次被吞掉。detail 只放异常类名，不放异常字符串，避免 API key 外泄。
@@ -313,6 +522,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 try:
                     self._send_json(424, {"error": "upstream_failure", "detail": type(exc).__name__}, close=True)
                 except (ConnectionAbortedError, BrokenPipeError, ConnectionResetError):
+                    if getattr(self, "_request_id", None): self._diagnostic("downstream_disconnected")
                     pass
             log_line(self.args, f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} viewer={viewer} status=424 stream={stream_out} error=upstream_failure")
 
@@ -390,6 +600,11 @@ def main():
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--upstream", required=True)
     parser.add_argument("--model", required=True)
+    parser.add_argument("--viewer-model", action="append", default=[], metavar="VIEWER=MODEL",
+                        help="Override the default model for an authenticated viewer; repeatable")
+    parser.add_argument("--openai-policy", default=None, help="Non-secret father model policy JSON")
+    parser.add_argument("--openai-credential-target", default="", choices=[CREDENTIAL_TARGET],
+                        help="Explicit Windows Generic credential target; disabled policy never reads it")
     parser.add_argument("--key-env", default="DEEPSEEK_API_KEY")
     parser.add_argument("--tokens", default="")
     parser.add_argument("--tokens-file", default="", help="从文件读取 viewer token；文件内一行 TTS_TOKENS=viewer:token[,viewer2:token2]")
@@ -431,7 +646,12 @@ def main():
         if not tokens:
             fail("no valid tokens parsed")
 
-    config = ProxyConfig(args, tokens, api_key)
+    try:
+        args.openai_model = list(load_policy(args.openai_policy))
+        openai_key = read_openai_credential(args.openai_credential_target) if args.openai_model else ""
+    except ValueError as exc:
+        fail(str(exc))
+    config = ProxyConfig(args, tokens, api_key, openai_key=openai_key)
     server = ProxyServer((args.host, args.port), ProxyHandler, config)
     upstream_host = urllib.parse.urlparse(args.upstream).netloc
 

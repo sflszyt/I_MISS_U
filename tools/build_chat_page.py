@@ -633,16 +633,16 @@ function retrieveSnippets(tokens, records, opts) {
     results.push({
       date: String(rec.timestamp || '').substring(0, 10),
       text: txt.length > 200 ? txt.substring(0, 200) : txt,
-      score: score
+      score: score, record_id:rec.record_id, person:rec.person, speaker_id:rec.sender_person_id,
+      viewpoint:rec.viewpoint, relationship_id:rec.relationship_id, tier:rec.tier,
+      provenance:rec.provenance, evidence_revision:rec.evidence_revision
     });
   }
   results.sort(function(a, b) {
     if (b.score !== a.score) return b.score - a.score;
     return a.text.length - b.text.length;
   });
-  return results.slice(0, top).map(function(r) {
-    return {date: r.date, text: r.text, score: r.score};
-  });
+  return results.slice(0, top);
 }
 
 function retrieveKnowledge(tokens, memories, transcripts, opts) {
@@ -655,6 +655,7 @@ function retrieveKnowledge(tokens, memories, transcripts, opts) {
   transcripts = transcripts || [];
   for (i = 0; i < memories.length; i++) {
     e = memories[i];
+    if (e.tier === 2 || e.release_id || e.authorization || (e.provenance && e.provenance.source_kind === 'original_text')) continue;
     var title = String(e.title || '').trim();
     var texts = Array.isArray(e.texts) ? e.texts : [];
     var hay = title + '\n' + texts.join('\n');
@@ -663,21 +664,23 @@ function retrieveKnowledge(tokens, memories, transcripts, opts) {
     if (score <= 0) continue;
     var body = String(texts[0] || '').trim();
     txt = title + (body ? ' — ' + body : '');
-    if (txt.length > 240) txt = txt.substring(0, 240);
-    mem.push({label: '[家人确认记忆 Tier-1]', date: String(e.date || ''), text: txt, score: score});
+    if (e.tier !== 2 && txt.length > 240) txt = txt.substring(0, 240);
+    mem.push({label: (e.tier === 2 ? '[来源派生记忆 Tier-2；批量采用，非逐条人审]' : '[家人确认记忆 Tier-1]') + (e.relationship_id ? ' [' + e.relationship_id + ']' : ''), date: String(e.date || ''), text: txt, score: score, record_id:e.id, person:e.person, tier:e.tier === 2 ? 2 : 1, relationship_id:e.relationship_id, evidence_revision:e.evidence_revision, provenance:e.provenance, evidence_records:e.evidence_records});
   }
   mem.sort(function(a, b) { return b.score - a.score; });
   mem = mem.slice(0, memTop);
   var trans = [];
   for (i = 0; i < transcripts.length; i++) {
     e = transcripts[i];
+    if (e.schema_version === 2 && (e.speaker_status !== 'confirmed' || e.transcript_status !== 'corrected' || e.single_speaker !== true || !e.speaker_id || e.speaker_id === 'unknown' || e.source_kind !== 'real_recording')) continue;
     txt = String(e.text || '').trim();
     if (!txt) continue;
     score = scoreText(tokens, txt);
     if (score <= 0) continue;
     if (txt.length > 200) txt = txt.substring(0, 200);
     var lbl = e.media === 'video' ? '[视频转写 Tier-2]' : '[语音转写 Tier-2]';
-    trans.push({label: lbl, date: String(e.date || ''), text: txt, score: score});
+    if (e.schema_version === 2) lbl += ' [' + e.speaker_id + ' / ' + e.viewpoint + ' / ' + (e.relationship_id || '未标注关系') + ']';
+    trans.push({label: lbl, date: String(e.date || ''), text: txt, score: score, record_id:e.record_id, person:e.person, tier:e.tier, speaker_id:e.speaker_id, speaker_status:e.speaker_status, relationship_id:e.relationship_id, viewpoint:e.viewpoint, provenance:e.provenance, evidence_revision:e.evidence_revision, segment_start_ms:e.segment_start_ms, segment_end_ms:e.segment_end_ms});
   }
   trans.sort(function(a, b) { return b.score - a.score; });
   trans = trans.slice(0, transTop);
@@ -688,7 +691,20 @@ function buildRetrievalBlock(snippets) {
   if (!snippets || snippets.length === 0) return '';
   var lines = [];
   for (var i = 0; i < snippets.length; i++) {
-    lines.push((snippets[i].label || '[档案检索 Tier-2]') + ' ' + snippets[i].date + ' · ' + snippets[i].text);
+    var s = snippets[i], p = s.provenance || {}, refs = [];
+    if (s.record_id) refs.push('record=' + s.record_id);
+    if (s.person) refs.push('person=' + s.person);
+    if (s.speaker_id) refs.push('speaker=' + s.speaker_id);
+    if (s.viewpoint) refs.push('viewpoint=' + s.viewpoint);
+    if (s.relationship_id) refs.push('relationship=' + s.relationship_id);
+    if (s.tier) refs.push('Tier-' + s.tier);
+    if (p.source_file_sha256 || p.legacy_source_sha256) refs.push('source_sha256=' + (p.source_file_sha256 || p.legacy_source_sha256));
+    if (p.source_sha256) refs.push('source_sha256=' + p.source_sha256);
+    if (p.sources) refs.push('sources=' + p.sources.slice(0, 3).map(function(r){return r.record_id;}).join(',') + ' (total=' + p.sources.length + ')' );
+    if (s.evidence_revision) refs.push('revision=' + s.evidence_revision);
+    if (s.segment_start_ms != null) refs.push('segment_ms=' + s.segment_start_ms + '..' + s.segment_end_ms);
+    if (p.source_records) refs.push('evidence=' + p.source_records.slice(0, 3).join(',') + ' (total=' + p.source_records.length + ')');
+    lines.push((s.label || '[档案检索 Tier-2]') + ' ' + s.date + ' · ' + s.text + (refs.length ? ' [' + refs.join('; ') + ']' : ''));
   }
   var block = lines.join('\n');
   var budget = 2200;

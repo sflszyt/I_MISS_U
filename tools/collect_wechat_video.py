@@ -9,6 +9,12 @@
 """
 from __future__ import annotations
 
+try:
+    from .local_identity import owner_participant
+except ImportError:
+    from local_identity import owner_participant
+
+
 import argparse
 import hashlib
 import json
@@ -26,7 +32,7 @@ from urllib.parse import quote
 
 PARSER_NAME = "collect_wechat_video"
 PARSER_VERSION = "1.0.0"
-VIEWPOINT = "justin"
+VIEWPOINT = owner_participant()
 CHUNK_SIZE = 8 * 1024 * 1024
 RAW_PREFIX = ("raw", "wechat", "video")
 NORMALIZED_PREFIX = ("normalized",)
@@ -632,8 +638,8 @@ def main() -> int:
         repo_root = Path(__file__).resolve().parent.parent
     repo_root = repo_root.resolve()
 
-    if not (repo_root / "CLAUDE.md").is_file():
-        fatal(f"repo root sentinel CLAUDE.md not found under {repo_root}")
+    if not (repo_root / "tools").is_dir():
+        fatal(f"repo root sentinel tools/ not found under {repo_root}")
     if not (repo_root / "schema" / "uif.schema.json").is_file():
         fatal(f"repo root sentinel schema/uif.schema.json not found under {repo_root}")
 

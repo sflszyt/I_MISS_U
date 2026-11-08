@@ -10,7 +10,13 @@ import re
 import sys
 from pathlib import Path
 
-DECISION_FIELDS = ("status", "decided_at", "user_title", "user_note")
+try:
+    from .memory_evidence import (dataset_fingerprint, evidence_revision, decision_is_current,
+                                  validate_legacy_freeze, DECISION_FIELDS, preflight_outputs)
+except ImportError:
+    from memory_evidence import (dataset_fingerprint, evidence_revision, decision_is_current,
+                                 validate_legacy_freeze, DECISION_FIELDS, preflight_outputs)
+
 PERSON_RE = re.compile(r"^[a-z0-9_-]{1,64}$")
 
 
@@ -30,7 +36,13 @@ def path_is_within(child: Path, parent: Path) -> bool:
 
 def content_sig(rec: dict) -> str:
     """计算卡片用户可见内容（title/excerpts）的 sha256 签名。"""
-    obj = {"title": rec.get("title"), "excerpts": rec.get("excerpts")}
+    if rec.get('schema_version') == 2:
+        base = copy.deepcopy(rec)
+        base.pop('user_title', None)
+        base.pop('user_note', None)
+        return evidence_revision(base)
+    obj = {k: v for k, v in rec.items() if k not in
+           (*DECISION_FIELDS, 'previous_versions', 'carried_forward', 'content_changed')}
     data = json.dumps(obj, sort_keys=True, ensure_ascii=True, separators=(",", ":"))
     return hashlib.sha256(data.encode("utf-8")).hexdigest()
 
@@ -75,6 +87,15 @@ def load_jsonl_strict(path: Path) -> list:
 
 def merge_candidates(old_list: list, new_list: list) -> tuple:
     """合并新旧候选列表，返回 (merged, stats)。纯函数，不做 IO。"""
+    versions = {r.get('schema_version', 1) for r in old_list + new_list}
+    if len(versions) > 1:
+        raise ValueError('cannot merge legacy and v2')
+    for records in (old_list, new_list):
+        if records:
+            dataset_fingerprint(records, legacy=versions == {1})
+    if versions == {2} and old_list and new_list:
+        if (old_list[0]['person'], old_list[0]['relationship_id']) != (new_list[0]['person'], new_list[0]['relationship_id']):
+            raise ValueError('merge scope mismatch')
     old_by_id = {rec["candidate_id"]: rec for rec in old_list}
     new_by_id = {rec["candidate_id"]: rec for rec in new_list}
 
@@ -92,15 +113,46 @@ def merge_candidates(old_list: list, new_list: list) -> tuple:
     for rec in new_list:
         cid = rec["candidate_id"]
         old_rec = old_by_id.get(cid)
-        if old_rec is not None and is_decided(old_rec):
+        # 已记录的历史版本不能以一次旧提取结果覆盖较新的证据。
+        history = list(old_rec.get('previous_versions', [])) if old_rec else []
+        seen_historical = False
+        while history:
+            prior = history.pop()
+            if content_sig(prior) == content_sig(rec):
+                seen_historical = True
+                break
+            history.extend(prior.get('previous_versions', []))
+        if old_rec is not None and seen_historical and content_sig(old_rec) != content_sig(rec):
+            out = copy.deepcopy(old_rec)
+            if out.get('status') == 'confirmed' and (versions != {2} or decision_is_current(out)):
+                stats['confirmed'] += 1
+            elif out.get('status') == 'rejected' and (versions != {2} or decision_is_current(out)):
+                stats['rejected'] += 1
+            else:
+                for field in DECISION_FIELDS:
+                    out.pop(field, None)
+                out['status'] = 'pending'
+                if versions == {2}:
+                    out['evidence_revision'] = evidence_revision(out)
+                stats['new_pending'] += 1
+            merged.append(out)
+            continue
+        if (old_rec is not None and is_decided(old_rec)
+                and (versions != {2} or decision_is_current(old_rec))
+                and content_sig(old_rec) == content_sig(rec)):
             out = copy.deepcopy(rec)
             # 剔除可能残留的合并标志字段（幂等性：content_changed 每轮按签名重算）
             out.pop("carried_forward", None)
             out.pop("content_changed", None)
             # 覆盖裁决字段
             for field in DECISION_FIELDS:
+                out.pop(field, None)
                 if field in old_rec:
-                    out[field] = old_rec[field]
+                    out[field] = copy.deepcopy(old_rec[field])
+            if versions == {2}:
+                out['evidence_revision'] = evidence_revision(out)
+            if 'previous_versions' in old_rec:
+                out['previous_versions'] = copy.deepcopy(old_rec['previous_versions'])
             # 内容变更检测
             if content_sig(old_rec) != content_sig(rec):
                 out["content_changed"] = True
@@ -112,6 +164,15 @@ def merge_candidates(old_list: list, new_list: list) -> tuple:
             merged.append(out)
         else:
             out = copy.deepcopy(rec)
+            for field in DECISION_FIELDS:
+                out.pop(field, None)
+            out['status'] = 'pending'
+            out.pop('previous_versions', None)
+            if old_rec is not None:
+                out['previous_versions'] = [copy.deepcopy(old_rec)]
+                stats['content_changed'] += 1
+            if versions == {2}:
+                out['evidence_revision'] = evidence_revision(out)
             out.pop("carried_forward", None)
             out.pop("content_changed", None)
             stats["new_pending"] += 1
@@ -123,7 +184,7 @@ def merge_candidates(old_list: list, new_list: list) -> tuple:
         cid = rec["candidate_id"]
         if cid in new_by_id:
             continue
-        if is_decided(rec):
+        if is_decided(rec) and (versions != {2} or decision_is_current(rec)):
             out = copy.deepcopy(rec)
             out["carried_forward"] = True
             if out.get("status") == "confirmed":
@@ -138,6 +199,8 @@ def merge_candidates(old_list: list, new_list: list) -> tuple:
     # carried_forward 按 (date, candidate_id) 升序排序
     carried.sort(key=lambda r: (r.get("date", "") or "", r["candidate_id"]))
     merged.extend(carried)
+    if versions == {2} and any(is_decided(r) and not decision_is_current(r) for r in merged):
+        raise ValueError('merged decision does not match evidence revision')
 
     # 计数自检：总数 = confirmed + rejected + new_pending（carried 计入前两者）
     total = len(merged)
@@ -188,6 +251,8 @@ def build_report(stats: dict, old_path: Path, new_path: Path, out_path: Path,
 def main() -> int:
     parser = argparse.ArgumentParser(description="合并新鲜挖掘候选与旧裁决状态")
     parser.add_argument("--person", required=True, help="person 标识")
+    parser.add_argument('--relationship-id', required=True)
+    parser.add_argument('--legacy-freeze', type=Path)
     parser.add_argument("--old", type=Path, help="旧候选文件路径")
     parser.add_argument("--new", type=Path, required=True, help="新鲜候选文件路径")
     parser.add_argument("--out", type=Path, help="输出文件路径")
@@ -236,7 +301,24 @@ def main() -> int:
     old_pending = len(old_records) - old_confirmed - old_rejected
 
     # 合并
-    merged, stats = merge_candidates(old_records, new_records)
+    try:
+        preflight_outputs([out_path],
+                          [args.new, args.legacy_freeze], inplace_inputs=[old_path])
+        # 暂存文件没有原地更新权限，必须保护旧输入和最终输出。
+        preflight_outputs([out_path.with_suffix(out_path.suffix + '.part')],
+                          [old_path, args.new, args.legacy_freeze, out_path])
+        if old_records and old_records[0].get('schema_version') == 2 and out_path.resolve() == default_old.resolve():
+            raise ValueError('v2 cannot overwrite legacy candidates')
+        if old_records and old_records[0].get('schema_version', 1) == 1:
+            validate_legacy_freeze(old_records, old_path.read_bytes(), args.legacy_freeze,
+                                   args.person, args.relationship_id)
+        elif any(r['person'] != args.person or r['relationship_id'] != args.relationship_id
+                 for r in old_records + new_records):
+            raise ValueError('CLI scope mismatch')
+        merged, stats = merge_candidates(old_records, new_records)
+    except (ValueError, KeyError, TypeError, OSError) as exc:
+        print('[error] invalid merge scope/evidence: ' + str(exc))
+        return 2
     if merged is None:
         return 1
 

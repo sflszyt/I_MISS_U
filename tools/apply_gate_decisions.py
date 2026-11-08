@@ -12,6 +12,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+try:
+    from .memory_evidence import (dataset_fingerprint, validate_legacy_freeze,
+                                  evidence_revision, decision_is_current, preflight_outputs)
+except ImportError:
+    from memory_evidence import (dataset_fingerprint, validate_legacy_freeze,
+                                 evidence_revision, decision_is_current, preflight_outputs)
+
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 
 def eprint(msg: str) -> None:
@@ -166,6 +173,9 @@ def posix_repo_relative(path: Path, root: Path) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Apply gate decisions to candidates and regenerate memories.md.")
     parser.add_argument("--person", required=True)
+    parser.add_argument("--relationship-id", required=True)
+    parser.add_argument("--decided-by", required=True, help="实际人工确认者标识")
+    parser.add_argument("--legacy-freeze", type=Path)
     parser.add_argument("--decisions", required=True, nargs="+", type=Path)
     parser.add_argument("--candidates", type=Path, default=None)
     parser.add_argument("--out", type=Path, default=None)
@@ -224,6 +234,32 @@ def main() -> int:
         candidates.append(obj)
         line_bytes.append(ln)
 
+    try:
+        preflight_outputs([candidates_path, out_path],
+                          [*args.decisions, args.legacy_freeze, root / 'tools/sensitive_patterns.json'],
+                          inplace_inputs=[candidates_path])
+        if not candidates or not args.decided_by.strip() or args.allow_dataset_mismatch:
+            raise ValueError('empty dataset/reviewer or unsafe mismatch override')
+        is_v2 = candidates[0].get('schema_version', 1) == 2
+        if is_v2:
+            if not args.candidates or not args.out or candidates_path.resolve() == (base / 'memories/candidates.jsonl').resolve() or out_path.resolve() == (base / 'memories/memories.md').resolve():
+                raise ValueError('v2 requires explicit non-legacy input/output paths')
+            if out_path.resolve() == candidates_path.resolve() or any(out_path.resolve() == p.resolve() for p in args.decisions):
+                raise ValueError('output aliases an input')
+            current_ds = dataset_fingerprint(candidates)
+            if any(c['person'] != slug or c['relationship_id'] != args.relationship_id for c in candidates):
+                raise ValueError('candidate scope mismatch')
+            if any(c.get('status') in ('confirmed', 'rejected') and not decision_is_current(c)
+                   for c in candidates):
+                raise ValueError('unbound existing decision')
+        else:
+            current_ds = validate_legacy_freeze(candidates, raw_bytes, args.legacy_freeze,
+                                                slug, args.relationship_id)
+    except (ValueError, TypeError, KeyError, OSError) as exc:
+        err_exit('error: invalid candidate scope or evidence: ' + str(exc))
+    by_id = {c['candidate_id']: c for c in candidates}
+    seen_decisions = set()
+
     # 2. Load decisions files, validate en masse before any write
     decisions_list: List[List[Dict[str, Any]]] = []
     dataset_hashes: List[str] = []
@@ -233,11 +269,13 @@ def main() -> int:
         except ValueError as exc:
             err_exit(f"error: {exc}")
             return 2
-        if data.get("v") != 1:
-            err_exit(f"error: {df}: unknown v (expected 1, got {data.get('v')})")
+        if type(data.get('v')) is not int or data['v'] != (2 if is_v2 else 1):
+            err_exit('error: decision schema mismatch')
             return 2
+        if is_v2 and (data.get('person') != slug or data.get('relationship_id') != args.relationship_id):
+            err_exit('error: decision scope mismatch')
         ds = data.get("source_dataset")
-        if not isinstance(ds, str) or len(ds) != 12:
+        if not isinstance(ds, str) or ds != current_ds:
             err_exit(f"error: {df}: invalid source_dataset")
             return 2
         dataset_hashes.append(ds)
@@ -251,6 +289,14 @@ def main() -> int:
                 err_exit(f"error: {df}: invalid decision entry")
                 return 2
             act = d["action"]
+            cid = d['id']
+            if not isinstance(cid, str) or cid not in by_id or cid in seen_decisions:
+                err_exit('error: unknown or duplicate decision ID')
+            seen_decisions.add(cid)
+            if is_v2 and d.get('evidence_revision') != by_id[cid]['evidence_revision']:
+                err_exit('error: decision evidence revision mismatch')
+            if any(k in d and not isinstance(d[k], str) for k in ('title', 'note')):
+                err_exit('error: title/note must be strings')
             if act not in ("confirm", "reject", "pending"):
                 err_exit(f"error: {df}: unknown action '{act}'")
                 return 2
@@ -258,7 +304,6 @@ def main() -> int:
         decisions_list.append(parsed)
 
     # dataset hash check against current file
-    current_ds = compute_source_dataset(candidates)
     for i, df in enumerate(args.decisions):
         if dataset_hashes[i] != current_ds:
             if args.allow_dataset_mismatch:
@@ -304,13 +349,25 @@ def main() -> int:
             new_obj.pop("user_title", None)
             new_obj.pop("user_note", None)
             new_obj.pop("decided_at", None)
+            new_obj.pop('decided_by', None)
+            new_obj.pop('decision', None)
         else:
             new_obj["status"] = "confirmed" if act == "confirm" else "rejected"
-            if "title" in dec and dec.get("title"):
+            if "title" in dec:
                 new_obj["user_title"] = dec["title"]
-            if "note" in dec and dec.get("note"):
+            if "note" in dec:
                 new_obj["user_note"] = dec["note"]
             new_obj["decided_at"] = now_iso
+            new_obj['decided_by'] = args.decided_by.strip()
+        if is_v2:
+            new_obj['evidence_revision'] = evidence_revision(new_obj)
+        if act != 'pending':
+            new_obj['decision'] = {'action': act, 'decided_by': args.decided_by.strip(),
+                                   'decided_at': now_iso, 'person': slug,
+                                   'relationship_id': args.relationship_id,
+                                   'source_dataset': current_ds,
+                                   'based_on_revision': cand.get('evidence_revision'),
+                                   'evidence_revision': new_obj.get('evidence_revision')}
         serialized = json.dumps(new_obj, ensure_ascii=False, separators=(",", ":"))
         new_lines.append(serialized.encode("utf-8"))
 

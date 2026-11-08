@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
 """Extract memory candidates from UIF messages and media manifests."""
 
+try:
+    from .local_identity import owner_participant
+except ImportError:
+    from local_identity import owner_participant
+
+
 import argparse
 import hashlib
 import json
@@ -11,6 +17,11 @@ import sys
 from collections import defaultdict, Counter
 from datetime import datetime
 from pathlib import Path
+
+try:
+    from .memory_evidence import scope_candidate, dataset_fingerprint, preflight_outputs
+except ImportError:
+    from memory_evidence import scope_candidate, dataset_fingerprint, preflight_outputs
 
 
 def _parse_manifest_line(line: str):
@@ -140,7 +151,7 @@ def make_candidate(kind: str, kind_label: str, date: str, chat_room, group,
         "provenance": {
             "generator": "extract_memory_candidates",
             "version": "1.0.0",
-            "source_records": source_records[:20],
+            "source_records": source_records,
         },
     }
 
@@ -656,6 +667,7 @@ def main():
         description="从 UIF 消息 + 媒体 manifest 提取记忆卡片候选"
     )
     parser.add_argument("--person", required=True, help="人物标识")
+    parser.add_argument('--relationship-id', help='显式范围，启用 v2 证据合同')
     parser.add_argument("--uif", type=Path, help="UIF 消息 JSONL 路径")
     parser.add_argument("--voice-manifest", type=Path, help="语音 manifest 路径")
     parser.add_argument("--video-manifest", type=Path, help="视频 manifest 路径")
@@ -671,6 +683,8 @@ def main():
     parser.add_argument("--quota", default="keyword_event=0.40,media_burst=0.15,burst_day=0.15,voice_long=0.15,long_message=0.15", help="按 kind 配额比例")
     parser.add_argument("--out", type=Path, help="输出路径")
     args = parser.parse_args()
+    if args.relationship_id and (not args.uif or not args.out):
+        parser.error('v2 requires explicit --uif and --out')
 
     # Validate person
     if not re.match(r"^[a-z0-9_-]{1,64}$", args.person):
@@ -726,6 +740,17 @@ def main():
     voice_transcripts_path = args.voice_transcripts if args.voice_transcripts else default_voice_transcripts
     video_transcripts_path = args.video_transcripts if args.video_transcripts else default_video_transcripts
 
+    # v2 不扫描现役默认媒体或转录；只消费本次明确选择的输入。
+    if args.relationship_id:
+        absent = args.uif.parent / '__unused_v2_media__'
+        voice_path = args.voice_manifest or absent
+        video_path = args.video_manifest or absent
+        voice_transcripts_path = args.voice_transcripts or absent
+        video_transcripts_path = args.video_transcripts or absent
+        if absent.exists():
+            print('[error] reserved absent input exists')
+            return 2
+
     # Resolve paths
     uif_path = uif_path.resolve()
     voice_path = voice_path.resolve()
@@ -762,6 +787,31 @@ def main():
 
     # Load messages
     messages, bad_lines = load_uif_messages(uif_path)
+    source_index = defaultdict(list)
+    try:
+        for input_path in dict.fromkeys((uif_path, voice_path, video_path,
+                                         voice_transcripts_path, video_transcripts_path)):
+            if not input_path.exists():
+                continue
+            for line in input_path.read_text(encoding='utf-8').splitlines():
+                if not line.strip():
+                    continue
+                record = json.loads(line)
+                if not isinstance(record, dict):
+                    raise ValueError('input must contain objects')
+                if args.relationship_id:
+                    if (record.get('person') != args.person or
+                            args.relationship_id != args.person + '_' + str(record.get('viewpoint'))):
+                        raise ValueError('source relationship mismatch')
+                elif record.get('viewpoint', owner_participant()) != owner_participant():
+                    raise ValueError('non-legacy source requires --relationship-id')
+                if record.get('record_id'):
+                    source_index[record['record_id']].append(record)
+        if args.relationship_id and bad_lines:
+            raise ValueError('invalid v2 source rows')
+    except (ValueError, OSError) as exc:
+        print('[error] invalid scoped source: ' + str(exc))
+        return 2
     if bad_lines > 0:
         print(f"[warn] UIF 坏行数: {bad_lines}")
 
@@ -882,6 +932,25 @@ def main():
 
     # Final sort by kind priority and internal order
     final_candidates = sort_candidates(final_candidates)
+    if args.relationship_id:
+        try:
+            scoped = []
+            for cand in final_candidates:
+                evidence = []
+                for rid in cand['provenance']['source_records']:
+                    observations = source_index[rid]
+                    if not observations:
+                        raise ValueError('missing full evidence')
+                    evidence.append({'record_id': rid, 'person': args.person,
+                                     'viewpoint': observations[0]['viewpoint'],
+                                     'observations': observations})
+                scoped.append(scope_candidate(cand, args.person, args.relationship_id, evidence))
+            final_candidates = scoped
+            if scoped:
+                dataset_fingerprint(scoped)
+        except ValueError as exc:
+            print('[error] invalid candidate evidence: ' + str(exc))
+            return 2
 
     # Re-apply has_asr_draft after sort (already on candidates)
     # Report per-kind truncation
@@ -896,6 +965,14 @@ def main():
 
     # Output directory
     out_parent = out_path.parent
+    try:
+        original_out = args.out or out_path
+        preflight_outputs([original_out, original_out.with_suffix(original_out.suffix + '.part')],
+                          [uif_path, voice_path, video_path, kw_path,
+                           voice_transcripts_path, video_transcripts_path])
+    except ValueError as exc:
+        print('[error] unsafe output: ' + str(exc))
+        return 2
     memories_root = (repo_root / "people" / args.person / "memories").resolve()
 
     # Safety check: ensure output is within memories subtree
@@ -909,6 +986,10 @@ def main():
 
     if not path_is_within(out_path, memories_root):
         print(f"[error] 输出路径越界: {out_path}")
+        return 2
+
+    if args.relationship_id and (out_path.exists() or out_path == default_out.resolve()):
+        print('[error] v2 requires a new output file; existing legacy cards are frozen')
         return 2
 
     out_parent.mkdir(parents=True, exist_ok=True)

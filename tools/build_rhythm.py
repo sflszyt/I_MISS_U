@@ -74,7 +74,7 @@ def percentile(values: list, p: float) -> float:
     f = math.floor(k)
     c = math.ceil(k)
     if f == c:
-        return float(values[k])
+        return float(values[f])
     lower = values[f]
     upper = values[c]
     return float(lower + (upper - lower) * (k - f))
@@ -238,7 +238,7 @@ def compute_burst(subject_records, skipped_counter) -> dict:
     return {"distribution": dist, "longest_burst": max_burst, "burst_count": len(burst_lengths)}
 
 
-def compute_reply_latency(records, subject_set, skipped_counter) -> dict:
+def compute_reply_latency(records, subject_set, skipped_counter, *, direct_rooms=None) -> dict:
     # Private chat room laurawang001
     # Look for subject messages immediately following a non-subject message within 1h
     # We need chronological order in that room
@@ -250,7 +250,7 @@ def compute_reply_latency(records, subject_set, skipped_counter) -> dict:
         if not isinstance(room, str):
             skipped_room += 1
             continue
-        if "laurawang001" not in room:
+        if (room not in direct_rooms if direct_rooms is not None else "laurawang001" not in room):
             continue
         dt = parse_timestamp(r.get("timestamp"))
         if dt:
@@ -263,6 +263,13 @@ def compute_reply_latency(records, subject_set, skipped_counter) -> dict:
     latencies = []
     for i in range(1, len(room_msgs)):
         prev, cur = room_msgs[i - 1][1], room_msgs[i][1]
+        if direct_rooms is not None and prev.get('chat_room') != cur.get('chat_room'):
+            continue
+        if direct_rooms is not None and prev.get('source_order_group') != cur.get('source_order_group'):
+            continue
+        if direct_rooms is not None and cur.get('source_order') != prev.get('source_order', -2) + 1:
+            # 未知时间或被排除的源行形成间隔时，不把跨间隔当作紧邻回复。
+            continue
         if cur.get("sender") == "subject" and prev.get("sender") != "subject":
             delta = (room_msgs[i][0] - room_msgs[i - 1][0]).total_seconds()
             if 0 <= delta <= 3600:

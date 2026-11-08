@@ -11,6 +11,12 @@
 
 from __future__ import annotations
 
+try:
+    from .local_identity import owner_participant
+except ImportError:
+    from local_identity import owner_participant
+
+
 import argparse
 import hashlib
 import json
@@ -32,7 +38,7 @@ except ImportError:
 
 
 PARSER_VERSION = "1.0.0"
-VIEWPOINT = "justin"
+VIEWPOINT = owner_participant()
 SAMPLE_RATE = 24000
 SILK_HEADER = b"\x02#!SILK_V3"
 
@@ -438,8 +444,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     repo_root = Path(args.repo_root).resolve() if args.repo_root else Path(__file__).resolve().parent.parent
     repo_root = repo_root.resolve()
 
-    if not (repo_root / "CLAUDE.md").is_file() or not (repo_root / "schema" / "uif.schema.json").is_file():
-        fatal("--repo-root must point to the I_MISS_U repository root (missing CLAUDE.md or schema/uif.schema.json)")
+    if not (repo_root / "tools").is_dir() or not (repo_root / "schema" / "uif.schema.json").is_file():
+        fatal("--repo-root must point to the I_MISS_U repository root (missing tools/ or schema/uif.schema.json)")
 
     db_dir = Path(args.db_dir).resolve()
     if not db_dir.is_dir():

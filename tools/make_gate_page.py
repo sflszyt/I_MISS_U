@@ -9,6 +9,12 @@ import json
 import os
 import re
 import sys
+from pathlib import Path
+
+try:
+    from .memory_evidence import dataset_fingerprint, validate_legacy_freeze, decision_is_current, digest, preflight_outputs
+except ImportError:
+    from memory_evidence import dataset_fingerprint, validate_legacy_freeze, decision_is_current, digest, preflight_outputs
 
 VALID_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 
@@ -98,6 +104,8 @@ def build_flag_matches(cand: dict, patterns: list[dict]) -> list[str]:
 
 
 def initial_state_for(cand: dict) -> str:
+    if cand.get('schema_version') == 2 and not decision_is_current(cand):
+        return 'pending'
     saved = str(cand.get("status", "") or "").strip().lower()
     if saved in ("confirmed", "rejected"):
         return "confirm" if saved == "confirmed" else "reject"
@@ -158,6 +166,10 @@ def build_card(cand: dict, flagged_names: list[str], initial_state: str) -> dict
 
     return {
         "id": cid,
+        "schema_version": cand.get('schema_version', 1),
+        "person": cand.get('person'),
+        "relationship_id": cand.get('relationship_id'),
+        "evidence_revision": cand.get('evidence_revision') if cand.get('schema_version') == 2 else digest(cand),
         "date": date,
         "kind_label": kind_label,
         "title": title,
@@ -248,6 +260,7 @@ header h1{font-size:18px;font-weight:700;margin-bottom:6px}
 <body>
 <header>
 <h1>记忆卡片人工闸门 · __SLUG__</h1>
+<div class="instructions">关系范围：__RELATIONSHIP__</div>
 <div class="meta">数据集 <span id="datasetid">__DATASET__</span> · 共 <span id="totalcnt">__TOTAL__</span> 条</div>
 <div class="progressline">已决定 <span id="decidedcnt">0</span> / <span id="totalcnt2">__TOTAL__</span></div>
 <div class="instructions">✅ 确认 = 进入 Tier-1 记忆册；🚫 剔除 = 不进入；✏️ 改写 = 修改标题后确认。点按当前状态可撤销。</div>
@@ -270,6 +283,8 @@ header h1{font-size:18px;font-weight:700;margin-bottom:6px}
 var DATA = __DATA__;
 var DATASET = "__DATASET__";
 var SLUG = "__SLUG__";
+var VERSION = DATA.length ? DATA[0].schema_version : 2;
+var RELATIONSHIP = DATA.length ? DATA[0].relationship_id : null;
 var STORE_KEY = "gate_" + DATASET;
 var state = {};       // id -> {action:'confirm'|'reject'|'pending', title:?, note:?}
 
@@ -278,7 +293,7 @@ function findCard(id){for(var i=0;i<DATA.length;i++){if(DATA[i].id===id)return D
 function trimStr(s){return String(s==null?"":s).trim()}
 
 function normState(raw){
-    var s={action:raw.action};
+    var s={action:raw.action,evidence_revision:raw.evidence_revision};
     if(raw.title!==undefined&&raw.title!==null&&trimStr(raw.title)!==""){s.title=trimStr(raw.title)}
     if(raw.note!==undefined&&raw.note!==null&&trimStr(raw.note)!==""){s.note=trimStr(raw.note)}
     return s;
@@ -286,9 +301,12 @@ function normState(raw){
 
 function initState(){
     var stored=null;
-    try{var raw=localStorage.getItem(STORE_KEY); if(raw){var obj=JSON.parse(raw); if(obj && obj.dataset===DATASET && obj.state){stored=obj.state;}} }catch(e){}
+    try{var raw=localStorage.getItem(STORE_KEY); if(raw){var obj=JSON.parse(raw); if(obj && obj.v===VERSION && obj.person===SLUG && obj.relationship_id===RELATIONSHIP && obj.dataset===DATASET && obj.state){stored=obj.state;}} }catch(e){}
     if(stored){
-        for(var k in stored){ if(stored.hasOwnProperty(k)){ state[k]=normState(stored[k]); } }
+        for(var k in stored){ if(Object.prototype.hasOwnProperty.call(stored,k)){
+            var c=findCard(k), s=stored[k];
+            if(c && s && s.evidence_revision===c.evidence_revision && ["confirm","reject","pending"].indexOf(s.action)>=0){state[k]=normState(s);}
+        } }
         showToast("草稿已恢复");
     }
     for(var i=0;i<DATA.length;i++){
@@ -328,7 +346,8 @@ function isEdited(id){
 }
 
 function saveDraft(){
-    var out={dataset:DATASET,state:state};
+    for(var k in state){var c=findCard(k);if(c){state[k].evidence_revision=c.evidence_revision;}}
+    var out={v:VERSION,person:SLUG,relationship_id:RELATIONSHIP,dataset:DATASET,state:state};
     try{localStorage.setItem(STORE_KEY,JSON.stringify(out));}catch(e){}
 }
 
@@ -390,7 +409,7 @@ function renderCard(c){
     var rejectCls = (st==="reject")?"active":"";
     var editCls = (isEdited(id))?"active":"";
 
-    return '<div class="'+cls+'" data-id="'+id+'">'+
+    return '<div class="'+cls+'" data-id="'+escapeHtmlObj(id)+'">'+
       '<div class="cardtop"><span class="date">'+escapeHtmlObj(c.date)+'</span><span class="chip">'+escapeHtmlObj(c.kind_label)+'</span>'+editedChip+'</div>'+
       '<div class="title">'+titleHtml+'</div>'+
       c.flagged_html+
@@ -604,10 +623,10 @@ function computeDecisions(){
         var initNote=c.user_note?trimStr(c.user_note):"";
         if(action===initAction && dTitle===initTitle && dNote===initNote) continue;
         if(action==="pending"){
-            decisions.push({id:id,action:"pending"});
+            decisions.push({id:id,action:"pending",evidence_revision:c.evidence_revision});
             continue;
         }
-        var obj={id:id,action:action};
+        var obj={id:id,action:action,evidence_revision:c.evidence_revision};
         // For confirm: include title only when it differs from base title, note if non-empty
         if(action==="confirm"){
             if(dTitle!=="" && dTitle!==trimStr(c.title)){
@@ -624,13 +643,13 @@ function computeDecisions(){
 
 function openModal(){
     var decisions=computeDecisions();
-    var payload={v:1,page:1,source_dataset:DATASET,total:DATA.length,decisions:decisions};
+    var payload={v:VERSION,person:SLUG,relationship_id:RELATIONSHIP,page:1,source_dataset:DATASET,total:DATA.length,decisions:decisions};
     var code=JSON.stringify(payload);
     document.getElementById("modalh3").textContent = decisions.length===0?"尚无改动":"回贴码";
     if(decisions.length===0){
         document.getElementById("modalbody").innerHTML='<p style="color:#999;margin-bottom:8px">尚无改动</p>';
     } else {
-        document.getElementById("modalbody").innerHTML='<textarea id="pastecode" readonly>'+code+'</textarea><div class="charcnt">共 '+code.length+' 字符</div><div class="modalbtns"><button class="copybtn" data-copybtn="1" type="button">📋 复制</button><button id="modalclose2" type="button">关闭</button></div>';
+        document.getElementById("modalbody").innerHTML='<textarea id="pastecode" readonly>'+escapeHtmlObj(code)+'</textarea><div class="charcnt">共 '+code.length+' 字符</div><div class="modalbtns"><button class="copybtn" data-copybtn="1" type="button">📋 复制</button><button id="modalclose2" type="button">关闭</button></div>';
         var c2=document.getElementById("modalclose2");
         c2.addEventListener("click",function(){closeModal();});
     }
@@ -644,6 +663,7 @@ render();
 </html>
 """
     template = template.replace("__SLUG__", slug_html)
+    template = template.replace('__RELATIONSHIP__', escape_html(cards[0].get('relationship_id') or 'legacy' if cards else ''))
     template = template.replace("__DATASET__", escape_html(source_dataset))
     template = template.replace("__TOTAL__", str(total))
     template = template.replace("__DATA__", payload)
@@ -653,6 +673,8 @@ render();
 def main() -> int:
     parser = argparse.ArgumentParser(description="Render a gate-review HTML page.")
     parser.add_argument("--person", required=True)
+    parser.add_argument('--relationship-id', required=True)
+    parser.add_argument('--legacy-freeze', type=Path)
     parser.add_argument("--candidates")
     parser.add_argument("--patterns")
     parser.add_argument("--out")
@@ -686,8 +708,17 @@ def main() -> int:
     if not candidates:
         die("error: no candidates")
 
-    candidate_ids = [str(c.get("candidate_id", "")) for c in candidates]
-    source_dataset = compute_source_dataset(candidate_ids)
+    try:
+        preflight_outputs([out_path], [cand_path, pat_path, args.legacy_freeze])
+        if candidates[0].get('schema_version', 1) == 2:
+            source_dataset = dataset_fingerprint(candidates)
+            if any(c['person'] != slug or c['relationship_id'] != args.relationship_id for c in candidates):
+                raise ValueError('scope mismatch')
+        else:
+            source_dataset = validate_legacy_freeze(candidates, Path(cand_path).read_bytes(),
+                                                    args.legacy_freeze, slug, args.relationship_id)
+    except (ValueError, KeyError, TypeError, OSError) as exc:
+        die('error: invalid dataset: ' + str(exc))
 
     patterns = load_patterns(pat_path)
 
@@ -699,7 +730,10 @@ def main() -> int:
         if flagged:
             flag_count += 1
         init_state = initial_state_for(c)
-        cards.append(build_card(c, flagged_names, init_state))
+        card = build_card(c, flagged_names, init_state)
+        card['person'] = slug
+        card['relationship_id'] = args.relationship_id
+        cards.append(card)
 
     total = len(cards)
     html_content = render_page(slug, cards, source_dataset, total)

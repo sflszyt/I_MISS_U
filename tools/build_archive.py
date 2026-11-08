@@ -563,7 +563,19 @@ def main() -> int:
     parser.add_argument("--out", default=None, help="destination archive_dist dir")
     parser.add_argument("--verify", action="store_true", help="verify existing manifest")
     parser.add_argument("--dry-run", action="store_true", help="print actions without writing")
+    parser.add_argument('--relationship-build', help='显式新关系 build.json；无旧目录回退')
     args = parser.parse_args()
+
+    if args.relationship_build:
+        if not args.out or args.src or args.verify or args.dry_run:
+            parser.error('relationship mode requires --out and excludes --src/--verify/--dry-run')
+        try:
+            from .build_relationship_data import package_relationship
+        except ImportError:
+            from build_relationship_data import package_relationship
+        package_relationship(Path(args.relationship_build), Path(args.out), args.person)
+        print('relationship package written')
+        return 0
 
     slug = args.person
     if not SLUG_RE.match(slug):

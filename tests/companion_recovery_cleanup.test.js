@@ -1,0 +1,7 @@
+const fs=require('fs'),vm=require('vm'),assert=require('node:assert/strict');
+const html=fs.readFileSync(process.argv[2],'utf8');
+const start=html.indexOf('function archiveVoiceStep('),end=html.indexOf('fetchVoiceBlob=function(',start);assert(start>=0&&end>start);
+let started=false,aborted=false,settled=false;
+const context={Promise,Error,AbortController,setTimeout,clearTimeout,SESSIONS_PATH:'synthetic-sessions',archiveExcludedSessions:new Set(),archiveHoldReply:(stamp,run)=>run(),voiceScopeCurrent:()=>true,archiveReplyCurrent:()=>true,fetch:(path,options)=>{started=true;options.signal.addEventListener('abort',()=>aborted=true);return new Promise(()=>{});},boundedWait:p=>Promise.race([p,new Promise((resolve,reject)=>setTimeout(()=>reject(Error('synthetic timeout')),30))])};
+vm.createContext(context);vm.runInContext(html.slice(start,end),context);
+(async()=>{const vt={canceled:false,archiveStamp:{session:'synthetic'}};context.archiveFindSavedVoice(vt,0).then(()=>settled=true,()=>settled=true);await new Promise(r=>setTimeout(r,5));assert(started);vt.canceled=true;await new Promise(r=>setTimeout(r,60));assert(aborted,'raw metadata fetch must abort on timeout even when retired UI never settles');assert(!settled,'retired result must never enter inherited synth handlers');console.log(JSON.stringify({pass:true,started,aborted,settled}));})().catch(e=>{console.error(e);process.exitCode=1;});

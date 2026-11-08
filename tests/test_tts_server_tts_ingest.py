@@ -4,7 +4,7 @@
 此前的 bug 是 /tts 分支只写日志、不调用 sessions_ingest.schedule()，
 导致会话最后一轮的后几段语音在历史回放里缺失。
 运行方式（项目 venv）：
-    C:\\Users\\justin\\venvs\\cosyvoice\\Scripts\\python.exe -X utf8 -m unittest tests.test_tts_server_tts_ingest -v
+    python -X utf8 -m unittest tests.test_tts_server_tts_ingest -v
 """
 
 import glob

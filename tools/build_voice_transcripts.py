@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """Build per-original-clip transcripts for a person's voice archive."""
 
+try:
+    from .local_identity import owner_participant
+except ImportError:
+    from local_identity import owner_participant
+
+
 import argparse
 import datetime
 import json
@@ -166,7 +172,7 @@ def main():
         ok = seg.get("orig_key")
         if not sk or not ok:
             continue
-        if ok in ("justin_prompt",) or sk in ("justin_prompt",):
+        if ok in ((owner_participant() + '_prompt'),) or sk in ((owner_participant() + '_prompt'),):
             continue
         if ok not in manifest_by_key:
             continue
@@ -191,7 +197,7 @@ def main():
         quality = None
         segment_records = []
 
-        if key in seg_by_orig and key not in ("justin_prompt",):
+        if key in seg_by_orig and key not in ((owner_participant() + '_prompt'),):
             segs = seg_by_orig[key]
             clip_parts = []
             all_corr = True
@@ -249,7 +255,7 @@ def main():
             quality = None
             clip_text = None
 
-        if key in ("justin_prompt",) or (key in seg_by_orig and key not in manifest_by_key):
+        if key in ((owner_participant() + '_prompt'),) or (key in seg_by_orig and key not in manifest_by_key):
             skipped_keys += 1
             continue
 

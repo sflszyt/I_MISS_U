@@ -34,7 +34,7 @@
         "viewpoint": {
           "type": "string",
           "pattern": "^[a-z0-9_-]+$",
-          "description": "Slug of the account owner whose export this record came from, e.g. 'justin'. Use 'self' for the subject's own accounts."
+          "description": "Slug of the account owner whose export this record came from, e.g. 'owner'. Use 'self' for the subject's own accounts."
         },
         "source": {
           "type": "string",
@@ -88,13 +88,32 @@
             "native_id": {
               "type": "string",
               "description": "Original id of the item inside the source system, if available."
-            }
+            },
+            "source_account_id": { "type": "string", "description": "Private stable account alias from registry; not a viewer ID." },
+            "source_batch_id": { "type": "string" },
+            "source_row": { "type": ["string", "integer"] },
+            "source_file_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
           },
           "additionalProperties": true
         },
         "notes": {
           "type": "string",
           "description": "Optional free-form notes about this record."
+        },
+        "canonical_event_id": {
+          "type": "string",
+          "description": "Optional strong-evidence event link; never replaces source record_id."
+        },
+        "sender_person_id": { "type": "string" },
+        "conversation_kind": { "enum": ["direct", "group", "unknown"] },
+        "participant_ids": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "addressee_ids": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "relationship_id": { "type": "string" },
+        "speaker_id": { "type": "string" },
+        "quality": {
+          "type": "object",
+          "description": "Export, speaker and transcript checks are separate; accepted exports are not training approval.",
+          "additionalProperties": true
         }
       },
       "required": ["record_id", "record_type", "person", "viewpoint", "source", "tier", "provenance"],

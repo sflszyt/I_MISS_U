@@ -3,6 +3,12 @@
 
 from __future__ import annotations
 
+try:
+    from .local_identity import owner_participant
+except ImportError:
+    from local_identity import owner_participant
+
+
 import argparse
 import json
 import re
@@ -33,6 +39,25 @@ RELATION_MAP = {
 def fail(msg: str) -> None:
     print(f"ERROR: {msg}", file=sys.stderr)
     sys.exit(2)
+
+
+def scoped_context(manifest):
+    """只根据新构建清单声明范围，不读取旧 persona 或记忆。"""
+    if (manifest.get('schema_version') != 2 or manifest.get('viewer') not in ('owner', 'father')
+            or manifest.get('counts', {}).get('selected', 0) <= 0):
+        raise ValueError('explicit nonempty relationship manifest required')
+    participant = owner_participant() if manifest['viewer'] == 'owner' else 'father'
+    relationship = manifest['person'] + '_' + participant
+    language = manifest.get('language')
+    if (manifest.get('relationship_id') != relationship or language not in ('wu', 'mandarin')
+            or (manifest['viewer'] == 'father' and language != 'mandarin')):
+        raise ValueError('relationship manifest mismatch')
+    scope = '夫妻私聊' if participant == 'father' else '母子私聊'
+    return {'schema_version':2, 'person':manifest['person'], 'viewer':manifest['viewer'],
+            'relationship_id':relationship, 'language':language, 'coverage_status':manifest['coverage_status'],
+            'tier':3, 'system_prompt':f'当前选入{scope}；覆盖 {manifest["coverage_status"]}，不能当作完整一生。群聊与其他关系未选入，共享事实默认空。人格资料为 Tier-3 待审草案；保留缺点、冲突和矛盾，不理想化。事实只按所附来源引用；没有证据时说我记不太清了。',
+            'paths':{'persona':'persona.md','rhythm':'rhythm.json','memories':'memories.json',
+                     'examples':'examples.jsonl','digest':'persona_digest.json','transcripts':'transcripts.json'}}
 
 
 def parse_args() -> argparse.Namespace:
@@ -123,9 +148,15 @@ def format_catchphrases(entries: Any) -> list[str]:
     return out
 
 
-def build_rhythm_block(rhythm: dict[str, Any] | None) -> str:
+def build_rhythm_block(rhythm: dict[str, Any] | None, *, expression_only: bool = False) -> str:
     if rhythm is None:
         return "（暂无节律统计）"
+
+    # Father runtime opts in; retain the complete archive/source statistics untouched.
+    # Timing, voice duration and message/burst size are not response-shape targets.
+    if expression_only:
+        rhythm = {key: rhythm[key] for key in
+                  ("punctuation_habits", "catchphrases", "emoji_usage") if key in rhythm}
 
     lines: list[str] = []
 

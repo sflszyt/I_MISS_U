@@ -17,6 +17,29 @@ def resolve_repo_root():
     return Path(__file__).resolve().parent.parent
 
 
+def scoped_digest(records, person, relationship_id):
+    """新显式模式复用分年抽样，返回完整来源对象而非丢失归因的片段。"""
+    pool = []
+    by_id = {}
+    for row in records:
+        if row.get('sender_person_id') != person or row.get('content_type') != 'text' or not row.get('text'):
+            continue
+        year = parse_year(row.get('timestamp', ''))
+        if year is None:
+            continue
+        by_id[row['record_id']] = row
+        pool.append(dict(row, year=year, ts=row['timestamp'], room_label=relationship_id))
+    rng = random.Random(42)
+    samples = {}
+    for year in sorted({m['year'] for m in pool}):
+        selected = sample_random(pool, year, 20, rng)
+        selected += sample_longest(pool, year, 5, {r['record_id'] for r in selected})
+        samples[year] = [by_id[r['record_id']] for r in selected]
+    return {'schema_version':2, 'person':person, 'relationship_id':relationship_id,
+            'tier':3, 'status':'draft', 'yearly_samples':samples,
+            'source_records':[r['record_id'] for r in records]}
+
+
 def parse_year(ts_str):
     """Extract year from ISO timestamp string, or None on failure."""
     try:

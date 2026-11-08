@@ -18,16 +18,19 @@ import lameenc
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ingest_sessions
+from tts_defaults import load_local_defaults
 from ingest_sessions import SessionsIngestScheduler
 
 
-MODELS_DIR_DEFAULT = r'C:\Users\justin\CosyVoice-models\WenetSpeech-Wu-Speech-Generation'
-EXP_DIR_DEFAULT = r'C:\Users\justin\wu-sft\v02_full\exp\mama_v02f160_llm'
+_LOCAL_DEFAULTS = load_local_defaults()
+
+MODELS_DIR_DEFAULT = _LOCAL_DEFAULTS.get('MODELS_DIR_DEFAULT', '')
+EXP_DIR_DEFAULT = _LOCAL_DEFAULTS.get('EXP_DIR_DEFAULT', '')
 EPOCH_DEFAULT = 14
 PORT_DEFAULT = 8022
 HOST_DEFAULT = '0.0.0.0'
-REF_DEFAULT = r'C:\Users\justin\Documents\I_MISS_U\people\mama\voice\reference\ref01_clip18_20220731_141056_6038514757115197166_mama.wav'
-PROMPT_TEXT_DEFAULT = r'C:\Users\justin\Documents\I_MISS_U\people\mama\voice\reference\ref01_transcript.txt'
+REF_DEFAULT = _LOCAL_DEFAULTS.get('REF_DEFAULT', '')
+PROMPT_TEXT_DEFAULT = _LOCAL_DEFAULTS.get('PROMPT_TEXT_DEFAULT', '')
 DEFAULT_LANG_DEFAULT = 'mandarin'
 WU_PREFIX = '<|wuyu|>'
 MAX_BODY = 65536
@@ -239,8 +242,8 @@ class TTSService:
 
     def _load_model(self):
         models_dir = self.args.models_dir
-        sys.path.insert(0, r'C:\Users\justin\CosyVoice')
-        sys.path.insert(0, r'C:\Users\justin\CosyVoice\third_party\Matcha-TTS')
+        sys.path.insert(0, os.path.join(os.path.expanduser('~'), 'CosyVoice'))
+        sys.path.insert(0, os.path.join(os.path.expanduser('~'), 'CosyVoice', 'third_party', 'Matcha-TTS'))
         from cosyvoice.cli.cosyvoice import CosyVoice2
         self.cv = CosyVoice2(
             os.path.join(models_dir, 'CosyVoice2-Wu-SFT'),
@@ -628,6 +631,10 @@ def main():
     parser.add_argument('--no-sessions-ingest', action='store_true')
     parser.add_argument('--sessions-per-viewer-subdir', action='store_true')
     args = parser.parse_args()
+
+    for name in ('exp_dir', 'models_dir', 'ref', 'prompt_text'):
+        if not getattr(args, name):
+            parser.error('--' + name.replace('_', '-') + ' is required without local TTS defaults')
 
     provided_token_args = [
         name for name, value in (
